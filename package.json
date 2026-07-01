@@ -1,0 +1,29 @@
+{
+  "name": "osiris",
+  "version": "0.1.0",
+  "description": "OSnabrück Investment and Risk Management System — DCA Vault on Celo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev":       "vite",
+    "build":     "tsc && vite build",
+    "preview":   "vite preview",
+    "typecheck": "tsc --noEmit",
+    "keeper":    "tsx keeper/squidKeeper.ts"
+  },
+  "dependencies": {
+    "react":        "^18.3.1",
+    "react-dom":    "^18.3.1",
+    "viem":         "^2.21.0",
+    "axios":        "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/react":         "^18.3.1",
+    "@types/react-dom":     "^18.3.1",
+    "@types/node":          "^22.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript":           "^5.4.0",
+    "vite":                 "^5.4.0",
+    "tsx":                  "^4.7.0"
+  }
+}
