@@ -232,7 +232,7 @@ export const DCA_VAULT_ABI = [
   { type: "error", name: "InvalidAddress",           inputs: [] },
   { type: "error", name: "AlreadyInitialized",       inputs: [] },
   { type: "error", name: "NotInitialized",           inputs: [] },
-  { type: "error", name: "PlanCancelled",            inputs: [] },
+  { type: "error", name: "PlanAlreadyCancelled",       inputs: [] },
   { type: "error", name: "PlanComplete",             inputs: [] },
   { type: "error", name: "TooEarly",                 inputs: [] },
   { type: "error", name: "InvalidAmount",            inputs: [] },

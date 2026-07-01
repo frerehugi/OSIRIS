@@ -118,7 +118,7 @@ contract DcaVault is ReentrancyGuard {
     error InvalidAddress();
     error AlreadyInitialized();
     error NotInitialized();
-    error PlanCancelled();
+    error PlanAlreadyCancelled();
     error PlanComplete();
     error TooEarly();
     error InvalidAmount();
@@ -173,7 +173,7 @@ contract DcaVault is ReentrancyGuard {
 
     modifier activePlan() {
         if (!initialized)            revert NotInitialized();
-        if (cancelled)               revert PlanCancelled();
+        if (cancelled)               revert PlanAlreadyCancelled();
         if (currentStep >= totalSteps) revert PlanComplete();
         _;
     }
@@ -472,7 +472,7 @@ contract DcaVault is ReentrancyGuard {
 
     function cancelPlan() external onlyOwner nonReentrant {
         if (!initialized) revert NotInitialized();
-        if (cancelled)    revert PlanCancelled();
+        if (cancelled)    revert PlanAlreadyCancelled();
         cancelled = true;
 
         // Offene Permit2-Allowance sicherheitshalber schließen

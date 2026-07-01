@@ -34,7 +34,7 @@ contract DeployDcaVault is Script {
         0x8891A0A682cC7f0bda7912E79C80167403d96103;
 
     address constant UNIVERSAL_ROUTER_MAINNET =
-        0xcb695bc5d3aa22cad1e6df07801b061a05a0233a;
+        0xcb695bc5D3Aa22cAD1E6DF07801b061a05A0233A;
 
     function run() external {
         // Private Key und Owner aus .env laden

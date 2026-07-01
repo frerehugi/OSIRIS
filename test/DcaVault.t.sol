@@ -147,19 +147,40 @@ contract DcaVaultTest is Test {
     function test_setupPlan_emitsEvent() public {
         uint256 firstExecution = block.timestamp + 1 hours;
 
-        vm.expectEmit(true, true, false, true);
-        emit DcaVault.DcaPlanCreated(
-            owner,
-            address(usdc),
-            TOTAL_AMOUNT,
-            TRANCHE_AMOUNT,
-            DURATION,
-            INTERVAL,
-            firstExecution
+        vm.startPrank(owner);
+        usdc.approve(address(vault), TOTAL_AMOUNT);
+
+        address[] memory targets      = new address[](2);
+        uint16[]  memory bps          = new uint16[](2);
+        uint24[]  memory fees         = new uint24[](2);
+        int24[]   memory tickSpacings = new int24[](2);
+        address[] memory hooks        = new address[](2);
+        targets[0] = address(weth); targets[1] = address(celo);
+        bps[0] = 5000; bps[1] = 5000;
+        fees[0] = fees[1] = POOL_FEE;
+        tickSpacings[0] = tickSpacings[1] = TICK_SPACING;
+        hooks[0] = hooks[1] = address(0);
+
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit DcaPlanCreated(
+            owner, address(usdc), TOTAL_AMOUNT, TRANCHE_AMOUNT,
+            DURATION, INTERVAL, firstExecution
         );
 
-        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vault.setupPlan(address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL,
+            firstExecution, targets, bps, fees, tickSpacings, hooks);
+        vm.stopPrank();
     }
+
+    event DcaPlanCreated(
+        address indexed owner,
+        address indexed inputToken,
+        uint256 totalAmount,
+        uint256 trancheAmount,
+        uint32  totalSteps,
+        uint256 interval,
+        uint256 firstExecutionTimestamp
+    );
 
     function test_setupPlan_revertsIfNotOwner() public {
         vm.prank(hacker);
@@ -180,8 +201,29 @@ contract DcaVaultTest is Test {
     function test_setupPlan_revertsIfAlreadyInitialized() public {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 1 hours);
 
+        // vm.expectRevert muss unmittelbar vor dem revertierenden Call stehen.
+        // _approveAndSetup ruft zuerst usdc.approve() auf — das ist der „nächste Call"
+        // den Forge beobachtet, und der revertiert nicht → Test schlägt fehl.
+        // Lösung: approve separat durchführen, expectRevert direkt vor setupPlan setzen.
+        address[] memory targets      = new address[](2);
+        uint16[]  memory bps          = new uint16[](2);
+        uint24[]  memory fees         = new uint24[](2);
+        int24[]   memory tickSpacings = new int24[](2);
+        address[] memory hooks        = new address[](2);
+        targets[0] = address(weth); targets[1] = address(celo);
+        bps[0] = 5000; bps[1] = 5000;
+        fees[0] = fees[1] = POOL_FEE;
+        tickSpacings[0] = tickSpacings[1] = TICK_SPACING;
+        hooks[0] = hooks[1] = address(0);
+
+        vm.startPrank(owner);
+        usdc.approve(address(vault), TOTAL_AMOUNT);
         vm.expectRevert(DcaVault.AlreadyInitialized.selector);
-        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 2 hours);
+        vault.setupPlan(
+            address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 2 hours,
+            targets, bps, fees, tickSpacings, hooks
+        );
+        vm.stopPrank();
     }
 
     function test_setupPlan_revertsOnInvalidAllocation() public {
@@ -266,6 +308,10 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
         vm.warp(firstExecution);
 
+        // Vault-Wert vor dem Step lesen — dieser ist eine feste Zahl aus Storage
+        // und wird vom Optimizer nicht via block.timestamp re-evaluiert.
+        uint256 nextTsBefore = vault.nextExecutionTimestamp();
+
         uint256[] memory minOut = new uint256[](2);
         minOut[0] = 1; minOut[1] = 1;
 
@@ -273,7 +319,7 @@ contract DcaVaultTest is Test {
         vault.executeStep(minOut);
 
         assertEq(vault.currentStep(), 1);
-        assertEq(vault.nextExecutionTimestamp(), firstExecution + INTERVAL);
+        assertEq(vault.nextExecutionTimestamp(), nextTsBefore + INTERVAL);
         assertEq(vault.remainingSteps(), DURATION - 1);
     }
 
@@ -371,7 +417,7 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 1 hours);
 
         vm.expectEmit(false, false, false, true);
-        emit DcaVault.PlanCancelled(TOTAL_AMOUNT);
+        emit PlanCancelled(TOTAL_AMOUNT);
 
         vm.prank(owner);
         vault.cancelPlan();
@@ -383,7 +429,7 @@ contract DcaVaultTest is Test {
         vm.startPrank(owner);
         vault.cancelPlan();
 
-        vm.expectRevert(DcaVault.PlanCancelled.selector);
+        vm.expectRevert(DcaVault.PlanAlreadyCancelled.selector);
         vault.cancelPlan();
         vm.stopPrank();
     }
@@ -446,4 +492,5 @@ contract DcaVaultTest is Test {
         assertEq(vault.trancheAmount(), amount / duration);
         assertLe(vault.trancheAmount() * duration, amount);
     }
+    event PlanCancelled(uint256 remainingBalance);
 }
