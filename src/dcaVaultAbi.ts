@@ -1,0 +1,283 @@
+// ABI für DcaVault — Uniswap V4 UniversalRouter Version
+// Abgeleitet aus DcaVault.sol (pragma ^0.8.20, UniversalRouter + Permit2).
+// Änderungen gegenüber V3-Version:
+//   - setupPlan: +_tickSpacings (int24[]), +_hooks (address[])
+//   - executeStep: unverändert (nur minAmountsOut[]) — Routing intern via V4
+//   - TargetConfig-Tuple: +tickSpacing (int24), +hooks (address)
+//   - Constructor: _swapRouter → _universalRouter
+
+export const DCA_VAULT_ABI = [
+
+  // ─── Constructor ────────────────────────────────────────────────────────────
+  {
+    type: "constructor",
+    inputs: [
+      { name: "_universalRouter", type: "address" },
+      { name: "_owner",           type: "address" },
+    ],
+    stateMutability: "nonpayable",
+  },
+
+  // ─── Constants ──────────────────────────────────────────────────────────────
+  {
+    type: "function", name: "BPS_DENOMINATOR",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "MAX_TARGETS",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "PERMIT2",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+
+  // ─── Immutables / Public State ──────────────────────────────────────────────
+  {
+    type: "function", name: "owner",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "universalRouter",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "initialized",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "cancelled",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "inputToken",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "totalDeposited",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "trancheAmount",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "interval",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "totalSteps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint32" }],
+  },
+  {
+    type: "function", name: "currentStep",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint32" }],
+  },
+  {
+    type: "function", name: "nextExecutionTimestamp",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "isKeeper",
+    stateMutability: "view",
+    inputs:  [{ name: "keeper", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+
+  // ─── Write Functions ─────────────────────────────────────────────────────────
+  {
+    type: "function",
+    name: "setupPlan",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_inputToken",              type: "address"   },
+      { name: "_totalAmount",             type: "uint256"   },
+      { name: "_duration",                type: "uint32"    },
+      { name: "_interval",                type: "uint256"   },
+      { name: "_firstExecutionTimestamp", type: "uint256"   },
+      { name: "_targetTokens",            type: "address[]" },
+      { name: "_targetBps",               type: "uint16[]"  },
+      { name: "_poolFees",                type: "uint24[]"  },
+      { name: "_tickSpacings",            type: "int24[]"   }, // NEU: V4 PoolKey
+      { name: "_hooks",                   type: "address[]" }, // NEU: V4 Hooks
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setKeeper",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "keeper",  type: "address" },
+      { name: "allowed", type: "bool"    },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "executeStep",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "minAmountsOut", type: "uint256[]" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "cancelPlan",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+
+  // ─── View Functions ──────────────────────────────────────────────────────────
+  {
+    type: "function",
+    name: "canExecute",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "getTargetConfigs",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "tuple[]",
+        components: [
+          { name: "token",       type: "address" },
+          { name: "bps",        type: "uint16"  },
+          { name: "poolFee",    type: "uint24"  },
+          { name: "tickSpacing",type: "int24"   }, // NEU
+          { name: "hooks",      type: "address" }, // NEU
+        ],
+      },
+    ],
+  },
+  {
+    type: "function", name: "targetConfigCount",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "remainingSteps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint32" }],
+  },
+  {
+    type: "function", name: "remainingInputBalance",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+
+  // ─── Events ──────────────────────────────────────────────────────────────────
+  {
+    type: "event", name: "DcaPlanCreated",
+    inputs: [
+      { name: "owner",                   type: "address", indexed: true  },
+      { name: "inputToken",              type: "address", indexed: true  },
+      { name: "totalAmount",             type: "uint256", indexed: false },
+      { name: "trancheAmount",           type: "uint256", indexed: false },
+      { name: "totalSteps",              type: "uint32",  indexed: false },
+      { name: "interval",                type: "uint256", indexed: false },
+      { name: "firstExecutionTimestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "KeeperUpdated",
+    inputs: [
+      { name: "keeper",  type: "address", indexed: true  },
+      { name: "allowed", type: "bool",    indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "DcaSwapExecuted",
+    inputs: [
+      { name: "step",        type: "uint32",  indexed: true  },
+      { name: "targetToken", type: "address", indexed: true  },
+      { name: "amountIn",    type: "uint256", indexed: false },
+      { name: "amountOut",   type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "DcaStepExecuted",
+    inputs: [
+      { name: "step",          type: "uint32",  indexed: true  },
+      { name: "totalAmountIn", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "PlanCancelled",
+    inputs: [{ name: "remainingBalance", type: "uint256", indexed: false }],
+  },
+
+  // ─── Custom Errors ────────────────────────────────────────────────────────────
+  { type: "error", name: "NotOwner",                 inputs: [] },
+  { type: "error", name: "NotExecutor",              inputs: [] },
+  { type: "error", name: "InvalidAddress",           inputs: [] },
+  { type: "error", name: "AlreadyInitialized",       inputs: [] },
+  { type: "error", name: "NotInitialized",           inputs: [] },
+  { type: "error", name: "PlanCancelled",            inputs: [] },
+  { type: "error", name: "PlanComplete",             inputs: [] },
+  { type: "error", name: "TooEarly",                 inputs: [] },
+  { type: "error", name: "InvalidAmount",            inputs: [] },
+  { type: "error", name: "InvalidDuration",          inputs: [] },
+  { type: "error", name: "InvalidInterval",          inputs: [] },
+  { type: "error", name: "InvalidTimestamp",         inputs: [] },
+  { type: "error", name: "InvalidTargets",           inputs: [] },
+  { type: "error", name: "DuplicateTarget",          inputs: [] },
+  { type: "error", name: "AllocationInvalid",        inputs: [] },
+  { type: "error", name: "LengthMismatch",           inputs: [] },
+  { type: "error", name: "FeeOnTransferUnsupported", inputs: [] },
+  { type: "error", name: "MinOutRequired",           inputs: [] },
+  { type: "error", name: "InsufficientVaultBalance", inputs: [] },
+  { type: "error", name: "NothingToExecute",         inputs: [] },
+  { type: "error", name: "InvalidTickSpacing",       inputs: [] }, // NEU
+] as const;
+
+// ─── ERC-20 ABI ───────────────────────────────────────────────────────────────
+export const ERC20_ABI = [
+  {
+    type: "function", name: "approve",
+    stateMutability: "nonpayable",
+    inputs:  [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "allowance",
+    stateMutability: "view",
+    inputs:  [{ name: "owner", type: "address" }, { name: "spender", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "balanceOf",
+    stateMutability: "view",
+    inputs:  [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "decimals",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function", name: "symbol",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+] as const;
