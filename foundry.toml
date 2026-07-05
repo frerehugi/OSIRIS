@@ -16,7 +16,7 @@ celo_mainnet = "https://forno.celo.org"
 
 # Block Explorer (für forge verify-contract)
 [etherscan]
-celo_sepolia = { key = "${CELOSCAN_API_KEY}", url = "https://api-alfajores.celoscan.io/api" }
+celo_sepolia = { key = "${CELOSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=11142220" }
 celo_mainnet = { key = "${CELOSCAN_API_KEY}", url = "https://api.celoscan.io/api" }
 
 # Fuzz-Test Einstellungen
