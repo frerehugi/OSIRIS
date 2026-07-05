@@ -1,38 +1,23 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { connectWallet, submitDcaPlan } from './minipayWallet';
+import {
+  TOKENS,
+  WEEKDAYS,
+  type TokenType,
+  type Weekday,
+  type InputToken,
+  type DcaPlanState,
+} from './types';
 
 // ─── Konstanten ───────────────────────────────────────────────────────────────
 
-const TOKENS = ['wBTC', 'wETH', 'CELO', 'XAUoT'] as const;
-type TokenType = (typeof TOKENS)[number];
-type TokenPercentages = Record<TokenType, number>;
-
-const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
-type Weekday = (typeof WEEKDAYS)[number];
-
 const INPUT_TOKENS = ['USDC', 'USDT'] as const;
-type InputToken = (typeof INPUT_TOKENS)[number];
-
-type Interval = 'daily' | 'weekly';
 
 const TOTAL_PERCENT      = 100;
 const MIN_TRANCHE        = 0.5;
 const MAX_STEP           = 6;
 const MAX_DURATION       = 365;
 const MAX_AMOUNT_DECIMALS = 6;
-
-// ─── State Interface ──────────────────────────────────────────────────────────
-
-interface DcaPlanState {
-  step:          number;
-  interval:      Interval | null;
-  totalAmount:   string;
-  inputToken:    InputToken;
-  percentages:   TokenPercentages;
-  duration:      string;
-  executionTime: string;
-  executionDay:  Weekday;
-  timezone:      string;
-}
 
 interface ValidationResult {
   valid:    boolean;
@@ -99,12 +84,6 @@ function validateFullPlan(formData: DcaPlanState): ValidationResult {
   return { valid: true };
 }
 
-function toTokenMinorUnits(amountText: string, decimals = 6): bigint {
-  const [wholePart, fractionalPart = ''] = amountText.split('.');
-  const paddedFraction = fractionalPart.padEnd(decimals, '0').slice(0, decimals);
-  return BigInt(wholePart) * 10n ** BigInt(decimals) + BigInt(paddedFraction || '0');
-}
-
 function getUtcTimeDisplay(localTime: string): string {
   const [hours, minutes] = localTime.split(':').map(Number);
   if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return 'Invalid time';
@@ -112,6 +91,8 @@ function getUtcTimeDisplay(localTime: string): string {
   date.setHours(hours, minutes, 0, 0);
   return date.toISOString().slice(11, 16);
 }
+
+const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
 
@@ -178,6 +159,7 @@ export default function App() {
   const [formData, setFormData]     = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [txHash, setTxHash]           = useState<string | null>(null);
 
   const updateField = <K extends keyof DcaPlanState>(field: K, value: DcaPlanState[K]) => {
     setSubmitError(null);
@@ -199,7 +181,12 @@ export default function App() {
 
   const nextPage  = () => setFormData((p) => ({ ...p, step: Math.min(p.step + 1, MAX_STEP) }));
   const prevPage  = () => setFormData((p) => ({ ...p, step: Math.max(p.step - 1, 1) }));
-  const resetForm = () => { setSubmitError(null); setIsSubmitting(false); setFormData(createInitialFormState()); };
+  const resetForm = () => {
+    setSubmitError(null);
+    setIsSubmitting(false);
+    setTxHash(null);
+    setFormData(createInitialFormState());
+  };
 
   const handleSliderChange = (token: TokenType, value: number) => {
     const safeValue   = Math.max(0, Math.min(TOTAL_PERCENT, value));
@@ -216,33 +203,40 @@ export default function App() {
     setSubmitError(null);
 
     try {
-      const amountInMinorUnits = toTokenMinorUnits(formData.totalAmount, 6);
-      const payload = {
-        interval:          formData.interval,
-        inputToken:        formData.inputToken,
-        totalAmount:       formData.totalAmount,
-        amountInMinorUnits: amountInMinorUnits.toString(),
-        percentages:       formData.percentages,
-        duration,
-        executionDay:      formData.interval === 'weekly' ? formData.executionDay : null,
-        localExecutionTime: formData.executionTime,
-        utcExecutionTime:  utcDisplay,
-        timezone:          formData.timezone,
-      };
-
-      console.info('Prepared DCA plan payload', payload);
-
-      // TODO: submitDcaPlan(payload, ownerAddress) aus minipayWallet.ts aufrufen
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-
-      alert(`Plan prepared for ${formData.totalAmount} ${formData.inputToken}.`);
+      const ownerAddress = await connectWallet();
+      const receipt = await submitDcaPlan(formData, ownerAddress);
+      setTxHash(receipt.transactionHash);
     } catch (error) {
-      console.error('Smart contract execution failed', error);
-      setSubmitError('The wallet action failed. Please try again.');
+      console.error('DCA plan submission failed', error);
+      setSubmitError(error instanceof Error ? error.message : 'The wallet action failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (txHash) {
+    return (
+      <Card>
+        <section className="stack center">
+          <div style={{ fontSize: '3.5rem' }}>✅</div>
+          <h2 style={{ color: '#6ee7b7' }}>Plan Submitted!</h2>
+          <p>
+            <strong>{formData.totalAmount} {formData.inputToken}</strong> over{' '}
+            {formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}
+          </p>
+          <a
+            href={`https://celoscan.io/tx/${txHash}`}
+            target="_blank"
+            rel="noreferrer"
+            className="muted"
+          >
+            View transaction on Celoscan ↗
+          </a>
+          <Button onClick={resetForm}>Start Over</Button>
+        </section>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -250,13 +244,13 @@ export default function App() {
       {/* ── Schritt 1: Intervall ─────────────────────────────────────────── */}
       {formData.step === 1 && (
         <section className="stack center">
-          <img src="/banner.jpg" alt="OSIRIS" className="banner" />
+          <img src="./banner.jpg" alt="OSIRIS" className="banner" />
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
           <p className="muted">Choose how often the plan should invest.</p>
           <div className="button-column">
-            <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>Daily</Button>
-            <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>Weekly</Button>
+            <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>📅 Daily</Button>
+            <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>🗓 Weekly</Button>
           </div>
         </section>
       )}
@@ -264,7 +258,7 @@ export default function App() {
       {/* ── Schritt 2: Betrag ────────────────────────────────────────────── */}
       {formData.step === 2 && (
         <section className="stack">
-          <h2>Enter Total Amount</h2>
+          <h2>💰 Total Amount</h2>
           <div className="amount-row">
             <InputField
               id="totalAmount"
@@ -289,8 +283,8 @@ export default function App() {
             </div>
           </div>
           <div className="button-row">
-            <Button variant="secondary" onClick={prevPage}>Back</Button>
-            <Button onClick={nextPage} disabled={!amountValidation.valid}>Next</Button>
+            <Button variant="secondary" onClick={prevPage}>← Back</Button>
+            <Button onClick={nextPage} disabled={!amountValidation.valid}>Next →</Button>
           </div>
         </section>
       )}
@@ -298,11 +292,11 @@ export default function App() {
       {/* ── Schritt 3: Allokation ────────────────────────────────────────── */}
       {formData.step === 3 && (
         <section className="stack">
-          <h2>Token Allocation</h2>
+          <h2>📊 Token Allocation</h2>
           {TOKENS.map((token) => (
             <div key={token} className="slider-row">
               <div className="label-row">
-                <label htmlFor={`allocation-${token}`}>{token}</label>
+                <label htmlFor={`allocation-${token}`}>{TOKEN_ICONS[token]} {token}</label>
                 <strong>{formData.percentages[token]}%</strong>
               </div>
               <input
@@ -316,11 +310,11 @@ export default function App() {
             </div>
           ))}
           <div className={totalAllocated === TOTAL_PERCENT ? 'status success' : 'status warning'}>
-            {totalAllocated === TOTAL_PERCENT ? '100% allocated' : `${remainingBudget}% remaining`}
+            {totalAllocated === TOTAL_PERCENT ? '✅ 100% allocated' : `${remainingBudget}% remaining`}
           </div>
           <div className="button-row">
-            <Button variant="secondary" onClick={prevPage}>Back</Button>
-            <Button onClick={nextPage} disabled={totalAllocated !== TOTAL_PERCENT}>Next</Button>
+            <Button variant="secondary" onClick={prevPage}>← Back</Button>
+            <Button onClick={nextPage} disabled={totalAllocated !== TOTAL_PERCENT}>Next →</Button>
           </div>
         </section>
       )}
@@ -328,7 +322,7 @@ export default function App() {
       {/* ── Schritt 4: Laufzeit ──────────────────────────────────────────── */}
       {formData.step === 4 && (
         <section className="stack">
-          <h2>Set Duration</h2>
+          <h2>⏱ Set Duration</h2>
           <InputField
             id="duration"
             label={`Number of ${formData.interval === 'daily' ? 'days' : 'weeks'}`}
@@ -348,8 +342,8 @@ export default function App() {
             </div>
           )}
           <div className="button-row">
-            <Button variant="secondary" onClick={prevPage}>Back</Button>
-            <Button onClick={nextPage} disabled={!durationValidation.valid}>Next</Button>
+            <Button variant="secondary" onClick={prevPage}>← Back</Button>
+            <Button onClick={nextPage} disabled={!durationValidation.valid}>Next →</Button>
           </div>
         </section>
       )}
@@ -357,7 +351,7 @@ export default function App() {
       {/* ── Schritt 5: Zeitplan ──────────────────────────────────────────── */}
       {formData.step === 5 && (
         <section className="stack">
-          <h2>Set Schedule</h2>
+          <h2>📅 Set Schedule</h2>
           {formData.interval === 'weekly' && (
             <div className="field">
               <label htmlFor="executionDay">Day of week</label>
@@ -382,14 +376,14 @@ export default function App() {
             />
           </div>
           <div className="status info">
-            Executes {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
+            ⏰ Executes {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
             {formData.executionTime} local time, currently {utcDisplay} UTC.
             <br />
             Timezone: {formData.timezone}
           </div>
           <div className="button-row">
-            <Button variant="secondary" onClick={prevPage}>Back</Button>
-            <Button onClick={nextPage}>Next</Button>
+            <Button variant="secondary" onClick={prevPage}>← Back</Button>
+            <Button onClick={nextPage}>Next →</Button>
           </div>
         </section>
       )}
@@ -397,14 +391,14 @@ export default function App() {
       {/* ── Schritt 6: Zusammenfassung ───────────────────────────────────── */}
       {formData.step === 6 && (
         <section className="stack center">
-          <h2>Summary</h2>
+          <h2>📋 Summary</h2>
           <div className="summary">
             <p>Plan amount: <strong>{formData.totalAmount} {formData.inputToken}</strong></p>
             <p>Duration: <strong>{formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}</strong></p>
             <p>Tranche: <strong>{trancheAmount.toFixed(2)} {formData.inputToken}</strong></p>
             <hr />
             {TOKENS.filter((token) => formData.percentages[token] > 0).map((token) => (
-              <p key={token}><strong>{formData.percentages[token]}%</strong> into {token}</p>
+              <p key={token}><strong>{formData.percentages[token]}%</strong> → {TOKEN_ICONS[token]} {token}</p>
             ))}
             <hr />
             <p>
@@ -419,9 +413,9 @@ export default function App() {
           </div>
           {submitError && <p className="error">{submitError}</p>}
           <div className="button-row">
-            <Button variant="danger" onClick={resetForm} disabled={isSubmitting}>Decline</Button>
+            <Button variant="danger" onClick={resetForm} disabled={isSubmitting}>✗ Decline</Button>
             <Button variant="success" onClick={handleContractDeployment} disabled={isSubmitting}>
-              {isSubmitting ? 'Preparing...' : 'Confirm'}
+              {isSubmitting ? '⏳ Preparing...' : '✓ Confirm'}
             </Button>
           </div>
         </section>
