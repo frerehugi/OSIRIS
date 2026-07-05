@@ -75,6 +75,9 @@ const INPUT_TOKENS_BY_CHAIN: Record<"mainnet" | "sepolia", Record<"USDC" | "USDT
     cUSD: {
       // Celo-Registry "StableToken" liefert dieselbe Adresse wie früher cUSD —
       // der Contract wurde von Mento zu "Mento Dollar" (Symbol USDm) umbenannt.
+      // ACHTUNG: Von Squid aktuell nicht für Routing unterstützt (weder als
+      // "cUSD" noch als "USDm" in /v2/sdk-info für Celo Mainnet auffindbar) —
+      // als Input-Token auf Mainnet vorerst nicht nutzbar, bis Squid es listet.
       symbol:      "cUSD",
       address:     "0x765DE816845861e75A25fCA122bb6898B8B1282a",
       decimals:    18,
