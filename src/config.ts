@@ -18,7 +18,7 @@ export const UNIVERSAL_ROUTER: Record<"mainnet" | "sepolia", `0x${string}`> = {
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
-export const VAULT_ADDRESS       = "0x..." as `0x${string}`; // TODO: nach Mainnet-Deploy eintragen (Sepolia-Vault: 0x1fe91Bd8e68914Ae1dB5605491FEdDAAF5d30180)
+export const VAULT_ADDRESS       = "0xf6E1161543eFD833595d62fCEb9487E35291B694" as `0x${string}`; // Mainnet (Sepolia-Vault: 0x1fe91Bd8e68914Ae1dB5605491FEdDAAF5d30180)
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
