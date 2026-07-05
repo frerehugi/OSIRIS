@@ -16,7 +16,7 @@ export const ACTIVE_CHAIN_ID: string = CELO_CHAIN_ID; // Mainnet-Deploy in Vorbe
 export const SQUID_ROUTER_MAINNET = "0xce16F69375520ab01377ce7B88f5BA8C48F8D666" as `0x${string}`;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
-export const VAULT_ADDRESS       = "0x8689844d5b3D1bdc4743de176a800776b080FDed" as `0x${string}`;
+export const VAULT_ADDRESS       = "0x22541bDAf712920330F2d0FC26D1Ac807e914FDc" as `0x${string}`;
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
