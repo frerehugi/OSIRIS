@@ -6,6 +6,9 @@ import {DcaVault} from "../contracts/DcaVault.sol";
 
 /// @notice Deployt den DcaVault auf Celo Sepolia oder Mainnet.
 ///
+/// Der Vault ruft keinen DEX-Router mehr direkt auf (Squid-Architektur) —
+/// Router werden nach dem Deploy einzeln per setRouter() freigegeben.
+///
 /// Ausführung auf Celo Sepolia:
 ///   forge script script/Deploy.s.sol \
 ///     --rpc-url celo_sepolia \
@@ -27,15 +30,6 @@ import {DcaVault} from "../contracts/DcaVault.sol";
 
 contract DeployDcaVault is Script {
 
-    // ─── Uniswap V4 UniversalRouter Adressen ─────────────────────────────────
-    // Quelle: docs.celo.org/tooling/contracts/uniswap-contracts
-
-    address constant UNIVERSAL_ROUTER_SEPOLIA =
-        0x8891A0A682cC7f0bda7912E79C80167403d96103;
-
-    address constant UNIVERSAL_ROUTER_MAINNET =
-        0xcb695bc5D3Aa22cAD1E6DF07801b061a05A0233A;
-
     function run() external {
         require(
             block.chainid == 42220 || block.chainid == 11142220,
@@ -46,25 +40,20 @@ contract DeployDcaVault is Script {
         uint256 deployerKey  = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address ownerAddress = vm.envAddress("OWNER_ADDRESS");
 
-        // Router je nach Chain-ID wählen
-        address router = block.chainid == 42220
-            ? UNIVERSAL_ROUTER_MAINNET
-            : UNIVERSAL_ROUTER_SEPOLIA;
-
         console2.log("=== OSIRIS DcaVault Deploy ===");
         console2.log("Chain ID:         ", block.chainid);
-        console2.log("UniversalRouter:  ", router);
         console2.log("Owner:            ", ownerAddress);
 
         vm.startBroadcast(deployerKey);
 
-        DcaVault vault = new DcaVault(router, ownerAddress);
+        DcaVault vault = new DcaVault(ownerAddress);
 
         vm.stopBroadcast();
 
         console2.log("DcaVault deployed:", address(vault));
         console2.log("");
-        console2.log("Naechster Schritt: VAULT_ADDRESS in src/config.ts eintragen:");
+        console2.log("Naechster Schritt: setRouter() fuer den Squid-Router aufrufen,");
+        console2.log("dann VAULT_ADDRESS in src/config.ts eintragen:");
         console2.log(address(vault));
     }
 }

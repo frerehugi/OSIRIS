@@ -1,10 +1,11 @@
-// ABI für DcaVault — Uniswap V4 UniversalRouter Version
-// Abgeleitet aus DcaVault.sol (pragma ^0.8.20, UniversalRouter + Permit2).
-// Änderungen gegenüber V3-Version:
-//   - setupPlan: +_tickSpacings (int24[]), +_hooks (address[])
-//   - executeStep: unverändert (nur minAmountsOut[]) — Routing intern via V4
-//   - TargetConfig-Tuple: +tickSpacing (int24), +hooks (address)
-//   - Constructor: _swapRouter → _universalRouter
+// ABI für DcaVault — Squid-Router-Architektur
+// Abgeleitet aus DcaVault.sol (pragma ^0.8.20).
+//
+// Der Vault ruft keinen DEX-Router mehr selbst fest verdrahtet auf. Der
+// Keeper holt off-chain eine fertige Route von der Squid-API und übergibt
+// Router-Adresse + Calldata pro Zieltoken an executeStep(). Nur vom Owner via
+// setRouter() freigegebene Router-Adressen dürfen dabei als Ziel genutzt
+// werden.
 
 export const DCA_VAULT_ABI = [
 
@@ -12,8 +13,7 @@ export const DCA_VAULT_ABI = [
   {
     type: "constructor",
     inputs: [
-      { name: "_universalRouter", type: "address" },
-      { name: "_owner",           type: "address" },
+      { name: "_owner", type: "address" },
     ],
     stateMutability: "nonpayable",
   },
@@ -29,20 +29,10 @@ export const DCA_VAULT_ABI = [
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
-  {
-    type: "function", name: "PERMIT2",
-    stateMutability: "view", inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
 
   // ─── Immutables / Public State ──────────────────────────────────────────────
   {
     type: "function", name: "owner",
-    stateMutability: "view", inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function", name: "universalRouter",
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
@@ -97,6 +87,12 @@ export const DCA_VAULT_ABI = [
     inputs:  [{ name: "keeper", type: "address" }],
     outputs: [{ name: "", type: "bool" }],
   },
+  {
+    type: "function", name: "approvedRouters",
+    stateMutability: "view",
+    inputs:  [{ name: "router", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
 
   // ─── Write Functions ─────────────────────────────────────────────────────────
   {
@@ -111,9 +107,6 @@ export const DCA_VAULT_ABI = [
       { name: "_firstExecutionTimestamp", type: "uint256"   },
       { name: "_targetTokens",            type: "address[]" },
       { name: "_targetBps",               type: "uint16[]"  },
-      { name: "_poolFees",                type: "uint24[]"  },
-      { name: "_tickSpacings",            type: "int24[]"   }, // NEU: V4 PoolKey
-      { name: "_hooks",                   type: "address[]" }, // NEU: V4 Hooks
     ],
     outputs: [],
   },
@@ -129,9 +122,23 @@ export const DCA_VAULT_ABI = [
   },
   {
     type: "function",
+    name: "setRouter",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "router",  type: "address" },
+      { name: "allowed", type: "bool"    },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "executeStep",
     stateMutability: "nonpayable",
-    inputs: [{ name: "minAmountsOut", type: "uint256[]" }],
+    inputs: [
+      { name: "routers",       type: "address[]" },
+      { name: "minAmountsOut", type: "uint256[]" },
+      { name: "squidCallData", type: "bytes[]"   },
+    ],
     outputs: [],
   },
   {
@@ -160,11 +167,8 @@ export const DCA_VAULT_ABI = [
         name: "",
         type: "tuple[]",
         components: [
-          { name: "token",       type: "address" },
-          { name: "bps",        type: "uint16"  },
-          { name: "poolFee",    type: "uint24"  },
-          { name: "tickSpacing",type: "int24"   }, // NEU
-          { name: "hooks",      type: "address" }, // NEU
+          { name: "token", type: "address" },
+          { name: "bps",   type: "uint16"  },
         ],
       },
     ],
@@ -206,6 +210,13 @@ export const DCA_VAULT_ABI = [
     ],
   },
   {
+    type: "event", name: "RouterUpdated",
+    inputs: [
+      { name: "router",  type: "address", indexed: true  },
+      { name: "allowed", type: "bool",    indexed: false },
+    ],
+  },
+  {
     type: "event", name: "DcaSwapExecuted",
     inputs: [
       { name: "step",        type: "uint32",  indexed: true  },
@@ -232,7 +243,7 @@ export const DCA_VAULT_ABI = [
   { type: "error", name: "InvalidAddress",           inputs: [] },
   { type: "error", name: "AlreadyInitialized",       inputs: [] },
   { type: "error", name: "NotInitialized",           inputs: [] },
-  { type: "error", name: "PlanAlreadyCancelled",       inputs: [] },
+  { type: "error", name: "PlanAlreadyCancelled",     inputs: [] },
   { type: "error", name: "PlanComplete",             inputs: [] },
   { type: "error", name: "TooEarly",                 inputs: [] },
   { type: "error", name: "InvalidAmount",            inputs: [] },
@@ -247,7 +258,9 @@ export const DCA_VAULT_ABI = [
   { type: "error", name: "MinOutRequired",           inputs: [] },
   { type: "error", name: "InsufficientVaultBalance", inputs: [] },
   { type: "error", name: "NothingToExecute",         inputs: [] },
-  { type: "error", name: "InvalidTickSpacing",       inputs: [] }, // NEU
+  { type: "error", name: "RouterNotApproved",        inputs: [] },
+  { type: "error", name: "SwapFailed",               inputs: [] },
+  { type: "error", name: "SlippageExceeded",         inputs: [] },
 ] as const;
 
 // ─── ERC-20 ABI ───────────────────────────────────────────────────────────────

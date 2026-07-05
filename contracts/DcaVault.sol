@@ -5,95 +5,36 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-// ─── Uniswap V4: UniversalRouter ─────────────────────────────────────────────
+// ─── Architektur ──────────────────────────────────────────────────────────────
 //
-// Der UniversalRouter ist der offizielle Einstiegspunkt für alle Uniswap-Swaps
-// (V2, V3, V4) ab 2024/2025 und ist auf Celo Sepolia + Mainnet deployed.
-// Adresse Celo Sepolia : 0x8891A0A682cC7f0bda7912E79C80167403d96103
-// Adresse Celo Mainnet : 0xcb695bc5d3aa22cad1e6df07801b061a05a0233a
-//
-// Interface: execute(bytes commands, bytes[] inputs, uint256 deadline)
-// - commands : 1 Byte pro Aktion, hier 0x10 = V4_SWAP
-// - inputs   : ABI-codierter V4-Kontext (V4-Actions + Params)
-
-interface IUniversalRouter {
-    /// @param commands  Packed byte-string, 1 byte = 1 Befehl.
-    /// @param inputs    ABI-encodierte Parameter pro Befehl.
-    /// @param deadline  Unix-Timestamp; Transaktion revertiert danach.
-    function execute(
-        bytes  calldata commands,
-        bytes[] calldata inputs,
-        uint256 deadline
-    ) external payable;
-}
-
-// ─── Permit2 ─────────────────────────────────────────────────────────────────
-//
-// Permit2 ermöglicht es dem UniversalRouter, Token aus diesem Contract zu ziehen,
-// ohne dass für jeden Swap eine neue ERC-20-Allowance gesetzt werden muss.
-// Adresse: 0x000000000022D473030F116dDEE9F6B43aC78BA3 (alle EVM-Chains)
-
-interface IPermit2 {
-    /// @notice Setzt eine zeitlich begrenzte Allowance für einen Spender.
-    /// @param token      Das Token, das freigegeben wird.
-    /// @param spender    Der Spender (= UniversalRouter).
-    /// @param amount     Maximaler Betrag (uint160, max ~1.46e30).
-    /// @param expiration Unix-Timestamp der Ablaufzeit (uint48).
-    function approve(
-        address token,
-        address spender,
-        uint160 amount,
-        uint48  expiration
-    ) external;
-}
-
-// ─── V4 UniversalRouter Command ───────────────────────────────────────────────
-// Quelle: github.com/Uniswap/universal-router — CommandType enum
-uint8 constant CMD_V4_SWAP = 0x10;
-
-// ─── V4 Actions (innerhalb des V4_SWAP-Inputs) ────────────────────────────────
-// Quelle: docs.uniswap.org/contracts/v4/reference/periphery/libraries/Actions
-uint8 constant ACT_SWAP_EXACT_IN_SINGLE = 0x06; // Exact-In-Swap über einen Pool
-uint8 constant ACT_SETTLE_ALL           = 0x0c; // Schickt Eingabe-Token zum PoolManager
-uint8 constant ACT_TAKE                 = 0x0e; // Holt Output-Token zu explizitem Empfänger
-
-// ─── Standard TickSpacings für V4-Pool-Tiers ─────────────────────────────────
-// fee 500   (0,05 %) → tickSpacing 10
-// fee 3000  (0,30 %) → tickSpacing 60
-// fee 10000 (1,00 %) → tickSpacing 200
-
-// ─── Hauptcontract ────────────────────────────────────────────────────────────
+// Der Vault ruft selbst keinen DEX-Router mehr direkt auf (kein Uniswap V4 /
+// UniversalRouter / Permit2 mehr). Stattdessen holt der Keeper off-chain eine
+// fertige Route (Ziel-Router + Calldata) von der Squid-API und übergibt beides
+// per executeStep() an den Vault. Der Vault prüft nur:
+//   1. Der Ziel-Router ist vom Owner freigegeben (approvedRouters).
+//   2. Nach dem Call hat `owner` mindestens minAmountsOut[i] des Zieltokens
+//      mehr als vorher — unabhängig davon, was die Calldata im Detail tut.
+// Das entkoppelt den Contract von einer festen DEX-Version (Squid routet über
+// viele DEXs) und macht Pool-spezifische Parameter (Fee-Tier, TickSpacing,
+// Hooks) überflüssig.
 
 contract DcaVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ── Konstanten ──────────────────────────────────────────────────────────
 
-    uint256 public constant BPS_DENOMINATOR    = 10_000;
-    uint256 public constant MAX_TARGETS        = 10;
-    uint256 public constant SWAP_DEADLINE_BUFFER = 10 minutes;
-
-    /// Permit2 ist auf allen EVM-Chains unter derselben Adresse deployed.
-    address public constant PERMIT2 =
-        0x000000000022D473030F116dDEE9F6B43aC78BA3;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant MAX_TARGETS     = 10;
 
     // ── Immutables ──────────────────────────────────────────────────────────
 
-    address           public immutable owner;
-    IUniversalRouter  public immutable universalRouter;
+    address public immutable owner;
 
     // ── TargetConfig ────────────────────────────────────────────────────────
-    //
-    // NEU gegenüber V3-Version:
-    //   tickSpacing : benötigt für den V4-PoolKey (V3 kannte nur poolFee).
-    //   hooks       : V4-Hook-Adresse; address(0) = kein Hook (Standard).
 
     struct TargetConfig {
         address token;
         uint16  bps;
-        uint24  poolFee;
-        int24   tickSpacing; // z.B. 10 für 0,05 %-Pool, 60 für 0,3 %-Pool
-        address hooks;       // address(0) für hooklosen Pool
     }
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -110,6 +51,7 @@ contract DcaVault is ReentrancyGuard {
 
     TargetConfig[]           private targetConfigs;
     mapping(address => bool) public  isKeeper;
+    mapping(address => bool) public  approvedRouters;
 
     // ── Errors ───────────────────────────────────────────────────────────────
 
@@ -133,7 +75,9 @@ contract DcaVault is ReentrancyGuard {
     error MinOutRequired();
     error InsufficientVaultBalance();
     error NothingToExecute();
-    error InvalidTickSpacing();   // NEU: tickSpacing muss > 0 sein
+    error RouterNotApproved();
+    error SwapFailed();
+    error SlippageExceeded();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
@@ -148,6 +92,7 @@ contract DcaVault is ReentrancyGuard {
     );
 
     event KeeperUpdated(address indexed keeper, bool allowed);
+    event RouterUpdated(address indexed router, bool allowed);
 
     event DcaSwapExecuted(
         uint32  indexed step,
@@ -172,25 +117,20 @@ contract DcaVault is ReentrancyGuard {
     }
 
     modifier activePlan() {
-        if (!initialized)            revert NotInitialized();
-        if (cancelled)               revert PlanAlreadyCancelled();
+        if (!initialized)              revert NotInitialized();
+        if (cancelled)                 revert PlanAlreadyCancelled();
         if (currentStep >= totalSteps) revert PlanComplete();
         _;
     }
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _universalRouter, address _owner) {
-        if (_universalRouter == address(0) || _owner == address(0))
-            revert InvalidAddress();
-        universalRouter = IUniversalRouter(_universalRouter);
+    constructor(address _owner) {
+        if (_owner == address(0)) revert InvalidAddress();
         owner = _owner;
     }
 
     // ── setupPlan ────────────────────────────────────────────────────────────
-    //
-    // NEU: _tickSpacings (int24[]) und _hooks (address[]) als Parameter.
-    // Sie sind Teil des V4-PoolKey und müssen zu einem existierenden Pool passen.
 
     function setupPlan(
         address   _inputToken,
@@ -199,10 +139,7 @@ contract DcaVault is ReentrancyGuard {
         uint256   _interval,
         uint256   _firstExecutionTimestamp,
         address[] calldata _targetTokens,
-        uint16[]  calldata _targetBps,
-        uint24[]  calldata _poolFees,
-        int24[]   calldata _tickSpacings,   // NEU
-        address[] calldata _hooks           // NEU (address(0) = kein Hook)
+        uint16[]  calldata _targetBps
     ) external onlyOwner nonReentrant {
 
         if (initialized)                                revert AlreadyInitialized();
@@ -216,29 +153,19 @@ contract DcaVault is ReentrancyGuard {
         if (targetsLength == 0 || targetsLength > MAX_TARGETS)
             revert InvalidTargets();
 
-        if (
-            targetsLength != _targetBps.length     ||
-            targetsLength != _poolFees.length      ||
-            targetsLength != _tickSpacings.length  ||
-            targetsLength != _hooks.length
-        ) revert LengthMismatch();
+        if (targetsLength != _targetBps.length) revert LengthMismatch();
 
         if (_totalAmount < _duration) revert InvalidAmount();
 
         uint256 totalBps;
 
         for (uint256 i = 0; i < targetsLength; ) {
-            address target      = _targetTokens[i];
-            uint16  bps         = _targetBps[i];
-            uint24  poolFee     = _poolFees[i];
-            int24   tickSpacing = _tickSpacings[i];
-            address hooks       = _hooks[i];
+            address target = _targetTokens[i];
+            uint16  bps    = _targetBps[i];
 
             if (target == address(0) || target == _inputToken)
                 revert InvalidAddress();
-            if (bps == 0)         revert AllocationInvalid();
-            if (poolFee == 0)     revert InvalidAmount();
-            if (tickSpacing <= 0) revert InvalidTickSpacing();
+            if (bps == 0) revert AllocationInvalid();
 
             for (uint256 j = 0; j < i; ) {
                 if (_targetTokens[j] == target) revert DuplicateTarget();
@@ -246,11 +173,8 @@ contract DcaVault is ReentrancyGuard {
             }
 
             targetConfigs.push(TargetConfig({
-                token:       target,
-                bps:         bps,
-                poolFee:     poolFee,
-                tickSpacing: tickSpacing,
-                hooks:       hooks
+                token: target,
+                bps:   bps
             }));
 
             totalBps += bps;
@@ -292,6 +216,17 @@ contract DcaVault is ReentrancyGuard {
         emit KeeperUpdated(keeper, allowed);
     }
 
+    // ── setRouter ────────────────────────────────────────────────────────────
+    //
+    // Nur vom Owner freigegebene Router-Adressen dürfen in executeStep als
+    // Ziel für den Swap-Call genutzt werden (z.B. der Squid-Router).
+
+    function setRouter(address router, bool allowed) external onlyOwner {
+        if (router == address(0)) revert InvalidAddress();
+        approvedRouters[router] = allowed;
+        emit RouterUpdated(router, allowed);
+    }
+
     // ── canExecute ───────────────────────────────────────────────────────────
 
     function canExecute() public view returns (bool) {
@@ -305,20 +240,26 @@ contract DcaVault is ReentrancyGuard {
 
     // ── executeStep ──────────────────────────────────────────────────────────
     //
-    // Für jeden Zieltoken:
-    //   1. Permit2-Allowance setzen (inputToken → Permit2 → universalRouter)
-    //   2. V4-PoolKey aus TargetConfig bauen
-    //   3. V4_SWAP-Command für den UniversalRouter kodieren
-    //   4. universalRouter.execute(...) aufrufen
-    //   5. Output-Token gehen direkt an `owner` (via ACT_TAKE)
+    // Für jeden Zieltoken i:
+    //   1. routers[i] muss freigegeben sein (approvedRouters).
+    //   2. inputToken wird für routers[i] in Höhe von amountIn freigegeben.
+    //   3. routers[i].call(squidCallData[i]) — die Calldata kommt vom Keeper
+    //      (off-chain von der Squid-API geholt) und bestimmt Route/Details.
+    //   4. Erfolg wird NICHT am Rückgabewert festgemacht, sondern daran, dass
+    //      `owner` danach mindestens minAmountsOut[i] mehr vom Zieltoken hält
+    //      als vorher — das ist die eigentliche On-Chain-Sicherheitsgarantie.
 
     function executeStep(
-        uint256[] calldata minAmountsOut
+        address[] calldata routers,
+        uint256[] calldata minAmountsOut,
+        bytes[]   calldata squidCallData
     ) external onlyExecutor activePlan nonReentrant {
         if (block.timestamp < nextExecutionTimestamp) revert TooEarly();
 
         uint256 configsLength = targetConfigs.length;
+        if (routers.length       != configsLength) revert LengthMismatch();
         if (minAmountsOut.length != configsLength) revert LengthMismatch();
+        if (squidCallData.length != configsLength) revert LengthMismatch();
 
         uint32 step = currentStep + 1;
         currentStep            = step;
@@ -329,8 +270,8 @@ contract DcaVault is ReentrancyGuard {
             ? vaultBalance
             : trancheAmount;
 
-        if (amountForThisStep == 0)             revert NothingToExecute();
-        if (vaultBalance < amountForThisStep)   revert InsufficientVaultBalance();
+        if (amountForThisStep == 0)           revert NothingToExecute();
+        if (vaultBalance < amountForThisStep) revert InsufficientVaultBalance();
 
         uint256 remainingForStep = amountForThisStep;
 
@@ -350,115 +291,24 @@ contract DcaVault is ReentrancyGuard {
             if (amountIn     == 0) revert NothingToExecute();
             if (minAmountOut == 0) revert MinOutRequired();
 
-            // ── Permit2-Allowance setzen ─────────────────────────────────
-            //
-            // Schritt 1: ERC-20 Allowance vom Vault auf Permit2 setzen.
-            //            forceApprove setzt zuerst auf 0, dann auf amountIn,
-            //            um das USDT-Double-Approve-Problem zu umgehen.
-            inputToken.forceApprove(PERMIT2, amountIn);
+            address router = routers[i];
+            if (!approvedRouters[router]) revert RouterNotApproved();
 
-            // Schritt 2: Permit2 erlaubt dem UniversalRouter, den Token zu ziehen.
-            //            Expiration = aktuelle Zeit + Deadline-Buffer (reicht für
-            //            diese Transaktion, hinterlässt keine offene Allowance).
-            IPermit2(PERMIT2).approve(
-                address(inputToken),
-                address(universalRouter),
-                uint160(amountIn),
-                uint48(block.timestamp + SWAP_DEADLINE_BUFFER)
-            );
+            // forceApprove: setzt zuerst auf 0, dann auf amountIn, um das
+            // USDT-Double-Approve-Problem zu umgehen.
+            inputToken.forceApprove(router, amountIn);
 
-            // ── V4 PoolKey bauen ─────────────────────────────────────────
-            //
-            // V4 verlangt currency0 < currency1 (address-sortiert).
-            // zeroForOne = true  → inputToken ist currency0 (swap 0→1)
-            // zeroForOne = false → inputToken ist currency1 (swap 1→0)
+            uint256 balanceBefore = IERC20(config.token).balanceOf(owner);
 
-            address inputAddr  = address(inputToken);
-            address outputAddr = config.token;
+            (bool ok, ) = router.call(squidCallData[i]);
+            if (!ok) revert SwapFailed();
 
-            bool    zeroForOne;
-            address currency0;
-            address currency1;
+            // Offene Allowance sicherheitshalber schließen, egal wie viel der
+            // Router tatsächlich gezogen hat.
+            inputToken.forceApprove(router, 0);
 
-            if (inputAddr < outputAddr) {
-                zeroForOne = true;
-                currency0  = inputAddr;
-                currency1  = outputAddr;
-            } else {
-                zeroForOne = false;
-                currency0  = outputAddr;
-                currency1  = inputAddr;
-            }
-
-            // ── V4-Swap-Input kodieren ───────────────────────────────────
-            //
-            // Aufbau des V4_SWAP-Inputs für den UniversalRouter:
-            //
-            //   bytes v4Input = abi.encode(
-            //       bytes  actions,   // packed: [ACT_SWAP_EXACT_IN_SINGLE, ACT_SETTLE_ALL, ACT_TAKE]
-            //       bytes[] params    // params[0] = SwapParams, params[1] = SettleParams, params[2] = TakeParams
-            //   )
-            //
-            // ACT_SETTLE_ALL (0x0c): schickt amountIn aus Permit2 in den PoolManager.
-            // ACT_TAKE       (0x0e): sendet amountOut direkt an `owner` (kein Extra-Transfer nötig).
-
-            bytes memory v4Actions = abi.encodePacked(
-                ACT_SWAP_EXACT_IN_SINGLE, // 0x06
-                ACT_SETTLE_ALL,           // 0x0c
-                ACT_TAKE                  // 0x0e
-            );
-
-            bytes[] memory v4Params = new bytes[](3);
-
-            // params[0]: ExactInputSingleParams
-            // (PoolKey wird als Tuple inline kodiert — kein Import von V4-Typen nötig)
-            v4Params[0] = abi.encode(
-                // PoolKey
-                currency0,           // currency0 (address, wird als Currency interpretiert)
-                currency1,           // currency1
-                config.poolFee,      // uint24 fee
-                config.tickSpacing,  // int24 tickSpacing
-                config.hooks,        // address hooks (IHooks)
-                // ExactInputSingleParams Felder
-                zeroForOne,          // bool zeroForOne
-                uint128(amountIn),   // uint128 amountIn
-                uint128(minAmountOut), // uint128 amountOutMinimum
-                bytes("")            // hookData (leer = kein Hook-Kontext)
-            );
-
-            // params[1]: SETTLE_ALL — welcher Token, wie viel maximal
-            v4Params[1] = abi.encode(
-                inputAddr,  // Currency (= address des Input-Tokens)
-                amountIn    // maxAmount
-            );
-
-            // params[2]: TAKE — Output-Token direkt an owner senden
-            v4Params[2] = abi.encode(
-                outputAddr,    // Currency (= address des Output-Tokens)
-                owner,         // to: direkt an den Plan-Owner, kein Extra-Transfer
-                minAmountOut   // minAmount (Slippage-Schutz on-chain)
-            );
-
-            bytes memory v4SwapInput = abi.encode(v4Actions, v4Params);
-
-            // ── UniversalRouter aufrufen ─────────────────────────────────
-
-            uint256 balanceBefore = IERC20(outputAddr).balanceOf(owner);
-
-            bytes memory commands = abi.encodePacked(CMD_V4_SWAP); // 0x10
-            bytes[] memory inputs = new bytes[](1);
-            inputs[0] = v4SwapInput;
-
-            universalRouter.execute(
-                commands,
-                inputs,
-                block.timestamp + SWAP_DEADLINE_BUFFER
-            );
-
-            // Permit2-Allowance auf 0 zurücksetzen (Sicherheit)
-            inputToken.forceApprove(PERMIT2, 0);
-
-            uint256 amountOut = IERC20(outputAddr).balanceOf(owner) - balanceBefore;
+            uint256 amountOut = IERC20(config.token).balanceOf(owner) - balanceBefore;
+            if (amountOut < minAmountOut) revert SlippageExceeded();
 
             emit DcaSwapExecuted(step, config.token, amountIn, amountOut);
 
@@ -474,9 +324,6 @@ contract DcaVault is ReentrancyGuard {
         if (!initialized) revert NotInitialized();
         if (cancelled)    revert PlanAlreadyCancelled();
         cancelled = true;
-
-        // Offene Permit2-Allowance sicherheitshalber schließen
-        inputToken.forceApprove(PERMIT2, 0);
 
         uint256 remaining = inputToken.balanceOf(address(this));
         if (remaining > 0) {

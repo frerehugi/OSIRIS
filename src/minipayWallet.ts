@@ -9,7 +9,6 @@ import { celo } from "viem/chains";
 import { DCA_VAULT_ABI, ERC20_ABI } from "./dcaVaultAbi";
 import {
   VAULT_ADDRESS,
-  UNIVERSAL_ROUTER,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
@@ -40,20 +39,15 @@ export async function connectWallet(): Promise<`0x${string}`> {
 }
 
 // ─── Target-Arrays bauen ──────────────────────────────────────────────────────
-// NEU: gibt jetzt auch tickSpacings[] und hooks[] zurück.
+// Seit dem Umstieg auf Squid-Routing braucht der Vault keine Pool-Parameter
+// (Fee-Tier/TickSpacing/Hooks) mehr — nur Zieltoken + Allokation.
 
 function buildTargetArrays(percentages: Record<string, number>): {
   targetTokens: `0x${string}`[];
-  targetBps:    number[];   // uint16[]
-  poolFees:     number[];   // uint24[]
-  tickSpacings: number[];   // int24[]
-  hooks:        `0x${string}`[]; // address[] — address(0) = kein Hook
+  targetBps:    number[]; // uint16[]
 } {
-  const targetTokens:  `0x${string}`[] = [];
-  const targetBps:     number[]        = [];
-  const poolFees:      number[]        = [];
-  const tickSpacings:  number[]        = [];
-  const hooks:         `0x${string}`[] = [];
+  const targetTokens: `0x${string}`[] = [];
+  const targetBps:    number[]        = [];
 
   for (const [symbol, pct] of Object.entries(percentages)) {
     if (pct <= 0) continue;
@@ -61,17 +55,14 @@ function buildTargetArrays(percentages: Record<string, number>): {
     if (!token) throw new Error(`Unbekanntes Zieltoken: ${symbol}`);
 
     targetTokens.push(token.address);
-    targetBps.push(Math.round(pct * 100));    // 1 % → 100 bps (uint16)
-    poolFees.push(token.poolFee);             // uint24
-    tickSpacings.push(token.tickSpacing);     // int24 — NEU
-    hooks.push("0x0000000000000000000000000000000000000000"); // kein Hook — NEU
+    targetBps.push(Math.round(pct * 100)); // 1 % → 100 bps (uint16)
   }
 
   const sum = targetBps.reduce((a, b) => a + b, 0);
   if (sum !== 10_000) {
     throw new Error(`Allokation ergibt ${sum / 100} % statt 100 %.`);
   }
-  return { targetTokens, targetBps, poolFees, tickSpacings, hooks };
+  return { targetTokens, targetBps };
 }
 
 // ─── Execution Timestamp ──────────────────────────────────────────────────────
@@ -88,7 +79,7 @@ function nextExecutionTimestamp(executionTimeLocal: string): bigint {
 }
 
 // ─── DCA-Plan submitten ────────────────────────────────────────────────────────
-// setupPlan bekommt jetzt 10 Parameter (statt 8) — tickSpacings + hooks neu.
+// setupPlan hat 7 Parameter (Pool-Parameter entfallen mit Squid-Routing).
 
 export async function submitDcaPlan(
   formData: DcaPlanState,
@@ -105,8 +96,7 @@ export async function submitDcaPlan(
   if (totalAmountRaw <= 0n) throw new Error("Gesamtbetrag muss > 0 sein.");
   if (duration <= 0)        throw new Error("Dauer muss > 0 sein.");
 
-  const { targetTokens, targetBps, poolFees, tickSpacings, hooks } =
-    buildTargetArrays(formData.percentages);
+  const { targetTokens, targetBps } = buildTargetArrays(formData.percentages);
 
   const { walletClient, publicClient } = getClients();
 
@@ -120,7 +110,6 @@ export async function submitDcaPlan(
   });
   await publicClient.waitForTransactionReceipt({ hash: approveTx });
 
-  // setupPlan mit allen 10 Parametern aufrufen
   const hash = await walletClient.writeContract({
     account:  ownerAddress,
     address:  VAULT_ADDRESS,
@@ -134,9 +123,6 @@ export async function submitDcaPlan(
       firstExecution,      // _firstExecutionTimestamp (uint256)
       targetTokens,        // _targetTokens  (address[])
       targetBps,           // _targetBps     (uint16[])
-      poolFees,            // _poolFees      (uint24[])
-      tickSpacings,        // _tickSpacings  (int24[])  ← NEU
-      hooks,               // _hooks         (address[]) ← NEU
     ],
   });
 

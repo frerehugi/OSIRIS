@@ -1,26 +1,20 @@
 // Keeper-Service (Node.js, läuft als Cron-Job / scheduled Task).
-// Holt für jeden Zieltoken eine Squid-Route und ruft anschließend
-// DcaVault.executeStep(minAmountsOut[]) auf.
 //
-// KORREKTUR: executeStep hat nur einen Parameter — uint256[] minAmountsOut.
-// Der Router ist immutable im Contract gespeichert; Squid wird nur für die
-// minAmountOut-Berechnung (Preisschätzung) genutzt, nicht als Calldata-Quelle.
-//
-// Sicherheitsmodell: Der Vault validiert die empfangene Menge per Balance-Diff
-// gegen minAmountsOut. Manipulierte Calldata führt zum Revert, nicht zu Verlust.
+// Architektur: Der Vault ruft keinen DEX-Router mehr selbst auf. Stattdessen
+// holt DIESER Keeper für jeden Zieltoken eine fertige, ausführbare Route
+// (Ziel-Router + Calldata) von der Squid-API (quoteOnly=false) und übergibt
+// sie per DcaVault.executeStep(routers[], minAmountsOut[], squidCallData[])
+// an den Vault. Der Vault prüft nur noch, dass der Router freigegeben ist
+// (approvedRouters) und dass `owner` danach mindestens minAmountsOut[i] mehr
+// vom Zieltoken hat als vorher.
 
 import { createWalletClient, createPublicClient, http, defineChain } from "viem";
+import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import axios from "axios";
 import { fileURLToPath } from "url";
 import { DCA_VAULT_ABI } from "../src/dcaVaultAbi";
-import {
-  VAULT_ADDRESS,
-  SQUID_INTEGRATOR_ID,
-  ACTIVE_CHAIN_ID,
-  TARGET_TOKENS,
-  INPUT_TOKENS,
-} from "../src/config";
+import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID } from "../src/config";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
 // passend zu den RPC-Endpoints aus foundry.toml.
@@ -37,6 +31,31 @@ const celoSepolia = defineChain({
   testnet: true,
 });
 
+const activeChain = ACTIVE_CHAIN_ID === CELO_CHAIN_ID ? celo : celoSepolia;
+
+// ─── Squid-Integrator-ID ──────────────────────────────────────────────────────
+//
+// Kommt bewusst aus keeper/.env (nicht aus src/config.ts) — der Keeper ist ein
+// eigenständiger Prozess mit eigenen Secrets. Solange die echte ID bei Squid
+// noch nicht beantragt/vergeben ist, steht hier der Platzhalter "PENDING";
+// der Keeper verweigert in dem Fall den Start mit einer klaren Fehlermeldung,
+// statt Requests zu senden, die Squid im Zweifel ablehnt oder ratelimited.
+
+function getValidatedIntegratorId(): string {
+  const id = process.env.SQUID_INTEGRATOR_ID;
+  if (!id) {
+    throw new Error("SQUID_INTEGRATOR_ID Umgebungsvariable fehlt (keeper/.env).");
+  }
+  if (id === "PENDING") {
+    throw new Error(
+      "SQUID_INTEGRATOR_ID ist noch der Platzhalter 'PENDING'. " +
+      "Echte Integrator-ID bei Squid (https://app.squidrouter.com/) beantragen " +
+      "und in keeper/.env eintragen, bevor der Keeper live läuft."
+    );
+  }
+  return id;
+}
+
 // ─── Wallet-Setup ─────────────────────────────────────────────────────────────
 
 const KEEPER_PRIVATE_KEY = process.env.KEEPER_PRIVATE_KEY as `0x${string}`;
@@ -50,25 +69,34 @@ if (!KEEPER_PRIVATE_KEY) {
 const SLIPPAGE_BPS_BUFFER = 100;
 
 const account = privateKeyToAccount(KEEPER_PRIVATE_KEY);
-const walletClient = createWalletClient({ account, chain: celoSepolia, transport: http() });
-const publicClient = createPublicClient({ chain: celoSepolia, transport: http() });
+const walletClient = createWalletClient({ account, chain: activeChain, transport: http() });
+const publicClient = createPublicClient({ chain: activeChain, transport: http() });
 
 // ─── Squid-Route holen ────────────────────────────────────────────────────────
+
+interface SquidTransactionRequest {
+  target: `0x${string}`;
+  data:   `0x${string}`;
+}
 
 interface SquidEstimate {
   toAmountMin: string;
 }
 
 interface SquidRoute {
-  estimate: SquidEstimate;
+  transactionRequest: SquidTransactionRequest;
+  estimate:            SquidEstimate;
 }
 
-async function getSquidMinAmountOut(params: {
-  fromToken: `0x${string}`;
-  toToken: `0x${string}`;
-  fromAmount: string;
+async function getSquidRoute(params: {
+  fromToken:   `0x${string}`;
+  toToken:     `0x${string}`;
+  fromAmount:  string;
   fromAddress: `0x${string}`;
-}): Promise<string> {
+  toAddress:   `0x${string}`;
+}): Promise<SquidRoute> {
+  const integratorId = getValidatedIntegratorId();
+
   const response = await axios.post(
     "https://apiplus.squidrouter.com/v2/route",
     {
@@ -77,20 +105,19 @@ async function getSquidMinAmountOut(params: {
       fromToken:   params.fromToken,
       toToken:     params.toToken,
       fromAmount:  params.fromAmount,
-      fromAddress: params.fromAddress,
-      toAddress:   VAULT_ADDRESS,
-      slippage:    1.5,           // % — Contract erzwingt minAmountOut on-chain zusätzlich
-      quoteOnly:   true,          // Nur Preisschätzung, keine Calldata
+      fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
+      toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
+      slippage:    1.5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
+      quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
     },
     {
       headers: {
-        "x-integrator-id": SQUID_INTEGRATOR_ID,
+        "x-integrator-id": integratorId,
         "Content-Type":    "application/json",
       },
     }
   );
-  const route = response.data.route as SquidRoute;
-  return route.estimate.toAmountMin;
+  return response.data.route as SquidRoute;
 }
 
 // ─── Sicherheitspuffer auf toAmountMin anwenden ───────────────────────────────
@@ -101,8 +128,6 @@ function applyBuffer(toAmountMin: string): bigint {
 }
 
 // ─── Plan-Status aus Contract lesen ──────────────────────────────────────────
-// KORREKTUR: getPlanStatus existiert nicht im Contract. Wir lesen die einzelnen
-// public Getter parallel aus.
 
 async function readContractStatus() {
   const [
@@ -111,80 +136,68 @@ async function readContractStatus() {
     totalSteps,
     trancheAmount,
     targetConfigs,
+    inputTokenAddress,
+    ownerAddress,
   ] = await Promise.all([
-    publicClient.readContract({
-      address: VAULT_ADDRESS,
-      abi:     DCA_VAULT_ABI,
-      functionName: "canExecute",
-    }),
-    publicClient.readContract({
-      address: VAULT_ADDRESS,
-      abi:     DCA_VAULT_ABI,
-      functionName: "currentStep",
-    }),
-    publicClient.readContract({
-      address: VAULT_ADDRESS,
-      abi:     DCA_VAULT_ABI,
-      functionName: "totalSteps",
-    }),
-    publicClient.readContract({
-      address: VAULT_ADDRESS,
-      abi:     DCA_VAULT_ABI,
-      functionName: "trancheAmount",
-    }),
-    publicClient.readContract({
-      address: VAULT_ADDRESS,
-      abi:     DCA_VAULT_ABI,
-      functionName: "getTargetConfigs",
-    }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "canExecute" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
+    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "owner" }),
   ]);
 
-  return { canExec, currentStep, totalSteps, trancheAmount, targetConfigs };
+  return {
+    canExec, currentStep, totalSteps, trancheAmount, targetConfigs,
+    inputTokenAddress: inputTokenAddress as `0x${string}`,
+    ownerAddress:       ownerAddress as `0x${string}`,
+  };
 }
 
 // ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
 
 export async function runDcaStep() {
-  const { canExec, trancheAmount, targetConfigs } = await readContractStatus();
+  getValidatedIntegratorId(); // wirft früh, bevor irgendein Contract-Call passiert
+
+  const { canExec, trancheAmount, targetConfigs, inputTokenAddress, ownerAddress } =
+    await readContractStatus();
 
   if (!canExec) {
     console.info("Keeper: Noch nicht ausführbar (canExecute = false).");
     return null;
   }
 
-  // targetConfigs ist ein Array von { token, bps, poolFee } Tuples.
-  // Wir berechnen für jeden Zieltoken den anteiligen Betrag und holen
-  // von Squid die Mindestmenge aus, die der Router liefern muss.
-  const minAmountsOut: bigint[] = [];
+  // Für jeden Zieltoken: anteiligen Betrag berechnen, echte Squid-Route holen
+  // (Router-Adresse + fertige Calldata + Preisschätzung für die Slippage-Grenze).
+  const routers:       `0x${string}`[] = [];
+  const minAmountsOut: bigint[]        = [];
+  const callData:      `0x${string}`[] = [];
 
-  // Input-Token-Adresse aus dem Contract lesen (für Squid-Route benötigt)
-  const inputTokenAddress = await publicClient.readContract({
-    address: VAULT_ADDRESS,
-    abi:     DCA_VAULT_ABI,
-    functionName: "inputToken",
-  }) as `0x${string}`;
-
-  for (const config of targetConfigs as Array<{ token: `0x${string}`; bps: number; poolFee: number }>) {
-    // Anteiliger Betrag für diesen Token
+  for (const config of targetConfigs as Array<{ token: `0x${string}`; bps: number }>) {
     const amountIn = (trancheAmount as bigint * BigInt(config.bps)) / 10_000n;
 
-    const toAmountMin = await getSquidMinAmountOut({
+    const route = await getSquidRoute({
       fromToken:   inputTokenAddress,
       toToken:     config.token,
       fromAmount:  amountIn.toString(),
       fromAddress: VAULT_ADDRESS,
+      toAddress:   ownerAddress,
     });
 
-    minAmountsOut.push(applyBuffer(toAmountMin));
+    routers.push(route.transactionRequest.target);
+    callData.push(route.transactionRequest.data);
+    minAmountsOut.push(applyBuffer(route.estimate.toAmountMin));
   }
 
-  // KORREKTUR: executeStep erwartet nur uint256[] minAmountsOut
+  // Vor dem Broadcast simulieren — deckt z.B. RouterNotApproved oder
+  // SlippageExceeded auf, ohne echtes Gas zu verbrennen.
   const { request } = await publicClient.simulateContract({
     account,
     address:      VAULT_ADDRESS,
     abi:          DCA_VAULT_ABI,
     functionName: "executeStep",
-    args:         [minAmountsOut],
+    args:         [routers, minAmountsOut, callData],
   });
 
   const hash = await walletClient.writeContract(request);

@@ -4,8 +4,7 @@ pragma solidity ^0.8.20;
 import {Test, console2} from "forge-std/Test.sol";
 import {DcaVault} from "../contracts/DcaVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockUniversalRouter} from "./mocks/MockUniversalRouter.sol";
-import {MockPermit2} from "./mocks/MockPermit2.sol";
+import {MockSquidRouter} from "./mocks/MockSquidRouter.sol";
 
 /// @notice Vollständige Test-Suite für DcaVault.
 ///
@@ -17,21 +16,17 @@ contract DcaVaultTest is Test {
 
     // ─── Contracts ───────────────────────────────────────────────────────────
 
-    DcaVault             vault;
-    MockERC20            usdc;
-    MockERC20            weth;
-    MockERC20            celo;
-    MockUniversalRouter  router;
-    MockPermit2          permit2;
+    DcaVault         vault;
+    MockERC20        usdc;
+    MockERC20        weth;
+    MockERC20        celo;
+    MockSquidRouter  router;
 
     // ─── Adressen ────────────────────────────────────────────────────────────
 
     address owner   = makeAddr("owner");
     address keeper  = makeAddr("keeper");
     address hacker  = makeAddr("hacker");
-
-    // ─── Permit2-Adresse (wird auf diese Adresse deployed) ───────────────────
-    address constant PERMIT2_ADDR = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // ─── Test-Parameter ──────────────────────────────────────────────────────
 
@@ -40,26 +35,20 @@ contract DcaVaultTest is Test {
     uint256 constant INTERVAL       = 1 days;
     uint256 constant TRANCHE_AMOUNT = TOTAL_AMOUNT / DURATION; // 10 USDC
 
-    // Pool-Parameter (V4)
-    uint24  constant POOL_FEE      = 3000;
-    int24   constant TICK_SPACING  = 60;
-
     // ─── Setup ───────────────────────────────────────────────────────────────
 
     function setUp() public {
         // Mock-Contracts deployen
-        usdc   = new MockERC20("USD Coin",  "USDC", 6);
+        usdc   = new MockERC20("USD Coin",    "USDC", 6);
         weth   = new MockERC20("Wrapped ETH", "WETH", 18);
-        celo   = new MockERC20("Celo",      "CELO", 18);
-        router = new MockUniversalRouter();
+        celo   = new MockERC20("Celo",        "CELO", 18);
+        router = new MockSquidRouter();
 
-        // Permit2-Mock an der echten Permit2-Adresse deployen
-        permit2 = new MockPermit2();
-        vm.etch(PERMIT2_ADDR, address(permit2).code);
-
-        // Vault deployen
-        vm.prank(owner);
-        vault = new DcaVault(address(router), owner);
+        // Vault deployen + Router freigeben
+        vm.startPrank(owner);
+        vault = new DcaVault(owner);
+        vault.setRouter(address(router), true);
+        vm.stopPrank();
 
         // Owner mit USDC versorgen
         usdc.mint(owner, TOTAL_AMOUNT * 10);
@@ -77,22 +66,13 @@ contract DcaVaultTest is Test {
         uint256 interval,
         uint256 firstExecution
     ) internal {
-        address[] memory targets      = new address[](2);
-        uint16[]  memory bps          = new uint16[](2);
-        uint24[]  memory fees         = new uint24[](2);
-        int24[]   memory tickSpacings = new int24[](2);
-        address[] memory hooks        = new address[](2);
+        address[] memory targets = new address[](2);
+        uint16[]  memory bps     = new uint16[](2);
 
-        targets[0]      = address(weth);
-        targets[1]      = address(celo);
-        bps[0]          = 5000;  // 50%
-        bps[1]          = 5000;  // 50%
-        fees[0]         = POOL_FEE;
-        fees[1]         = POOL_FEE;
-        tickSpacings[0] = TICK_SPACING;
-        tickSpacings[1] = TICK_SPACING;
-        hooks[0]        = address(0);
-        hooks[1]        = address(0);
+        targets[0] = address(weth);
+        targets[1] = address(celo);
+        bps[0]     = 5000; // 50%
+        bps[1]     = 5000; // 50%
 
         vm.startPrank(owner);
         usdc.approve(address(vault), totalAmount);
@@ -103,27 +83,51 @@ contract DcaVaultTest is Test {
             interval,
             firstExecution,
             targets,
-            bps,
-            fees,
-            tickSpacings,
-            hooks
+            bps
         );
         vm.stopPrank();
     }
 
+    /// @notice Baut routers[]/minAmountsOut[]/squidCallData[] für executeStep,
+    ///         passend zum 50/50-Split aus _approveAndSetup. `amountForThisStep`
+    ///         muss dem vom Vault intern berechneten Betrag für diesen Schritt
+    ///         entsprechen (trancheAmount, oder bei letztem Schritt der volle
+    ///         Restbestand), damit die simulierte transferFrom-Menge im Mock
+    ///         zur tatsächlich freigegebenen Allowance passt.
+    function _executeStepArgs(uint256 amountForThisStep, uint256 outAmount0, uint256 outAmount1)
+        internal
+        view
+        returns (address[] memory routers, uint256[] memory minOut, bytes[] memory callData)
+    {
+        uint256 amountIn0 = amountForThisStep / 2;
+        uint256 amountIn1 = amountForThisStep - amountIn0;
+
+        routers = new address[](2);
+        routers[0] = address(router);
+        routers[1] = address(router);
+
+        minOut = new uint256[](2);
+        minOut[0] = outAmount0;
+        minOut[1] = outAmount1;
+
+        callData = new bytes[](2);
+        callData[0] = abi.encodeWithSelector(
+            MockSquidRouter.swap.selector, address(usdc), amountIn0, address(weth), outAmount0, owner
+        );
+        callData[1] = abi.encodeWithSelector(
+            MockSquidRouter.swap.selector, address(usdc), amountIn1, address(celo), outAmount1, owner
+        );
+    }
+
     // ─── Constructor Tests ───────────────────────────────────────────────────
 
-    function test_constructor_setsOwnerAndRouter() public view {
-        assertEq(vault.owner(),                  owner);
-        assertEq(address(vault.universalRouter()), address(router));
+    function test_constructor_setsOwner() public view {
+        assertEq(vault.owner(), owner);
     }
 
     function test_constructor_revertsOnZeroAddress() public {
         vm.expectRevert(DcaVault.InvalidAddress.selector);
-        new DcaVault(address(0), owner);
-
-        vm.expectRevert(DcaVault.InvalidAddress.selector);
-        new DcaVault(address(router), address(0));
+        new DcaVault(address(0));
     }
 
     // ─── setupPlan Tests ─────────────────────────────────────────────────────
@@ -150,16 +154,10 @@ contract DcaVaultTest is Test {
         vm.startPrank(owner);
         usdc.approve(address(vault), TOTAL_AMOUNT);
 
-        address[] memory targets      = new address[](2);
-        uint16[]  memory bps          = new uint16[](2);
-        uint24[]  memory fees         = new uint24[](2);
-        int24[]   memory tickSpacings = new int24[](2);
-        address[] memory hooks        = new address[](2);
+        address[] memory targets = new address[](2);
+        uint16[]  memory bps     = new uint16[](2);
         targets[0] = address(weth); targets[1] = address(celo);
         bps[0] = 5000; bps[1] = 5000;
-        fees[0] = fees[1] = POOL_FEE;
-        tickSpacings[0] = tickSpacings[1] = TICK_SPACING;
-        hooks[0] = hooks[1] = address(0);
 
         vm.expectEmit(true, true, false, true, address(vault));
         emit DcaPlanCreated(
@@ -168,7 +166,7 @@ contract DcaVaultTest is Test {
         );
 
         vault.setupPlan(address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL,
-            firstExecution, targets, bps, fees, tickSpacings, hooks);
+            firstExecution, targets, bps);
         vm.stopPrank();
     }
 
@@ -183,88 +181,62 @@ contract DcaVaultTest is Test {
     );
 
     function test_setupPlan_revertsIfNotOwner() public {
+        address[] memory targets = new address[](1);
+        uint16[]  memory bps     = new uint16[](1);
+        targets[0] = address(weth); bps[0] = 10000;
+
         vm.prank(hacker);
         vm.expectRevert(DcaVault.NotOwner.selector);
-
-        address[] memory targets      = new address[](1);
-        uint16[]  memory bps          = new uint16[](1);
-        uint24[]  memory fees         = new uint24[](1);
-        int24[]   memory tickSpacings = new int24[](1);
-        address[] memory hooks        = new address[](1);
-        targets[0] = address(weth); bps[0] = 10000; fees[0] = 3000;
-        tickSpacings[0] = 60; hooks[0] = address(0);
-
         vault.setupPlan(address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL,
-            block.timestamp + 1, targets, bps, fees, tickSpacings, hooks);
+            block.timestamp + 1, targets, bps);
     }
 
     function test_setupPlan_revertsIfAlreadyInitialized() public {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 1 hours);
 
         // vm.expectRevert muss unmittelbar vor dem revertierenden Call stehen.
-        // _approveAndSetup ruft zuerst usdc.approve() auf — das ist der „nächste Call"
-        // den Forge beobachtet, und der revertiert nicht → Test schlägt fehl.
-        // Lösung: approve separat durchführen, expectRevert direkt vor setupPlan setzen.
-        address[] memory targets      = new address[](2);
-        uint16[]  memory bps          = new uint16[](2);
-        uint24[]  memory fees         = new uint24[](2);
-        int24[]   memory tickSpacings = new int24[](2);
-        address[] memory hooks        = new address[](2);
+        address[] memory targets = new address[](2);
+        uint16[]  memory bps     = new uint16[](2);
         targets[0] = address(weth); targets[1] = address(celo);
         bps[0] = 5000; bps[1] = 5000;
-        fees[0] = fees[1] = POOL_FEE;
-        tickSpacings[0] = tickSpacings[1] = TICK_SPACING;
-        hooks[0] = hooks[1] = address(0);
 
         vm.startPrank(owner);
         usdc.approve(address(vault), TOTAL_AMOUNT);
         vm.expectRevert(DcaVault.AlreadyInitialized.selector);
         vault.setupPlan(
             address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 2 hours,
-            targets, bps, fees, tickSpacings, hooks
+            targets, bps
         );
         vm.stopPrank();
     }
 
     function test_setupPlan_revertsOnInvalidAllocation() public {
-        address[] memory targets      = new address[](2);
-        uint16[]  memory bps          = new uint16[](2);
-        uint24[]  memory fees         = new uint24[](2);
-        int24[]   memory tickSpacings = new int24[](2);
-        address[] memory hooks        = new address[](2);
+        address[] memory targets = new address[](2);
+        uint16[]  memory bps     = new uint16[](2);
 
         targets[0] = address(weth); targets[1] = address(celo);
         bps[0] = 4000; bps[1] = 4000; // nur 80% statt 100%
-        fees[0] = fees[1] = 3000;
-        tickSpacings[0] = tickSpacings[1] = 60;
-        hooks[0] = hooks[1] = address(0);
 
         vm.startPrank(owner);
         usdc.approve(address(vault), TOTAL_AMOUNT);
         vm.expectRevert(DcaVault.AllocationInvalid.selector);
         vault.setupPlan(address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL,
-            block.timestamp + 1, targets, bps, fees, tickSpacings, hooks);
+            block.timestamp + 1, targets, bps);
         vm.stopPrank();
     }
 
     function test_setupPlan_revertsOnDuplicateTarget() public {
-        address[] memory targets      = new address[](2);
-        uint16[]  memory bps          = new uint16[](2);
-        uint24[]  memory fees         = new uint24[](2);
-        int24[]   memory tickSpacings = new int24[](2);
-        address[] memory hooks        = new address[](2);
+        address[] memory targets = new address[](2);
+        uint16[]  memory bps     = new uint16[](2);
 
         targets[0] = address(weth); targets[1] = address(weth); // Duplikat!
         bps[0] = 5000; bps[1] = 5000;
-        fees[0] = fees[1] = 3000;
-        tickSpacings[0] = tickSpacings[1] = 60;
-        hooks[0] = hooks[1] = address(0);
 
         vm.startPrank(owner);
         usdc.approve(address(vault), TOTAL_AMOUNT);
         vm.expectRevert(DcaVault.DuplicateTarget.selector);
         vault.setupPlan(address(usdc), TOTAL_AMOUNT, DURATION, INTERVAL,
-            block.timestamp + 1, targets, bps, fees, tickSpacings, hooks);
+            block.timestamp + 1, targets, bps);
         vm.stopPrank();
     }
 
@@ -280,6 +252,23 @@ contract DcaVaultTest is Test {
         vm.prank(hacker);
         vm.expectRevert(DcaVault.NotOwner.selector);
         vault.setKeeper(keeper, true);
+    }
+
+    // ─── setRouter Tests ─────────────────────────────────────────────────────
+
+    function test_setRouter_success() public {
+        address newRouter = makeAddr("newRouter");
+
+        vm.prank(owner);
+        vault.setRouter(newRouter, true);
+
+        assertTrue(vault.approvedRouters(newRouter));
+    }
+
+    function test_setRouter_revertsIfNotOwner() public {
+        vm.prank(hacker);
+        vm.expectRevert(DcaVault.NotOwner.selector);
+        vault.setRouter(makeAddr("newRouter"), true);
     }
 
     // ─── canExecute Tests ────────────────────────────────────────────────────
@@ -312,11 +301,11 @@ contract DcaVaultTest is Test {
         // und wird vom Optimizer nicht via block.timestamp re-evaluiert.
         uint256 nextTsBefore = vault.nextExecutionTimestamp();
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
 
         vm.prank(owner);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
 
         assertEq(vault.currentStep(), 1);
         assertEq(vault.nextExecutionTimestamp(), nextTsBefore + INTERVAL);
@@ -327,12 +316,12 @@ contract DcaVaultTest is Test {
         uint256 firstExecution = block.timestamp + 1 days;
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
 
         vm.prank(owner);
         vm.expectRevert(DcaVault.TooEarly.selector);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
     }
 
     function test_executeStep_revertsIfNotExecutor() public {
@@ -340,12 +329,12 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
         vm.warp(firstExecution);
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
 
         vm.prank(hacker);
         vm.expectRevert(DcaVault.NotExecutor.selector);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
     }
 
     function test_executeStep_keeperCanExecute() public {
@@ -356,11 +345,11 @@ contract DcaVaultTest is Test {
         vm.prank(owner);
         vault.setKeeper(keeper, true);
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
 
         vm.prank(keeper);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
 
         assertEq(vault.currentStep(), 1);
     }
@@ -371,11 +360,11 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, 1, INTERVAL, firstExecution);
         vm.warp(firstExecution);
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TOTAL_AMOUNT, 1e18, 1e18);
 
         vm.prank(owner);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
 
         assertEq(vault.currentStep(), 1);
         assertEq(vault.remainingSteps(), 0);
@@ -386,15 +375,74 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, 1, INTERVAL, firstExecution);
         vm.warp(firstExecution);
 
-        uint256[] memory minOut = new uint256[](2);
-        minOut[0] = 1; minOut[1] = 1;
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TOTAL_AMOUNT, 1e18, 1e18);
 
         vm.startPrank(owner);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
 
         vm.expectRevert(DcaVault.PlanComplete.selector);
-        vault.executeStep(minOut);
+        vault.executeStep(routers, minOut, callData);
         vm.stopPrank();
+    }
+
+    function test_executeStep_revertsIfRouterNotApproved() public {
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
+        routers[0] = makeAddr("unapprovedRouter"); // nie via setRouter freigegeben
+
+        vm.prank(owner);
+        vm.expectRevert(DcaVault.RouterNotApproved.selector);
+        vault.executeStep(routers, minOut, callData);
+    }
+
+    function test_executeStep_revertsOnSlippage() public {
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        // Mock liefert 1 wei WETH, aber minAmountsOut verlangt 1e18
+        uint256 amountIn0 = TRANCHE_AMOUNT / 2;
+        uint256 amountIn1 = TRANCHE_AMOUNT - amountIn0;
+
+        address[] memory routers = new address[](2);
+        routers[0] = address(router);
+        routers[1] = address(router);
+
+        uint256[] memory minOut = new uint256[](2);
+        minOut[0] = 1e18; // verlangt viel
+        minOut[1] = 1;
+
+        bytes[] memory callData = new bytes[](2);
+        callData[0] = abi.encodeWithSelector(
+            MockSquidRouter.swap.selector, address(usdc), amountIn0, address(weth), 1, owner // liefert nur 1 wei
+        );
+        callData[1] = abi.encodeWithSelector(
+            MockSquidRouter.swap.selector, address(usdc), amountIn1, address(celo), 1, owner
+        );
+
+        vm.prank(owner);
+        vm.expectRevert(DcaVault.SlippageExceeded.selector);
+        vault.executeStep(routers, minOut, callData);
+    }
+
+    function test_executeStep_revertsOnSwapFailed() public {
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        router.setShouldFail(true);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
+
+        vm.prank(owner);
+        vm.expectRevert(DcaVault.SwapFailed.selector);
+        vault.executeStep(routers, minOut, callData);
     }
 
     // ─── cancelPlan Tests ────────────────────────────────────────────────────
@@ -457,13 +505,11 @@ contract DcaVaultTest is Test {
         _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 1 hours);
 
         DcaVault.TargetConfig[] memory configs = vault.getTargetConfigs();
-        assertEq(configs.length,       2);
-        assertEq(configs[0].token,     address(weth));
-        assertEq(configs[0].bps,       5000);
-        assertEq(configs[0].poolFee,   POOL_FEE);
-        assertEq(configs[0].tickSpacing, TICK_SPACING);
-        assertEq(configs[1].token,     address(celo));
-        assertEq(configs[1].bps,       5000);
+        assertEq(configs.length,   2);
+        assertEq(configs[0].token, address(weth));
+        assertEq(configs[0].bps,   5000);
+        assertEq(configs[1].token, address(celo));
+        assertEq(configs[1].bps,   5000);
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────────
@@ -473,20 +519,16 @@ contract DcaVaultTest is Test {
         vm.assume(duration >= 1 && duration <= 365);
         uint256 amount = uint256(duration) * 1e6; // Mindestbetrag: 1 USDC pro Tranche
 
-        address[] memory targets      = new address[](1);
-        uint16[]  memory bps          = new uint16[](1);
-        uint24[]  memory fees         = new uint24[](1);
-        int24[]   memory tickSpacings = new int24[](1);
-        address[] memory hooks        = new address[](1);
+        address[] memory targets = new address[](1);
+        uint16[]  memory bps     = new uint16[](1);
         targets[0] = address(weth); bps[0] = 10000;
-        fees[0] = 3000; tickSpacings[0] = 60; hooks[0] = address(0);
 
         usdc.mint(owner, amount);
 
         vm.startPrank(owner);
         usdc.approve(address(vault), amount);
         vault.setupPlan(address(usdc), amount, duration, INTERVAL,
-            block.timestamp + 1, targets, bps, fees, tickSpacings, hooks);
+            block.timestamp + 1, targets, bps);
         vm.stopPrank();
 
         assertEq(vault.trancheAmount(), amount / duration);
