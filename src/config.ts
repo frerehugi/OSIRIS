@@ -18,7 +18,7 @@ export const UNIVERSAL_ROUTER: Record<"mainnet" | "sepolia", `0x${string}`> = {
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
-export const VAULT_ADDRESS       = "0x..." as `0x${string}`; // nach Deploy eintragen
+export const VAULT_ADDRESS       = "0x1fe91Bd8e68914Ae1dB5605491FEdDAAF5d30180" as `0x${string}`;
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export const INPUT_TOKENS: Record<"USDC" | "USDT" | "cUSD", TokenInfo> = {
 export const TARGET_TOKENS: Record<"wBTC" | "wETH" | "CELO" | "XAUoT", TokenInfo> = {
   wBTC: {
     symbol:      "wBTC",
-    address:     "0x0000000000000000000000000000000000bEEF" as `0x${string}`, // TODO: Mock deployen
+    address:     "0xf6E1161543eFD833595d62fCEb9487E35291B694" as `0x${string}`, // Mock (Celo Sepolia)
     decimals:    8,
     poolFee:     3000,
     tickSpacing: 60,
@@ -83,7 +83,7 @@ export const TARGET_TOKENS: Record<"wBTC" | "wETH" | "CELO" | "XAUoT", TokenInfo
   },
   XAUoT: {
     symbol:      "XAUoT",
-    address:     "0x0000000000000000000000000000000000bEEF" as `0x${string}`, // TODO: Mock deployen
+    address:     "0x849Dec442B1026CA8b8BBf3bA0b94A6baD6Bd3Eb" as `0x${string}`, // Mock (Celo Sepolia)
     decimals:    6,
     poolFee:     10000,
     tickSpacing: 200,
