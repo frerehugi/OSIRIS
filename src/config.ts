@@ -5,7 +5,7 @@ export const CELO_CHAIN_ID         = "42220";     // Mainnet
 export const CELO_SEPOLIA_CHAIN_ID = "11142220";  // Testnetz
 
 // Aktiv genutzter Chain für Squid und Contract-Calls:
-export const ACTIVE_CHAIN_ID: string = CELO_SEPOLIA_CHAIN_ID; // → "42220" für Prod
+export const ACTIVE_CHAIN_ID: string = CELO_CHAIN_ID; // Mainnet-Deploy in Vorbereitung
 
 // ─── UniversalRouter-Adressen ─────────────────────────────────────────────────
 // Quelle: docs.celo.org/tooling/contracts/uniswap-contracts
@@ -18,7 +18,7 @@ export const UNIVERSAL_ROUTER: Record<"mainnet" | "sepolia", `0x${string}`> = {
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
-export const VAULT_ADDRESS       = "0x1fe91Bd8e68914Ae1dB5605491FEdDAAF5d30180" as `0x${string}`;
+export const VAULT_ADDRESS       = "0x..." as `0x${string}`; // TODO: nach Mainnet-Deploy eintragen (Sepolia-Vault: 0x1fe91Bd8e68914Ae1dB5605491FEdDAAF5d30180)
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────

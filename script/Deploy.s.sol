@@ -37,6 +37,11 @@ contract DeployDcaVault is Script {
         0xcb695bc5D3Aa22cAD1E6DF07801b061a05A0233A;
 
     function run() external {
+        require(
+            block.chainid == 42220 || block.chainid == 11142220,
+            "Nur auf Celo Mainnet (42220) oder Celo Sepolia (11142220) ausfuehren!"
+        );
+
         // Private Key und Owner aus .env laden
         uint256 deployerKey  = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address ownerAddress = vm.envAddress("OWNER_ADDRESS");
