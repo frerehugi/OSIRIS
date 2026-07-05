@@ -12,6 +12,7 @@
 import { createWalletClient, createPublicClient, http, defineChain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import axios from "axios";
+import { fileURLToPath } from "url";
 import { DCA_VAULT_ABI } from "../src/dcaVaultAbi";
 import {
   VAULT_ADDRESS,
@@ -195,7 +196,7 @@ export async function runDcaStep() {
 
 // ─── Entry Point (z.B. per Cron aufgerufen) ───────────────────────────────────
 
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runDcaStep()
     .then((receipt) => {
       if (receipt) console.info("Done:", receipt.transactionHash);
