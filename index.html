@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="OSIRIS — Automated DCA vault on Celo. Invest USDC into wBTC, wETH, CELO and XAUoT on a daily or weekly schedule." />
+  <title>OSIRIS — OSnabrück Investment and Risk Management System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #C9A84C;
+      --gold-light: #E8C96A;
+      --gold-dim: rgba(201,168,76,0.15);
+      --dark: #060e1a;
+      --dark2: #0a1628;
+      --dark3: #0f1f38;
+      --green-dark: #0a1f12;
+      --text: rgba(255,255,255,0.88);
+      --text-muted: rgba(255,255,255,0.5);
+      --border: rgba(255,255,255,0.08);
+      --border-gold: rgba(201,168,76,0.25);
+      --card: rgba(255,255,255,0.04);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--dark);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 32px;
+      background: rgba(6,14,26,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-gold);
+    }
+    .nav-logo { font-size: 1.1rem; font-weight: 700; color: var(--gold); letter-spacing: 0.08em; text-decoration: none; }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a { color: var(--text-muted); font-size: 14px; text-decoration: none; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      background: var(--gold); color: #0a1628;
+      border: none; border-radius: 7px;
+      padding: 8px 20px; font-size: 13px; font-weight: 700;
+      cursor: pointer; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.88; }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 88vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 80px 24px 100px;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(26,74,46,0.35) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(201,168,76,0.06) 0%, transparent 60%),
+        var(--dark);
+      border-bottom: 1px solid var(--border-gold);
+    }
+
+    .live-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(74,222,128,0.08);
+      border: 1px solid rgba(74,222,128,0.25);
+      border-radius: 20px; padding: 6px 16px;
+      margin-bottom: 32px;
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
+    .live-badge span { font-size: 12px; font-weight: 600; color: #4ade80; letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .hero h1 {
+      font-size: clamp(3.5rem, 10vw, 6rem);
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.1em;
+      line-height: 1;
+      margin-bottom: 14px;
+      text-shadow: 0 0 60px rgba(201,168,76,0.2);
+    }
+    .hero-eyebrow {
+      font-size: clamp(10px, 2vw, 13px);
+      color: rgba(201,168,76,0.55);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+    .hero-desc {
+      font-size: clamp(15px, 2.5vw, 18px);
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto 48px;
+      line-height: 1.75;
+    }
+
+    .token-row {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+      margin-bottom: 48px;
+    }
+    .token-chip {
+      display: flex; align-items: center; gap: 9px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 9px 16px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .token-chip:hover { background: rgba(255,255,255,0.08); border-color: var(--border-gold); }
+    .token-icon {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+    }
+    .token-name { font-size: 14px; font-weight: 600; }
+    .token-pct { font-size: 12px; color: rgba(201,168,76,0.7); margin-left: 2px; }
+
+    .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .btn-gold {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold); color: #0a1628;
+      border: none; border-radius: 8px;
+      padding: 14px 32px; font-size: 15px; font-weight: 700;
+      cursor: pointer; text-decoration: none;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+    .btn-gold:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-outline {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: transparent; color: var(--gold);
+      border: 1px solid var(--border-gold);
+      border-radius: 8px; padding: 14px 32px; font-size: 15px;
+      cursor: pointer; text-decoration: none;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .btn-outline:hover { background: var(--gold-dim); transform: translateY(-1px); }
+
+    /* ── Sections ── */
+    section { padding: 80px 24px; max-width: 960px; margin: 0 auto; }
+    .section-tag {
+      display: inline-block;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--gold);
+      margin-bottom: 14px;
+    }
+    section h2 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 700; margin-bottom: 16px; }
+    section > p { color: var(--text-muted); font-size: 16px; max-width: 600px; line-height: 1.75; }
+
+    /* ── How it works ── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px; margin-top: 40px;
+    }
+    .step-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px 24px;
+      transition: border-color 0.2s;
+    }
+    .step-card:hover { border-color: var(--border-gold); }
+    .step-num { font-size: 11px; font-weight: 700; color: var(--gold); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 16px; }
+    .step-icon { font-size: 28px; margin-bottom: 14px; }
+    .step-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .step-card p { font-size: 13px; color: var(--text-muted); line-height: 1.65; }
+
+    /* ── Architecture ── */
+    .arch-section { background: rgba(255,255,255,0.02); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .arch-section section { padding: 80px 24px; }
+    .arch-flow {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 0;
+      margin-top: 40px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px;
+    }
+    .arch-node {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 20px;
+      text-align: center; min-width: 130px;
+    }
+    .arch-node.highlight { border-color: var(--border-gold); }
+    .arch-node .n-title { font-size: 13px; font-weight: 600; }
+    .arch-node .n-sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    .arch-arrow { color: var(--gold); font-size: 22px; padding: 0 12px; opacity: 0.7; }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px; margin-top: 40px;
+    }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; text-align: center;
+    }
+    .stat-val { font-size: 2rem; font-weight: 700; color: var(--gold); line-height: 1; margin-bottom: 8px; }
+    .stat-label { font-size: 12px; color: var(--text-muted); }
+
+    /* ── Tech details ── */
+    .tech-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px; margin-top: 36px;
+    }
+    .tech-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px 28px;
+    }
+    .tech-card h3 { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 16px; }
+    .tech-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    .tech-row:last-child { border-bottom: none; }
+    .tech-key { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+    .tech-val { font-size: 12px; color: var(--text); font-family: 'Courier New', monospace; text-align: right; word-break: break-all; }
+    .verified { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #4ade80; }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center; padding: 100px 24px;
+      background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(26,74,46,0.25) 0%, transparent 70%);
+      border-top: 1px solid var(--border-gold);
+    }
+    .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 700; margin-bottom: 16px; }
+    .cta-section p { color: var(--text-muted); font-size: 16px; max-width: 480px; margin: 0 auto 36px; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 32px 24px; text-align: center;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.3);
+    }
+    footer p { font-size: 13px; color: var(--text-muted); }
+    footer a { color: var(--gold); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      nav { padding: 14px 16px; }
+      .nav-links { display: none; }
+      .arch-flow { flex-direction: column; }
+      .arch-arrow { transform: rotate(90deg); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <a href="#" class="nav-logo">OSIRIS</a>
+  <div class="nav-links">
+    <a href="#how-it-works">How it works</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#technical">Technical</a>
+    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank">Contract ↗</a>
+    <a href="app/" class="nav-cta">Open App</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="live-badge">
+    <div class="live-dot"></div>
+    <span>Live on Celo Mainnet</span>
+  </div>
+
+  <h1>OSIRIS</h1>
+  <p class="hero-eyebrow">OSnabrück Investment and Risk Management System</p>
+  <p class="hero-desc">
+    A non-custodial DCA vault that automatically invests stablecoins into a
+    diversified basket of crypto assets — on a daily or weekly schedule.
+  </p>
+
+  <div class="token-row">
+    <div class="token-chip">
+      <div class="token-icon" style="background:rgba(247,147,26,0.15)">₿</div>
+      <span class="token-name">wBTC</span>
+      <span class="token-pct">25%</span>
+    </div>
+    <div class="token-chip">
+      <div class="token-icon" style="background:rgba(98,126,234,0.15)">Ξ</div>
+      <span class="token-name">wETH</span>
+      <span class="token-pct">25%</span>
+    </div>
+    <div class="token-chip">
+      <div class="token-icon" style="background:rgba(252,204,10,0.15)">◈</div>
+      <span class="token-name">CELO</span>
+      <span class="token-pct">25%</span>
+    </div>
+    <div class="token-chip">
+      <div class="token-icon" style="background:rgba(255,215,0,0.15)">Au</div>
+      <span class="token-name">XAUoT</span>
+      <span class="token-pct">25%</span>
+    </div>
+  </div>
+
+  <div class="hero-btns">
+    <a href="app/" class="btn-gold">Open App →</a>
+    <a href="https://github.com/frerehugi/OSIRIS" target="_blank" class="btn-outline">View on GitHub</a>
+  </div>
+</header>
+
+<!-- How it works -->
+<section id="how-it-works">
+  <span class="section-tag">How it works</span>
+  <h2>Set it once, invest automatically</h2>
+  <p>OSIRIS handles the complexity of recurring crypto investments. You define the plan, the vault executes it on schedule — no manual swaps, no missed entries.</p>
+
+  <div class="steps-grid">
+    <div class="step-card">
+      <p class="step-num">Step 1</p>
+      <div class="step-icon">⚙️</div>
+      <h3>Configure your plan</h3>
+      <p>Choose total amount, token allocation, and interval. Daily or weekly — you decide.</p>
+    </div>
+    <div class="step-card">
+      <p class="step-num">Step 2</p>
+      <div class="step-icon">🔒</div>
+      <h3>Vault holds funds</h3>
+      <p>Your USDC is deposited into a non-custodial smart contract. Only you can cancel and withdraw.</p>
+    </div>
+    <div class="step-card">
+      <p class="step-num">Step 3</p>
+      <div class="step-icon">🔄</div>
+      <h3>Keeper executes</h3>
+      <p>An automated keeper fetches optimal routes via Squid Router and triggers each swap on schedule.</p>
+    </div>
+    <div class="step-card">
+      <p class="step-num">Step 4</p>
+      <div class="step-icon">👛</div>
+      <h3>Assets in your wallet</h3>
+      <p>wBTC, wETH, CELO and XAUoT arrive directly in your wallet after every execution.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<div class="arch-section" id="architecture">
+  <section>
+    <span class="section-tag">Architecture</span>
+    <h2>Powered by Squid Router</h2>
+    <p>OSIRIS uses Squid as its exclusive routing layer — giving access to the best available liquidity across all DEXs on Celo, including Tether Gold (XAUoT).</p>
+
+    <div class="arch-flow">
+      <div class="arch-node">
+        <div class="n-title">MiniPay</div>
+        <div class="n-sub">User wallet</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node highlight">
+        <div class="n-title" style="color:var(--gold)">DCA Vault</div>
+        <div class="n-sub">Smart contract</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="n-title">Keeper</div>
+        <div class="n-sub">Automated executor</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="n-title">Squid Router</div>
+        <div class="n-sub">DEX aggregation</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="n-title">wBTC · wETH</div>
+        <div class="n-sub">CELO · XAUoT</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Stats -->
+<section>
+  <span class="section-tag">By the numbers</span>
+  <h2>Built for production</h2>
+  <p>Deployed and verified on Celo Mainnet with a full test suite and automated keeper service.</p>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-val">4</div>
+      <div class="stat-label">Target tokens</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">27/27</div>
+      <div class="stat-label">Tests passing</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">Daily</div>
+      <div class="stat-label">Execution interval</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">Celo</div>
+      <div class="stat-label">Network</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">&lt;$0.01</div>
+      <div class="stat-label">Gas per execution</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">100%</div>
+      <div class="stat-label">Non-custodial</div>
+    </div>
+  </div>
+</section>
+
+<!-- Technical -->
+<section id="technical">
+  <span class="section-tag">Technical details</span>
+  <h2>Open source and verified</h2>
+  <p>All smart contracts are open source and verified on Celoscan. The full codebase is available on GitHub.</p>
+
+  <div class="tech-grid">
+    <div class="tech-card">
+      <h3>Deployment</h3>
+      <div class="tech-row">
+        <span class="tech-key">Network</span>
+        <span class="tech-val">Celo Mainnet (42220)</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Vault</span>
+        <span class="tech-val">
+          <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank" style="color:var(--gold)">0x2254...FDc ↗</a>
+        </span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Squid Router</span>
+        <span class="tech-val">0xce16...666</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Status</span>
+        <span class="verified">✓ Verified</span>
+      </div>
+    </div>
+    <div class="tech-card">
+      <h3>Stack</h3>
+      <div class="tech-row">
+        <span class="tech-key">Smart contract</span>
+        <span class="tech-val">Solidity 0.8.20</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Testing</span>
+        <span class="tech-val">Foundry</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Frontend</span>
+        <span class="tech-val">React + viem</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Wallet</span>
+        <span class="tech-val">MiniPay</span>
+      </div>
+    </div>
+    <div class="tech-card">
+      <h3>Input tokens</h3>
+      <div class="tech-row">
+        <span class="tech-key">USDC</span>
+        <span class="tech-val">0xcebA...18C</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">USDT</span>
+        <span class="tech-val">0x4806...D5e</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Routing</span>
+        <span class="tech-val">Squid Router v2</span>
+      </div>
+    </div>
+    <div class="tech-card">
+      <h3>Target tokens</h3>
+      <div class="tech-row">
+        <span class="tech-key">wBTC</span>
+        <span class="tech-val">0x8aC2...B2A</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">wETH</span>
+        <span class="tech-val">0xD221...9Af</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">CELO</span>
+        <span class="tech-val">0x471E...438</span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">XAUoT</span>
+        <span class="tech-val">0xaf37...7ff</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-section">
+  <h2>Start investing automatically</h2>
+  <p>Open the app in MiniPay, configure your DCA plan, and let OSIRIS handle the rest.</p>
+  <div class="hero-btns">
+    <a href="app/" class="btn-gold">Open App →</a>
+    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank" class="btn-outline">View Contract ↗</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>
+    Built by <strong style="color:var(--text)">Schmitz &amp; Hugenberg</strong>, Osnabrück &nbsp;·&nbsp;
+    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank">Celoscan</a> &nbsp;·&nbsp;
+    <a href="https://github.com/frerehugi/OSIRIS" target="_blank">GitHub</a> &nbsp;·&nbsp;
+    <a href="app/">Live App</a>
+  </p>
+</footer>
+
+</body>
+</html>
