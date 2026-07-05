@@ -9,18 +9,32 @@
 // Sicherheitsmodell: Der Vault validiert die empfangene Menge per Balance-Diff
 // gegen minAmountsOut. Manipulierte Calldata führt zum Revert, nicht zu Verlust.
 
-import { createWalletClient, createPublicClient, http } from "viem";
+import { createWalletClient, createPublicClient, http, defineChain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { celo } from "viem/chains";
 import axios from "axios";
-import { DCA_VAULT_ABI } from "./dcaVaultAbi";
+import { DCA_VAULT_ABI } from "../src/dcaVaultAbi";
 import {
   VAULT_ADDRESS,
   SQUID_INTEGRATOR_ID,
-  CELO_CHAIN_ID,
+  ACTIVE_CHAIN_ID,
   TARGET_TOKENS,
   INPUT_TOKENS,
-} from "./config";
+} from "../src/config";
+
+// Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
+// passend zu den RPC-Endpoints aus foundry.toml.
+const celoSepolia = defineChain({
+  id: 11142220,
+  name: "Celo Sepolia",
+  nativeCurrency: { name: "Celo", symbol: "CELO", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://forno.celo-sepolia.celo-testnet.org"] },
+  },
+  blockExplorers: {
+    default: { name: "Celoscan", url: "https://sepolia.celoscan.io" },
+  },
+  testnet: true,
+});
 
 // ─── Wallet-Setup ─────────────────────────────────────────────────────────────
 
@@ -35,8 +49,8 @@ if (!KEEPER_PRIVATE_KEY) {
 const SLIPPAGE_BPS_BUFFER = 100;
 
 const account = privateKeyToAccount(KEEPER_PRIVATE_KEY);
-const walletClient = createWalletClient({ account, chain: celo, transport: http() });
-const publicClient = createPublicClient({ chain: celo, transport: http() });
+const walletClient = createWalletClient({ account, chain: celoSepolia, transport: http() });
+const publicClient = createPublicClient({ chain: celoSepolia, transport: http() });
 
 // ─── Squid-Route holen ────────────────────────────────────────────────────────
 
@@ -57,8 +71,8 @@ async function getSquidMinAmountOut(params: {
   const response = await axios.post(
     "https://apiplus.squidrouter.com/v2/route",
     {
-      fromChain:   CELO_CHAIN_ID,
-      toChain:     CELO_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
+      fromChain:   ACTIVE_CHAIN_ID,
+      toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
       fromToken:   params.fromToken,
       toToken:     params.toToken,
       fromAmount:  params.fromAmount,
