@@ -1,0 +1,36 @@
+name: DCA Keeper
+
+on:
+  schedule:
+    # Stündlich zur vollen Stunde — Vaults selbst können nur volle Stunden als
+    # Startzeit wählen (siehe src/App.tsx), diese Frequenz hält "±1 hour
+    # accuracy" ein.
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  run-keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run keeper
+        env:
+          KEEPER_PRIVATE_KEY: ${{ secrets.KEEPER_PRIVATE_KEY }}
+          SQUID_INTEGRATOR_ID: ${{ secrets.SQUID_INTEGRATOR_ID }}
+          FACTORY_ADDRESS: ${{ secrets.FACTORY_ADDRESS }}
+        run: npm run keeper

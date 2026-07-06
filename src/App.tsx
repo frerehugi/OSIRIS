@@ -123,6 +123,11 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 
+// Der Keeper läuft stündlich (siehe .github/workflows/keeper.yml) — eine
+// minutengenaue Startzeit würde also ohnehin nur ±1h eingehalten. Die Auswahl
+// beschränkt sich deshalb bewusst auf volle Stunden.
+const EXECUTION_HOURS = Array.from({ length: 24 }, (_, hour) => `${hour.toString().padStart(2, '0')}:00`);
+
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
 
 function Card({ children }: { children: ReactNode }) {
@@ -514,19 +519,22 @@ export default function App() {
             </div>
           )}
           <div className="field">
-            <label htmlFor="executionTime">Local trigger time</label>
-            <input
+            <label htmlFor="executionTime">Local trigger hour</label>
+            <select
               id="executionTime"
-              type="time"
               value={formData.executionTime}
               onChange={(event) => updateField('executionTime', event.target.value)}
-            />
+            >
+              {EXECUTION_HOURS.map((hour) => (
+                <option key={hour} value={hour}>{hour}</option>
+              ))}
+            </select>
           </div>
           <div className="status info">
-            ⏰ Executes {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
-            {formData.executionTime} local time, currently {utcDisplay} UTC.
+            ⏰ Executes {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} around{' '}
+            {formData.executionTime} local time (±1 hour accuracy).
             <br />
-            Timezone: {formData.timezone}
+            ≈ {utcDisplay} UTC · Timezone: {formData.timezone}
           </div>
           <div className="button-row">
             <Button variant="secondary" onClick={prevPage}>← Back</Button>
