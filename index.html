@@ -267,7 +267,7 @@
     <a href="#how-it-works">How it works</a>
     <a href="#architecture">Architecture</a>
     <a href="#technical">Technical</a>
-    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank">Contract ↗</a>
+    <a href="https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5" target="_blank">Contract ↗</a>
     <a href="app/" class="nav-cta">Open App</a>
   </div>
 </nav>
@@ -284,30 +284,28 @@
   <p class="hero-desc">
     A non-custodial DCA vault that automatically invests stablecoins into a
     diversified basket of crypto assets — on a daily or weekly schedule.
+    Every user gets their own dedicated on-chain vault, created on demand.
   </p>
 
-  <div class="token-row">
+  <div class="token-row" style="margin-bottom:16px;">
     <div class="token-chip">
       <div class="token-icon" style="background:rgba(247,147,26,0.15)">₿</div>
       <span class="token-name">wBTC</span>
-      <span class="token-pct">25%</span>
     </div>
     <div class="token-chip">
       <div class="token-icon" style="background:rgba(98,126,234,0.15)">Ξ</div>
       <span class="token-name">wETH</span>
-      <span class="token-pct">25%</span>
     </div>
     <div class="token-chip">
       <div class="token-icon" style="background:rgba(252,204,10,0.15)">◈</div>
       <span class="token-name">CELO</span>
-      <span class="token-pct">25%</span>
     </div>
     <div class="token-chip">
       <div class="token-icon" style="background:rgba(255,215,0,0.15)">Au</div>
       <span class="token-name">XAUoT</span>
-      <span class="token-pct">25%</span>
     </div>
   </div>
+  <p style="font-size:13px; color:var(--text-muted); opacity:0.75; margin-bottom:48px;">Choose your own allocation across these — nothing is fixed.</p>
 
   <div class="hero-btns">
     <a href="app/" class="btn-gold">Open App →</a>
@@ -331,8 +329,8 @@
     <div class="step-card">
       <p class="step-num">Step 2</p>
       <div class="step-icon">🔒</div>
-      <h3>Vault holds funds</h3>
-      <p>Your USDC is deposited into a non-custodial smart contract. Only you can cancel and withdraw.</p>
+      <h3>Your own vault is created</h3>
+      <p>A dedicated smart contract vault is deployed just for you. Your USDC is non-custodial — only you can cancel and withdraw.</p>
     </div>
     <div class="step-card">
       <p class="step-num">Step 3</p>
@@ -353,8 +351,8 @@
 <div class="arch-section" id="architecture">
   <section>
     <span class="section-tag">Architecture</span>
-    <h2>Powered by Squid Router</h2>
-    <p>OSIRIS uses Squid as its exclusive routing layer — giving access to the best available liquidity across all DEXs on Celo, including Tether Gold (XAUoT).</p>
+    <h2>Your own vault, powered by Squid Router</h2>
+    <p>A factory contract creates a dedicated, non-custodial vault per user (EIP-1167 clones — cheap to deploy, fully isolated). Squid is the exclusive routing layer, giving access to the best available liquidity across all DEXs on Celo, including Tether Gold (XAUoT).</p>
 
     <div class="arch-flow">
       <div class="arch-node">
@@ -362,8 +360,13 @@
         <div class="n-sub">User wallet</div>
       </div>
       <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="n-title">Factory</div>
+        <div class="n-sub">Creates vault</div>
+      </div>
+      <div class="arch-arrow">→</div>
       <div class="arch-node highlight">
-        <div class="n-title" style="color:var(--gold)">DCA Vault</div>
+        <div class="n-title" style="color:var(--gold)">Your Vault</div>
         <div class="n-sub">Smart contract</div>
       </div>
       <div class="arch-arrow">→</div>
@@ -397,12 +400,12 @@
       <div class="stat-label">Target tokens</div>
     </div>
     <div class="stat-card">
-      <div class="stat-val">27/27</div>
+      <div class="stat-val">41/41</div>
       <div class="stat-label">Tests passing</div>
     </div>
     <div class="stat-card">
-      <div class="stat-val">Daily</div>
-      <div class="stat-label">Execution interval</div>
+      <div class="stat-val">Flexible</div>
+      <div class="stat-label">Daily or weekly</div>
     </div>
     <div class="stat-card">
       <div class="stat-val">Celo</div>
@@ -433,9 +436,15 @@
         <span class="tech-val">Celo Mainnet (42220)</span>
       </div>
       <div class="tech-row">
-        <span class="tech-key">Vault</span>
+        <span class="tech-key">Factory</span>
         <span class="tech-val">
-          <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank" style="color:var(--gold)">0x2254...FDc ↗</a>
+          <a href="https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5" target="_blank" style="color:var(--gold)">0x31bF...9f5 ↗</a>
+        </span>
+      </div>
+      <div class="tech-row">
+        <span class="tech-key">Vault implementation</span>
+        <span class="tech-val">
+          <a href="https://celoscan.io/address/0x9d148530b0ee408eaa801d74d7ea968955f24d13" target="_blank" style="color:var(--gold)">0x9d14...d13 ↗</a>
         </span>
       </div>
       <div class="tech-row">
@@ -509,7 +518,7 @@
   <p>Open the app in MiniPay, configure your DCA plan, and let OSIRIS handle the rest.</p>
   <div class="hero-btns">
     <a href="app/" class="btn-gold">Open App →</a>
-    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank" class="btn-outline">View Contract ↗</a>
+    <a href="https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5" target="_blank" class="btn-outline">View Contract ↗</a>
   </div>
 </div>
 
@@ -517,7 +526,7 @@
 <footer>
   <p>
     Built by <strong style="color:var(--text)">Schmitz &amp; Hugenberg</strong>, Osnabrück &nbsp;·&nbsp;
-    <a href="https://celoscan.io/address/0x22541bdaf712920330f2d0fc26d1ac807e914fdc" target="_blank">Celoscan</a> &nbsp;·&nbsp;
+    <a href="https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5" target="_blank">Celoscan</a> &nbsp;·&nbsp;
     <a href="https://github.com/frerehugi/OSIRIS" target="_blank">GitHub</a> &nbsp;·&nbsp;
     <a href="app/">Live App</a>
   </p>
