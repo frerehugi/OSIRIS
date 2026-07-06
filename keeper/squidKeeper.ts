@@ -88,6 +88,18 @@ interface SquidRoute {
   estimate:            SquidEstimate;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Mindestabstand zwischen zwei Squid-Requests. Neu vergebene Integrator-IDs
+// haben teils ein sehr niedriges Rate-Limit (beobachtet: ~0.27 req/s ≈ 1 Request
+// alle 3.7s) — die eigenen "retry-after"-Header von Squid waren dabei zu klein,
+// um sich darauf zu verlassen, daher ein fester, konservativer Abstand plus
+// Retry-with-Backoff als zusätzliches Netz.
+const SQUID_REQUEST_SPACING_MS = 4_000;
+const SQUID_MAX_RETRIES = 5;
+
 async function getSquidRoute(params: {
   fromToken:   `0x${string}`;
   toToken:     `0x${string}`;
@@ -97,27 +109,42 @@ async function getSquidRoute(params: {
 }): Promise<SquidRoute> {
   const integratorId = getValidatedIntegratorId();
 
-  const response = await axios.post(
-    "https://apiplus.squidrouter.com/v2/route",
-    {
-      fromChain:   ACTIVE_CHAIN_ID,
-      toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
-      fromToken:   params.fromToken,
-      toToken:     params.toToken,
-      fromAmount:  params.fromAmount,
-      fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
-      toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
-      slippage:    1.5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
-      quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
-    },
-    {
-      headers: {
-        "x-integrator-id": integratorId,
-        "Content-Type":    "application/json",
-      },
+  for (let attempt = 1; attempt <= SQUID_MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.post(
+        "https://apiplus.squidrouter.com/v2/route",
+        {
+          fromChain:   ACTIVE_CHAIN_ID,
+          toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
+          fromToken:   params.fromToken,
+          toToken:     params.toToken,
+          fromAmount:  params.fromAmount,
+          fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
+          toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
+          slippage:    1.5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
+          quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
+        },
+        {
+          headers: {
+            "x-integrator-id": integratorId,
+            "Content-Type":    "application/json",
+          },
+        }
+      );
+      return response.data.route as SquidRoute;
+    } catch (err) {
+      const isRateLimit = axios.isAxiosError(err) && err.response?.status === 429;
+      if (!isRateLimit || attempt === SQUID_MAX_RETRIES) throw err;
+
+      const backoffMs = SQUID_REQUEST_SPACING_MS * attempt; // 4s, 8s, 12s, 16s
+      console.warn(
+        `Squid: Rate-Limit (429) für ${params.toToken} — warte ${backoffMs}ms ` +
+        `(Versuch ${attempt}/${SQUID_MAX_RETRIES})`
+      );
+      await sleep(backoffMs);
     }
-  );
-  return response.data.route as SquidRoute;
+  }
+  throw new Error("Squid-Route: unerreichbar nach maximalen Versuchen.");
 }
 
 // ─── Sicherheitspuffer auf toAmountMin anwenden ───────────────────────────────
@@ -174,7 +201,11 @@ export async function runDcaStep() {
   const minAmountsOut: bigint[]        = [];
   const callData:      `0x${string}`[] = [];
 
-  for (const config of targetConfigs as Array<{ token: `0x${string}`; bps: number }>) {
+  const configs = targetConfigs as Array<{ token: `0x${string}`; bps: number }>;
+  for (let i = 0; i < configs.length; i++) {
+    if (i > 0) await sleep(SQUID_REQUEST_SPACING_MS); // Rate-Limit-Abstand zwischen Zieltoken
+
+    const config = configs[i];
     const amountIn = (trancheAmount as bigint * BigInt(config.bps)) / 10_000n;
 
     const route = await getSquidRoute({
