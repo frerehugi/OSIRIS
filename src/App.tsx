@@ -33,6 +33,14 @@ interface VaultSummary {
 
 type View = 'connect' | 'vaultList' | 'wizard' | 'success';
 
+// Vault, der bei der Verifikation des Factory-Deploys erzeugt wurde (siehe
+// Commit-Historie) — nie mit einem echten Plan versehen. Bleibt on-chain über
+// factory.getAllVaults()/getVaults() weiterhin abrufbar, wird hier nur aus
+// der UI gefiltert, um Verwirrung zu vermeiden.
+const HIDDEN_TEST_VAULTS = new Set(
+  ['0x53Ede35EaEDC1bC76AD599b0226bC92FBc170c62'].map((address) => address.toLowerCase()),
+);
+
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
   'approving':        '⏳ Approving USDC...',
@@ -236,7 +244,8 @@ export default function App() {
     setVaultsLoading(true);
     setVaultsError(null);
     try {
-      const vaultAddresses = await getUserVaults(address);
+      const vaultAddresses = (await getUserVaults(address))
+        .filter((vaultAddress) => !HIDDEN_TEST_VAULTS.has(vaultAddress.toLowerCase()));
       const summaries = await Promise.all(
         vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
           const status = await readPlanStatus(vaultAddress);
