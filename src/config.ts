@@ -16,8 +16,17 @@ export const ACTIVE_CHAIN_ID: string = CELO_CHAIN_ID; // Mainnet-Deploy in Vorbe
 export const SQUID_ROUTER_MAINNET = "0xce16F69375520ab01377ce7B88f5BA8C48F8D666" as `0x${string}`;
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
+//
+// VAULT_ADDRESS: der ERSTE, vor der Factory direkt deployte Vault (läuft
+// weiter bis alle 5 Tranchen ausgeführt sind — bewusst NICHT über die Factory
+// nachgezogen, siehe keeper/squidKeeper.ts). Neue Pläne entstehen ab jetzt
+// ausschließlich über FACTORY_ADDRESS.createVault().
 export const VAULT_ADDRESS       = "0x22541bDAf712920330F2d0FC26D1Ac807e914FDc" as `0x${string}`;
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
+
+// ─── Factory (EIP-1167-Clones) ────────────────────────────────────────────────
+export const FACTORY_ADDRESS               = "0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5" as `0x${string}`;
+export const VAULT_IMPLEMENTATION_ADDRESS  = "0x9d148530b0EE408EAA801D74D7eA968955F24d13" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {

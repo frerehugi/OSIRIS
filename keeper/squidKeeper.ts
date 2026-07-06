@@ -7,13 +7,18 @@
 // an den Vault. Der Vault prüft nur noch, dass der Router freigegeben ist
 // (approvedRouters) und dass `owner` danach mindestens minAmountsOut[i] mehr
 // vom Zieltoken hat als vorher.
+//
+// Multi-Vault: Seit der DcaVaultFactory (EIP-1167-Clones) gibt es potenziell
+// viele Vaults. Der Keeper prüft ALLE (Factory-Clones + den einen Vault, der
+// vor der Factory direkt deployt wurde und nicht in factory.getAllVaults()
+// auftaucht) und führt jeden aus, der gerade dran ist.
 
 import { createWalletClient, createPublicClient, http, defineChain } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import axios from "axios";
 import { fileURLToPath } from "url";
-import { DCA_VAULT_ABI } from "../src/dcaVaultAbi";
+import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from "../src/dcaVaultAbi";
 import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID } from "../src/config";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
@@ -32,6 +37,11 @@ const celoSepolia = defineChain({
 });
 
 const activeChain = ACTIVE_CHAIN_ID === CELO_CHAIN_ID ? celo : celoSepolia;
+
+// Vaults werden in Gruppen dieser Größe parallel auf canExecute() geprüft,
+// um den RPC-Provider bei vielen Vaults nicht mit hunderten gleichzeitigen
+// Calls zu überlasten.
+const BATCH_SIZE = 10;
 
 // ─── Squid-Integrator-ID ──────────────────────────────────────────────────────
 //
@@ -54,6 +64,19 @@ function getValidatedIntegratorId(): string {
     );
   }
   return id;
+}
+
+// ─── Factory-Adresse ──────────────────────────────────────────────────────────
+//
+// Ebenfalls aus keeper/.env statt src/config.ts — gleicher Grund wie bei der
+// Integrator-ID (eigenständiger Prozess, eigene Konfiguration).
+
+function getValidatedFactoryAddress(): `0x${string}` {
+  const address = process.env.FACTORY_ADDRESS;
+  if (!address) {
+    throw new Error("FACTORY_ADDRESS Umgebungsvariable fehlt (keeper/.env).");
+  }
+  return address as `0x${string}`;
 }
 
 // ─── Wallet-Setup ─────────────────────────────────────────────────────────────
@@ -154,49 +177,52 @@ function applyBuffer(toAmountMin: string): bigint {
   return (raw * BigInt(10_000 - SLIPPAGE_BPS_BUFFER)) / 10_000n;
 }
 
-// ─── Plan-Status aus Contract lesen ──────────────────────────────────────────
+// ─── Vaults einsammeln ────────────────────────────────────────────────────────
+//
+// VAULT_ADDRESS (aus src/config.ts) wurde vor der Factory direkt deployt und
+// taucht in factory.getAllVaults() nicht auf — er läuft aber weiter, bis alle
+// 5 Tranchen ausgeführt sind, und wird deshalb explizit mit aufgenommen.
 
-async function readContractStatus() {
-  const [
-    canExec,
-    currentStep,
-    totalSteps,
-    trancheAmount,
-    targetConfigs,
-    inputTokenAddress,
-    ownerAddress,
-  ] = await Promise.all([
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "canExecute" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
-    publicClient.readContract({ address: VAULT_ADDRESS, abi: DCA_VAULT_ABI, functionName: "owner" }),
-  ]);
+async function getAllVaultAddresses(factoryAddress: `0x${string}`): Promise<`0x${string}`[]> {
+  const factoryVaults = await publicClient.readContract({
+    address: factoryAddress,
+    abi:     DCA_VAULT_FACTORY_ABI,
+    functionName: "getAllVaults",
+  }) as `0x${string}`[];
 
-  return {
-    canExec, currentStep, totalSteps, trancheAmount, targetConfigs,
-    inputTokenAddress: inputTokenAddress as `0x${string}`,
-    ownerAddress:       ownerAddress as `0x${string}`,
-  };
+  return [...new Set([VAULT_ADDRESS, ...factoryVaults])];
 }
 
-// ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
+// ─── canExecute() in Batches prüfen ───────────────────────────────────────────
 
-export async function runDcaStep() {
-  getValidatedIntegratorId(); // wirft früh, bevor irgendein Contract-Call passiert
+async function findExecutableVaults(vaultAddresses: `0x${string}`[]): Promise<`0x${string}`[]> {
+  const executable: `0x${string}`[] = [];
 
-  const { canExec, trancheAmount, targetConfigs, inputTokenAddress, ownerAddress } =
-    await readContractStatus();
-
-  if (!canExec) {
-    console.info("Keeper: Noch nicht ausführbar (canExecute = false).");
-    return null;
+  for (let i = 0; i < vaultAddresses.length; i += BATCH_SIZE) {
+    const batch = vaultAddresses.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map((vault) =>
+        publicClient.readContract({ address: vault, abi: DCA_VAULT_ABI, functionName: "canExecute" })
+      )
+    );
+    batch.forEach((vault, idx) => {
+      if (results[idx]) executable.push(vault);
+    });
   }
 
-  // Für jeden Zieltoken: anteiligen Betrag berechnen, echte Squid-Route holen
-  // (Router-Adresse + fertige Calldata + Preisschätzung für die Slippage-Grenze).
+  return executable;
+}
+
+// ─── Einen Vault ausführen ────────────────────────────────────────────────────
+
+async function executeVaultStep(vaultAddress: `0x${string}`) {
+  const [trancheAmount, targetConfigs, inputTokenAddress, ownerAddress] = await Promise.all([
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "owner" }),
+  ]);
+
   const routers:       `0x${string}`[] = [];
   const minAmountsOut: bigint[]        = [];
   const callData:      `0x${string}`[] = [];
@@ -209,23 +235,25 @@ export async function runDcaStep() {
     const amountIn = (trancheAmount as bigint * BigInt(config.bps)) / 10_000n;
 
     const route = await getSquidRoute({
-      fromToken:   inputTokenAddress,
+      fromToken:   inputTokenAddress as `0x${string}`,
       toToken:     config.token,
       fromAmount:  amountIn.toString(),
-      fromAddress: VAULT_ADDRESS,
-      toAddress:   ownerAddress,
+      fromAddress: vaultAddress,
+      toAddress:   ownerAddress as `0x${string}`,
     });
 
     routers.push(route.transactionRequest.target);
     callData.push(route.transactionRequest.data);
     minAmountsOut.push(applyBuffer(route.estimate.toAmountMin));
+
+    console.info(`  [${vaultAddress}] Route ${config.token}: minAmountOut=${minAmountsOut[minAmountsOut.length - 1]}`);
   }
 
   // Vor dem Broadcast simulieren — deckt z.B. RouterNotApproved oder
   // SlippageExceeded auf, ohne echtes Gas zu verbrennen.
   const { request } = await publicClient.simulateContract({
     account,
-    address:      VAULT_ADDRESS,
+    address:      vaultAddress,
     abi:          DCA_VAULT_ABI,
     functionName: "executeStep",
     args:         [routers, minAmountsOut, callData],
@@ -234,16 +262,63 @@ export async function runDcaStep() {
   const hash = await walletClient.writeContract(request);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-  console.info(`Keeper: Step ausgeführt. Tx: ${hash}`);
+  const newStep = await publicClient.readContract({
+    address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep",
+  });
+
+  console.info(`Keeper: Vault ${vaultAddress} — Schritt ${newStep} ausgeführt. Tx: ${hash}`);
   return receipt;
+}
+
+// ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
+
+export interface KeeperCycleResult {
+  vaultAddress: `0x${string}`;
+  receipt:      Awaited<ReturnType<typeof executeVaultStep>>;
+}
+
+export async function runKeeperCycle(): Promise<KeeperCycleResult[]> {
+  getValidatedIntegratorId(); // wirft früh, bevor irgendein Contract-Call passiert
+  const factoryAddress = getValidatedFactoryAddress();
+
+  const vaultAddresses = await getAllVaultAddresses(factoryAddress);
+  console.info(`Keeper: ${vaultAddresses.length} Vault(s) insgesamt (Factory: ${factoryAddress}).`);
+
+  const executableVaults = await findExecutableVaults(vaultAddresses);
+  if (executableVaults.length === 0) {
+    console.info("Keeper: Kein Vault aktuell ausführbar (canExecute = false).");
+    return [];
+  }
+  console.info(`Keeper: ${executableVaults.length} Vault(s) ausführbar: ${executableVaults.join(", ")}`);
+
+  // Sequenziell statt parallel: sowohl die Squid-Rate-Limits als auch die
+  // Nonce-Verwaltung des Keeper-Wallets vertragen keine parallelen Broadcasts.
+  const results: KeeperCycleResult[] = [];
+  for (const vaultAddress of executableVaults) {
+    try {
+      const receipt = await executeVaultStep(vaultAddress);
+      results.push({ vaultAddress, receipt });
+    } catch (err) {
+      // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
+      // Nutzer) darf die Ausführung für alle anderen Vaults nicht blockieren.
+      console.error(`Keeper: Fehler bei Vault ${vaultAddress}:`, err);
+    }
+  }
+  return results;
 }
 
 // ─── Entry Point (z.B. per Cron aufgerufen) ───────────────────────────────────
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runDcaStep()
-    .then((receipt) => {
-      if (receipt) console.info("Done:", receipt.transactionHash);
+  runKeeperCycle()
+    .then((results) => {
+      if (results.length === 0) {
+        console.info("Done: nichts ausgeführt.");
+      } else {
+        for (const { vaultAddress, receipt } of results) {
+          console.info(`Done: ${vaultAddress} -> ${receipt.transactionHash}`);
+        }
+      }
       process.exit(0);
     })
     .catch((err) => {

@@ -6,9 +6,9 @@ import {
   parseUnits,
 } from "viem";
 import { celo } from "viem/chains";
-import { DCA_VAULT_ABI, ERC20_ABI } from "./dcaVaultAbi";
+import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "./dcaVaultAbi";
 import {
-  VAULT_ADDRESS,
+  FACTORY_ADDRESS,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
@@ -36,6 +36,22 @@ export async function connectWallet(): Promise<`0x${string}`> {
   const [address] = await walletClient.getAddresses();
   if (!address) throw new Error("Wallet-Verbindung abgelehnt oder fehlgeschlagen.");
   return address;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// ─── Factory: Vaults eines Nutzers lesen ──────────────────────────────────────
+
+export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
+  const { publicClient } = getClients();
+  return publicClient.readContract({
+    address: FACTORY_ADDRESS,
+    abi:     DCA_VAULT_FACTORY_ABI,
+    functionName: "getVaults",
+    args: [ownerAddress],
+  }) as Promise<`0x${string}`[]>;
 }
 
 // ─── Target-Arrays bauen ──────────────────────────────────────────────────────
@@ -79,12 +95,28 @@ function nextExecutionTimestamp(executionTimeLocal: string): bigint {
 }
 
 // ─── DCA-Plan submitten ────────────────────────────────────────────────────────
-// setupPlan hat 7 Parameter (Pool-Parameter entfallen mit Squid-Routing).
+//
+// Läuft über die Factory statt über einen fest hinterlegten Vault — 3 separate
+// Transaktionen, da der Nutzer den neuen Vault erst approven kann, NACHDEM
+// dessen Adresse bekannt ist (siehe DcaVaultFactory.sol):
+//   1. factory.createVault()           → neue Vault-Adresse
+//   2. usdc.approve(vaultAddress, ...) → Freigabe für den NEUEN Vault
+//   3. vault.setupPlan(...)            → Plan aufsetzen (zieht das Input-Token)
+
+export interface SubmitDcaPlanResult {
+  vaultAddress:       `0x${string}`;
+  createVaultReceipt: Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+  approveReceipt:     Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+  setupPlanReceipt:   Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+}
+
+export type SubmitDcaPlanPhase = 'creating-vault' | 'approving' | 'setting-up-plan';
 
 export async function submitDcaPlan(
   formData: DcaPlanState,
-  ownerAddress: `0x${string}`
-) {
+  ownerAddress: `0x${string}`,
+  onProgress?: (phase: SubmitDcaPlanPhase) => void,
+): Promise<SubmitDcaPlanResult> {
   if (!formData.interval) throw new Error("Intervall fehlt.");
 
   const inputToken     = INPUT_TOKENS[formData.inputToken];
@@ -100,33 +132,68 @@ export async function submitDcaPlan(
 
   const { walletClient, publicClient } = getClients();
 
-  // ERC-20 Approve: Vault darf Token ziehen (für setupPlan / safeTransferFrom)
-  const approveTx = await walletClient.writeContract({
-    account: ownerAddress,
-    address: inputToken.address,
-    abi: ERC20_ABI,
-    functionName: "approve",
-    args: [VAULT_ADDRESS, totalAmountRaw],
-  });
-  await publicClient.waitForTransactionReceipt({ hash: approveTx });
+  // ── Phase 1: Vault über die Factory erstellen ─────────────────────────────
+  onProgress?.('creating-vault');
+  let createVaultReceipt;
+  try {
+    const hash = await walletClient.writeContract({
+      account: ownerAddress,
+      address: FACTORY_ADDRESS,
+      abi:     DCA_VAULT_FACTORY_ABI,
+      functionName: "createVault",
+    });
+    createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash });
+  } catch (error) {
+    throw new Error(`Vault-Erstellung fehlgeschlagen: ${describeError(error)}`);
+  }
 
-  const hash = await walletClient.writeContract({
-    account:  ownerAddress,
-    address:  VAULT_ADDRESS,
-    abi:      DCA_VAULT_ABI,
-    functionName: "setupPlan",
-    args: [
-      inputToken.address,  // _inputToken
-      totalAmountRaw,      // _totalAmount
-      duration,            // _duration  (uint32)
-      interval,            // _interval  (uint256)
-      firstExecution,      // _firstExecutionTimestamp (uint256)
-      targetTokens,        // _targetTokens  (address[])
-      targetBps,           // _targetBps     (uint16[])
-    ],
-  });
+  const vaults = await getUserVaults(ownerAddress);
+  const vaultAddress = vaults[vaults.length - 1];
+  if (!vaultAddress) {
+    throw new Error("Vault wurde erstellt, konnte aber nicht über factory.getVaults() gefunden werden.");
+  }
 
-  return publicClient.waitForTransactionReceipt({ hash });
+  // ── Phase 2: USDC an den NEUEN Vault freigeben ────────────────────────────
+  onProgress?.('approving');
+  let approveReceipt;
+  try {
+    const approveTx = await walletClient.writeContract({
+      account: ownerAddress,
+      address: inputToken.address,
+      abi:     ERC20_ABI,
+      functionName: "approve",
+      args: [vaultAddress, totalAmountRaw],
+    });
+    approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTx });
+  } catch (error) {
+    throw new Error(`USDC-Freigabe fehlgeschlagen: ${describeError(error)}`);
+  }
+
+  // ── Phase 3: Plan aufsetzen ────────────────────────────────────────────────
+  onProgress?.('setting-up-plan');
+  let setupPlanReceipt;
+  try {
+    const hash = await walletClient.writeContract({
+      account:  ownerAddress,
+      address:  vaultAddress,
+      abi:      DCA_VAULT_ABI,
+      functionName: "setupPlan",
+      args: [
+        inputToken.address,  // _inputToken
+        totalAmountRaw,      // _totalAmount
+        duration,            // _duration  (uint32)
+        interval,            // _interval  (uint256)
+        firstExecution,      // _firstExecutionTimestamp (uint256)
+        targetTokens,        // _targetTokens  (address[])
+        targetBps,           // _targetBps     (uint16[])
+      ],
+    });
+    setupPlanReceipt = await publicClient.waitForTransactionReceipt({ hash });
+  } catch (error) {
+    throw new Error(`Plan-Einrichtung fehlgeschlagen: ${describeError(error)}`);
+  }
+
+  return { vaultAddress, createVaultReceipt, approveReceipt, setupPlanReceipt };
 }
 
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────

@@ -17,6 +17,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 // Das entkoppelt den Contract von einer festen DEX-Version (Squid routet über
 // viele DEXs) und macht Pool-spezifische Parameter (Fee-Tier, TickSpacing,
 // Hooks) überflüssig.
+//
+// ─── Clone-Pattern (EIP-1167) ─────────────────────────────────────────────────
+//
+// Dieser Contract wird als Implementation für DcaVaultFactory genutzt: jeder
+// Nutzer bekommt einen eigenen, günstigen Minimal-Proxy-Clone statt eines
+// vollen Deploys. Clones führen den Constructor NIE aus (nur der Runtime-Code
+// wird per delegatecall geteilt, der Constructor-Pfad der Implementation läuft
+// nie im Kontext des Clones) — deshalb darf `owner` nicht mehr `immutable`
+// sein (immutables werden zur Deploy-Zeit fest in den Bytecode geschrieben,
+// den sich alle Clones teilen) und Setup passiert über initialize() statt
+// über den Constructor. Der Constructor selbst sperrt nur die Implementation
+// gegen direktes initialize() (Standard-Absicherung bei Clone-Factories).
 
 contract DcaVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -26,9 +38,20 @@ contract DcaVault is ReentrancyGuard {
     uint256 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_TARGETS     = 10;
 
-    // ── Immutables ──────────────────────────────────────────────────────────
+    // ── State (vormals Immutable) ────────────────────────────────────────────
+    //
+    // Kann bei Clones nicht mehr `immutable` sein — siehe Architektur-Hinweis
+    // oben. Wird einmalig in initialize() gesetzt.
 
-    address public immutable owner;
+    address public owner;
+
+    // ── Clone-Init-Guard ─────────────────────────────────────────────────────
+    //
+    // Getrennt von `initialized` (das den DCA-Plan-Status trackt): dieser Guard
+    // verhindert ein zweites initialize() auf demselben Contract (Clone oder
+    // Implementation).
+
+    bool private _cloneInitialized;
 
     // ── TargetConfig ────────────────────────────────────────────────────────
 
@@ -124,10 +147,30 @@ contract DcaVault is ReentrancyGuard {
     }
 
     // ── Constructor ──────────────────────────────────────────────────────────
+    //
+    // Sperrt nur die Implementation selbst gegen initialize() — Clones
+    // durchlaufen diesen Code nie (siehe Architektur-Hinweis oben), ihr
+    // eigener `_cloneInitialized`-Slot startet unabhängig bei `false`.
 
-    constructor(address _owner) {
-        if (_owner == address(0)) revert InvalidAddress();
+    constructor() {
+        _cloneInitialized = true;
+    }
+
+    // ── initialize ───────────────────────────────────────────────────────────
+    //
+    // Ersetzt den Constructor für Clones. Wird von DcaVaultFactory.createVault()
+    // unmittelbar nach Clones.clone() in derselben Transaktion aufgerufen — kein
+    // Zeitfenster für Front-Running zwischen Clone-Erzeugung und Initialisierung.
+
+    function initialize(address _owner, address _squidRouter) external {
+        if (_cloneInitialized) revert AlreadyInitialized();
+        _cloneInitialized = true;
+
+        if (_owner == address(0) || _squidRouter == address(0)) revert InvalidAddress();
+
         owner = _owner;
+        approvedRouters[_squidRouter] = true;
+        emit RouterUpdated(_squidRouter, true);
     }
 
     // ── setupPlan ────────────────────────────────────────────────────────────

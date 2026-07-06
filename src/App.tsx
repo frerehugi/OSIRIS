@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { connectWallet, submitDcaPlan } from './minipayWallet';
+import { connectWallet, submitDcaPlan, getUserVaults, readPlanStatus, type SubmitDcaPlanPhase } from './minipayWallet';
 import {
   TOKENS,
   WEEKDAYS,
@@ -23,6 +23,28 @@ interface ValidationResult {
   valid:    boolean;
   message?: string;
 }
+
+type VaultStatus = 'pending' | 'active' | 'cancelled' | 'complete';
+
+interface VaultSummary {
+  address: `0x${string}`;
+  status:  VaultStatus;
+}
+
+type View = 'connect' | 'vaultList' | 'wizard' | 'success';
+
+const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
+  'creating-vault':   '⏳ Creating vault...',
+  'approving':        '⏳ Approving USDC...',
+  'setting-up-plan':  '⏳ Setting up plan...',
+};
+
+const VAULT_STATUS_LABEL: Record<VaultStatus, string> = {
+  pending:   '⚠ Setup incomplete',
+  active:    '🟢 Active',
+  cancelled: '⨯ Cancelled',
+  complete:  '✓ Complete',
+};
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 
@@ -92,6 +114,13 @@ function getUtcTimeDisplay(localTime: string): string {
   return date.toISOString().slice(11, 16);
 }
 
+function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>): VaultStatus {
+  if (!status.initialized) return 'pending';
+  if (status.cancelled)    return 'cancelled';
+  if (status.currentStep >= status.totalSteps) return 'complete';
+  return 'active';
+}
+
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
@@ -156,10 +185,17 @@ function InputField({
 // ─── Haupt-App ────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [formData, setFormData]     = useState<DcaPlanState>(() => createInitialFormState());
+  const [view, setView]               = useState<View>('connect');
+  const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
+  const [existingVaults, setExistingVaults] = useState<VaultSummary[]>([]);
+  const [vaultsLoading, setVaultsLoading] = useState(false);
+  const [vaultsError, setVaultsError]   = useState<string | null>(null);
+
+  const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [txHash, setTxHash]           = useState<string | null>(null);
+  const [submitPhase, setSubmitPhase] = useState<SubmitDcaPlanPhase | null>(null);
+  const [newVaultAddress, setNewVaultAddress] = useState<`0x${string}` | null>(null);
 
   const updateField = <K extends keyof DcaPlanState>(field: K, value: DcaPlanState[K]) => {
     setSubmitError(null);
@@ -181,18 +217,68 @@ export default function App() {
 
   const nextPage  = () => setFormData((p) => ({ ...p, step: Math.min(p.step + 1, MAX_STEP) }));
   const prevPage  = () => setFormData((p) => ({ ...p, step: Math.max(p.step - 1, 1) }));
-  const resetForm = () => {
-    setSubmitError(null);
-    setIsSubmitting(false);
-    setTxHash(null);
-    setFormData(createInitialFormState());
-  };
 
   const handleSliderChange = (token: TokenType, value: number) => {
     const safeValue   = Math.max(0, Math.min(TOTAL_PERCENT, value));
     const otherSum    = TOKENS.filter((t) => t !== token).reduce((sum, t) => sum + formData.percentages[t], 0);
     const maxAllowed  = TOTAL_PERCENT - otherSum;
     updateField('percentages', { ...formData.percentages, [token]: Math.min(safeValue, maxAllowed) });
+  };
+
+  // ── Wallet verbinden + eigene Vaults laden ────────────────────────────────
+
+  const loadVaults = async (address: `0x${string}`) => {
+    setVaultsLoading(true);
+    setVaultsError(null);
+    try {
+      const vaultAddresses = await getUserVaults(address);
+      const summaries = await Promise.all(
+        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
+          const status = await readPlanStatus(vaultAddress);
+          return { address: vaultAddress, status: computeVaultStatus(status) };
+        }),
+      );
+      setExistingVaults(summaries);
+      setView(summaries.length > 0 ? 'vaultList' : 'wizard');
+    } catch (error) {
+      console.error('Loading existing vaults failed', error);
+      setVaultsError(error instanceof Error ? error.message : 'Could not load your vaults.');
+      setView('wizard'); // Nutzer trotzdem nicht blockieren
+    } finally {
+      setVaultsLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    setVaultsError(null);
+    try {
+      const address = await connectWallet();
+      setWalletAddress(address);
+      await loadVaults(address);
+    } catch (error) {
+      console.error('Wallet connection failed', error);
+      setVaultsError(error instanceof Error ? error.message : 'Wallet connection failed.');
+    }
+  };
+
+  const startNewPlan = () => {
+    setSubmitError(null);
+    setNewVaultAddress(null);
+    setFormData(createInitialFormState());
+    setView('wizard');
+  };
+
+  const resetForm = () => {
+    setSubmitError(null);
+    setIsSubmitting(false);
+    setSubmitPhase(null);
+    setNewVaultAddress(null);
+    setFormData(createInitialFormState());
+    if (walletAddress) {
+      void loadVaults(walletAddress);
+    } else {
+      setView('connect');
+    }
   };
 
   const handleContractDeployment = async () => {
@@ -203,18 +289,74 @@ export default function App() {
     setSubmitError(null);
 
     try {
-      const ownerAddress = await connectWallet();
-      const receipt = await submitDcaPlan(formData, ownerAddress);
-      setTxHash(receipt.transactionHash);
+      const ownerAddress = walletAddress ?? await connectWallet();
+      if (!walletAddress) setWalletAddress(ownerAddress);
+
+      const result = await submitDcaPlan(formData, ownerAddress, setSubmitPhase);
+      setNewVaultAddress(result.vaultAddress);
+      setView('success');
     } catch (error) {
       console.error('DCA plan submission failed', error);
       setSubmitError(error instanceof Error ? error.message : 'The wallet action failed. Please try again.');
     } finally {
       setIsSubmitting(false);
+      setSubmitPhase(null);
     }
   };
 
-  if (txHash) {
+  // ── View: Wallet verbinden ─────────────────────────────────────────────────
+
+  if (view === 'connect') {
+    return (
+      <Card>
+        <section className="stack center">
+          <img src="./banner.jpg" alt="OSIRIS" className="banner" />
+          <h1>OSIRIS</h1>
+          <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
+          <p className="muted">Connect your wallet to view your plans or start a new one.</p>
+          {vaultsError && <p className="error">{vaultsError}</p>}
+          <Button onClick={handleConnect} disabled={vaultsLoading}>
+            {vaultsLoading ? '⏳ Connecting...' : '👛 Connect Wallet'}
+          </Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Liste bestehender Vaults ────────────────────────────────────────
+
+  if (view === 'vaultList') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>📂 Your Plans</h2>
+          {existingVaults.map((v) => (
+            <div key={v.address} className="summary">
+              <p>
+                <span className="muted">Vault:</span>{' '}
+                <a
+                  href={`https://celoscan.io/address/${v.address}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {v.address.slice(0, 6)}…{v.address.slice(-4)} ↗
+                </a>
+              </p>
+              <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
+            </div>
+          ))}
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
+            <Button onClick={startNewPlan}>+ New Plan</Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Erfolg ───────────────────────────────────────────────────────────
+
+  if (view === 'success' && newVaultAddress) {
     return (
       <Card>
         <section className="stack center">
@@ -225,18 +367,20 @@ export default function App() {
             {formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}
           </p>
           <a
-            href={`https://celoscan.io/tx/${txHash}`}
+            href={`https://celoscan.io/address/${newVaultAddress}`}
             target="_blank"
             rel="noreferrer"
             className="muted"
           >
-            View transaction on Celoscan ↗
+            View vault {newVaultAddress.slice(0, 6)}…{newVaultAddress.slice(-4)} on Celoscan ↗
           </a>
-          <Button onClick={resetForm}>Start Over</Button>
+          <Button onClick={resetForm}>Back to My Plans</Button>
         </section>
       </Card>
     );
   }
+
+  // ── View: Wizard (Schritte 1–6) ────────────────────────────────────────────
 
   return (
     <Card>
@@ -252,6 +396,9 @@ export default function App() {
             <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>📅 Daily</Button>
             <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>🗓 Weekly</Button>
           </div>
+          {existingVaults.length > 0 && (
+            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          )}
         </section>
       )}
 
@@ -411,11 +558,14 @@ export default function App() {
             <p>UTC reference: <strong>{utcDisplay}</strong></p>
             <p>Timezone: <strong>{formData.timezone}</strong></p>
           </div>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>
+            Confirming requires 3 wallet transactions: creating your vault, approving USDC, and starting the plan.
+          </p>
           {submitError && <p className="error">{submitError}</p>}
           <div className="button-row">
             <Button variant="danger" onClick={resetForm} disabled={isSubmitting}>✗ Decline</Button>
             <Button variant="success" onClick={handleContractDeployment} disabled={isSubmitting}>
-              {isSubmitting ? '⏳ Preparing...' : '✓ Confirm'}
+              {isSubmitting ? SUBMIT_PHASE_LABEL[submitPhase ?? 'creating-vault'] : '✓ Confirm'}
             </Button>
           </div>
         </section>

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {DcaVault} from "../contracts/DcaVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockSquidRouter} from "./mocks/MockSquidRouter.sol";
@@ -16,6 +17,7 @@ contract DcaVaultTest is Test {
 
     // ─── Contracts ───────────────────────────────────────────────────────────
 
+    DcaVault         vaultImplementation;
     DcaVault         vault;
     MockERC20        usdc;
     MockERC20        weth;
@@ -44,11 +46,11 @@ contract DcaVaultTest is Test {
         celo   = new MockERC20("Celo",        "CELO", 18);
         router = new MockSquidRouter();
 
-        // Vault deployen + Router freigeben
-        vm.startPrank(owner);
-        vault = new DcaVault(owner);
-        vault.setRouter(address(router), true);
-        vm.stopPrank();
+        // Master-Implementation deployen, Clone ziehen, initialisieren
+        // (initialize() whitelistet den übergebenen Router automatisch).
+        vaultImplementation = new DcaVault();
+        vault = DcaVault(Clones.clone(address(vaultImplementation)));
+        vault.initialize(owner, address(router));
 
         // Owner mit USDC versorgen
         usdc.mint(owner, TOTAL_AMOUNT * 10);
@@ -119,15 +121,35 @@ contract DcaVaultTest is Test {
         );
     }
 
-    // ─── Constructor Tests ───────────────────────────────────────────────────
+    // ─── initialize Tests ────────────────────────────────────────────────────
 
-    function test_constructor_setsOwner() public view {
+    function test_initialize_setsOwnerAndWhitelistsRouter() public view {
         assertEq(vault.owner(), owner);
+        assertTrue(vault.approvedRouters(address(router)));
     }
 
-    function test_constructor_revertsOnZeroAddress() public {
+    function test_initialize_revertsOnZeroOwner() public {
+        DcaVault freshClone = DcaVault(Clones.clone(address(vaultImplementation)));
         vm.expectRevert(DcaVault.InvalidAddress.selector);
-        new DcaVault(address(0));
+        freshClone.initialize(address(0), address(router));
+    }
+
+    function test_initialize_revertsOnZeroRouter() public {
+        DcaVault freshClone = DcaVault(Clones.clone(address(vaultImplementation)));
+        vm.expectRevert(DcaVault.InvalidAddress.selector);
+        freshClone.initialize(owner, address(0));
+    }
+
+    function test_initialize_revertsIfCloneAlreadyInitialized() public {
+        vm.expectRevert(DcaVault.AlreadyInitialized.selector);
+        vault.initialize(owner, address(router));
+    }
+
+    function test_initialize_revertsOnImplementationDirectly() public {
+        // Der Constructor sperrt die rohe Implementation gegen initialize() —
+        // Standard-Absicherung bei Clone-Factories.
+        vm.expectRevert(DcaVault.AlreadyInitialized.selector);
+        vaultImplementation.initialize(owner, address(router));
     }
 
     // ─── setupPlan Tests ─────────────────────────────────────────────────────

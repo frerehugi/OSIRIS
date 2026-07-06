@@ -10,12 +10,22 @@
 export const DCA_VAULT_ABI = [
 
   // ─── Constructor ────────────────────────────────────────────────────────────
+  // Parameterlos — DcaVault ist die Clone-Implementation, echte Instanzen
+  // entstehen über DcaVaultFactory.createVault() + initialize().
   {
     type: "constructor",
-    inputs: [
-      { name: "_owner", type: "address" },
-    ],
+    inputs: [],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "initialize",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_owner",       type: "address" },
+      { name: "_squidRouter", type: "address" },
+    ],
+    outputs: [],
   },
 
   // ─── Constants ──────────────────────────────────────────────────────────────
@@ -261,6 +271,67 @@ export const DCA_VAULT_ABI = [
   { type: "error", name: "RouterNotApproved",        inputs: [] },
   { type: "error", name: "SwapFailed",               inputs: [] },
   { type: "error", name: "SlippageExceeded",         inputs: [] },
+] as const;
+
+// ─── DcaVaultFactory ABI ──────────────────────────────────────────────────────
+// Abgeleitet aus DcaVaultFactory.sol — erzeugt pro Nutzer einen eigenen
+// DcaVault-Clone (EIP-1167) über createVault().
+
+export const DCA_VAULT_FACTORY_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      { name: "_vaultImplementation", type: "address" },
+      { name: "_squidRouter",         type: "address" },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function", name: "vaultImplementation",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "squidRouter",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "createVault",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "vault", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "getVaults",
+    stateMutability: "view",
+    inputs:  [{ name: "_owner", type: "address" }],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
+    type: "function",
+    name: "getAllVaults",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
+    type: "function",
+    name: "vaultCount",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "event", name: "VaultCreated",
+    inputs: [
+      { name: "owner", type: "address", indexed: true },
+      { name: "vault", type: "address", indexed: true },
+    ],
+  },
+  { type: "error", name: "InvalidAddress", inputs: [] },
 ] as const;
 
 // ─── ERC-20 ABI ───────────────────────────────────────────────────────────────
