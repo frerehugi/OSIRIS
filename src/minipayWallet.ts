@@ -4,6 +4,7 @@ import {
   custom,
   http,
   parseUnits,
+  parseEventLogs,
 } from "viem";
 import { celo } from "viem/chains";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "./dcaVaultAbi";
@@ -140,6 +141,7 @@ export async function submitDcaPlan(
   // ── Phase 1: Vault über die Factory erstellen ─────────────────────────────
   onProgress?.('creating-vault');
   let createVaultReceipt;
+  let vaultAddress: `0x${string}` | undefined;
   try {
     const hash = await walletClient.writeContract({
       account: ownerAddress,
@@ -148,14 +150,25 @@ export async function submitDcaPlan(
       functionName: "createVault",
     });
     createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    // Adresse direkt aus dem VaultCreated-Event dieser Transaktion lesen statt
+    // erneut factory.getVaults() abzufragen — ein separater Read direkt nach
+    // der Bestätigung kann bei manchen RPC-Knoten (Load-Balancer-Replikations-
+    // Lag) noch den Stand VOR dieser Transaktion liefern und dadurch versehentlich
+    // einen alten, bereits existierenden Vault statt des gerade neu erstellten
+    // zurückgeben.
+    const [vaultCreatedEvent] = parseEventLogs({
+      abi: DCA_VAULT_FACTORY_ABI,
+      eventName: "VaultCreated",
+      logs: createVaultReceipt.logs,
+    });
+    vaultAddress = vaultCreatedEvent?.args.vault;
   } catch (error) {
     throw new Error(`Vault-Erstellung fehlgeschlagen: ${describeError(error)}`);
   }
 
-  const vaults = await getUserVaults(ownerAddress);
-  const vaultAddress = vaults[vaults.length - 1];
   if (!vaultAddress) {
-    throw new Error("Vault wurde erstellt, konnte aber nicht über factory.getVaults() gefunden werden.");
+    throw new Error("Vault wurde erstellt, aber die Adresse konnte nicht aus dem VaultCreated-Event gelesen werden.");
   }
 
   // ── Phase 2: USDC an den NEUEN Vault freigeben ────────────────────────────
