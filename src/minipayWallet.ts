@@ -33,7 +33,12 @@ export function getClients() {
 
 export async function connectWallet(): Promise<`0x${string}`> {
   const { walletClient } = getClients();
-  const [address] = await walletClient.getAddresses();
+  // requestAddresses() -> eth_requestAccounts: löst den Connect-Dialog der
+  // Wallet aus. getAddresses() (eth_accounts) würde bei einer Seite, die noch
+  // nie autorisiert wurde, still ein leeres Array liefern, OHNE irgendeinen
+  // Dialog zu zeigen — das sah wie eine abgelehnte Verbindung aus, obwohl nie
+  // gefragt wurde.
+  const [address] = await walletClient.requestAddresses();
   if (!address) throw new Error("Wallet-Verbindung abgelehnt oder fehlgeschlagen.");
   return address;
 }
