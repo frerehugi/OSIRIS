@@ -89,7 +89,7 @@ if (!KEEPER_PRIVATE_KEY) {
 // 1 % zusätzlicher Puffer auf Squids eigene Slippage-Berechnung,
 // um kurzfristige Marktbewegungen zwischen Quote und On-Chain-Ausführung
 // abzufedern, ohne die Slippage-Kontrolle auszuhebeln.
-const SLIPPAGE_BPS_BUFFER = 100;
+const SLIPPAGE_BPS_BUFFER = 300;
 
 const account = privateKeyToAccount(KEEPER_PRIVATE_KEY);
 const walletClient = createWalletClient({ account, chain: activeChain, transport: http() });
