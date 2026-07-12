@@ -144,7 +144,7 @@ async function getSquidRoute(params: {
           fromAmount:  params.fromAmount,
           fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
           toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
-          slippage:    1.5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
+          slippage:      5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
           quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
         },
         {
