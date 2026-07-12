@@ -39,7 +39,7 @@ const RETRY_BACKOFFS_MS = [5_000, 15_000, 45_000];
 // fehl), nicht als SlippageExceeded() — der Keeper-Puffer greift also nicht,
 // wenn dieser Wert zu knapp ist. War bei 1.5% zu eng (beobachtete
 // SwapFailed()-Reverts).
-export const SQUID_QUOTE_SLIPPAGE_PERCENT = 3;
+export const SQUID_QUOTE_SLIPPAGE_PERCENT = 5;
 
 // Squids "retry-after" bei 504 (Gateway Timeout) lag beobachtet bei ~120s —
 // deutlich länger als der Rate-Limit-Backoff für 429. Fallback, falls der
