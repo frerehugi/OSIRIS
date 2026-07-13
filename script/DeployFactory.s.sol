@@ -29,6 +29,13 @@ contract DeployFactory is Script {
     // Quelle: Squid /v2/sdk-info, chains[].squidContracts.squidRouter (chainId 42220)
     address constant SQUID_ROUTER_MAINNET = 0xce16F69375520ab01377ce7B88f5BA8C48F8D666;
 
+    // Adresse des globalen Keeper-Bots (GitHub-Actions-Workflow, siehe
+    // .github/workflows/keeper.yml / keeper/squidKeeper.ts). Wird bei jedem
+    // neu erstellten Vault automatisch als Keeper freigeschaltet, damit der
+    // Bot ohne zusätzliche setKeeper()-Transaktion des Nutzers Steps ausführen
+    // kann.
+    address constant GLOBAL_KEEPER = 0x02069c8AfceC69622c0F1C5316735042A86BC6fA;
+
     function run() external {
         require(
             block.chainid == 42220,
@@ -40,11 +47,16 @@ contract DeployFactory is Script {
         console2.log("=== OSIRIS DcaVaultFactory Deploy ===");
         console2.log("Chain ID:      ", block.chainid);
         console2.log("Squid Router:  ", SQUID_ROUTER_MAINNET);
+        console2.log("Global Keeper: ", GLOBAL_KEEPER);
 
         vm.startBroadcast(deployerKey);
 
         DcaVault implementation = new DcaVault();
-        DcaVaultFactory factory = new DcaVaultFactory(address(implementation), SQUID_ROUTER_MAINNET);
+        DcaVaultFactory factory = new DcaVaultFactory(
+            address(implementation),
+            SQUID_ROUTER_MAINNET,
+            GLOBAL_KEEPER
+        );
 
         vm.stopBroadcast();
 

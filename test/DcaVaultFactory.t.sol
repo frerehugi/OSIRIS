@@ -14,15 +14,16 @@ contract DcaVaultFactoryTest is Test {
     DcaVault        vaultImplementation;
     DcaVaultFactory factory;
 
-    address squidRouter = makeAddr("squidRouter");
-    address alice       = makeAddr("alice");
-    address bob         = makeAddr("bob");
+    address squidRouter  = makeAddr("squidRouter");
+    address globalKeeper = makeAddr("globalKeeper");
+    address alice        = makeAddr("alice");
+    address bob          = makeAddr("bob");
 
     event VaultCreated(address indexed owner, address indexed vault);
 
     function setUp() public {
         vaultImplementation = new DcaVault();
-        factory = new DcaVaultFactory(address(vaultImplementation), squidRouter);
+        factory = new DcaVaultFactory(address(vaultImplementation), squidRouter, globalKeeper);
     }
 
     function test_createVault_success() public {
@@ -61,6 +62,28 @@ contract DcaVaultFactoryTest is Test {
         address vault = factory.createVault();
 
         assertEq(DcaVault(vault).owner(), alice);
+    }
+
+    function test_createVault_globalKeeperAutoAuthorized() public {
+        vm.prank(alice);
+        address vault = factory.createVault();
+
+        assertTrue(DcaVault(vault).isKeeper(globalKeeper));
+    }
+
+    function test_constructor_revertsOnZeroVaultImplementation() public {
+        vm.expectRevert(DcaVaultFactory.InvalidAddress.selector);
+        new DcaVaultFactory(address(0), squidRouter, globalKeeper);
+    }
+
+    function test_constructor_revertsOnZeroSquidRouter() public {
+        vm.expectRevert(DcaVaultFactory.InvalidAddress.selector);
+        new DcaVaultFactory(address(vaultImplementation), address(0), globalKeeper);
+    }
+
+    function test_constructor_revertsOnZeroGlobalKeeper() public {
+        vm.expectRevert(DcaVaultFactory.InvalidAddress.selector);
+        new DcaVaultFactory(address(vaultImplementation), squidRouter, address(0));
     }
 
     function test_createVault_emitsEvent() public {

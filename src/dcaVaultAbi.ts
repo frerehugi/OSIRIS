@@ -22,8 +22,9 @@ export const DCA_VAULT_ABI = [
     name: "initialize",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "_owner",       type: "address" },
-      { name: "_squidRouter", type: "address" },
+      { name: "_owner",        type: "address" },
+      { name: "_squidRouter",  type: "address" },
+      { name: "_globalKeeper", type: "address" },
     ],
     outputs: [],
   },
@@ -283,6 +284,7 @@ export const DCA_VAULT_FACTORY_ABI = [
     inputs: [
       { name: "_vaultImplementation", type: "address" },
       { name: "_squidRouter",         type: "address" },
+      { name: "_globalKeeper",        type: "address" },
     ],
     stateMutability: "nonpayable",
   },
@@ -293,6 +295,11 @@ export const DCA_VAULT_FACTORY_ABI = [
   },
   {
     type: "function", name: "squidRouter",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "globalKeeper",
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
   },

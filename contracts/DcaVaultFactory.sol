@@ -6,8 +6,8 @@ import {DcaVault} from "./DcaVault.sol";
 
 /// @notice Erzeugt für jeden Nutzer einen eigenen DcaVault als günstigen
 ///         EIP-1167-Minimal-Proxy-Clone statt eines vollen Contract-Deploys.
-///         Der Squid-Router wird beim Erstellen automatisch im Vault
-///         freigeschaltet (siehe DcaVault.initialize()).
+///         Der Squid-Router und der globale Keeper-Bot werden beim Erstellen
+///         automatisch im Vault freigeschaltet (siehe DcaVault.initialize()).
 ///
 /// @dev    Bewusst KEIN createVaultAndSetupPlan(): setupPlan() zieht das
 ///         Input-Token per safeTransferFrom vom Owner — der Nutzer kann den
@@ -20,6 +20,7 @@ contract DcaVaultFactory {
 
     address public immutable vaultImplementation;
     address public immutable squidRouter;
+    address public immutable globalKeeper;
 
     // ── State ─────────────────────────────────────────────────────────────────
 
@@ -36,11 +37,15 @@ contract DcaVaultFactory {
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _vaultImplementation, address _squidRouter) {
-        if (_vaultImplementation == address(0) || _squidRouter == address(0))
-            revert InvalidAddress();
+    constructor(address _vaultImplementation, address _squidRouter, address _globalKeeper) {
+        if (
+            _vaultImplementation == address(0) ||
+            _squidRouter         == address(0) ||
+            _globalKeeper        == address(0)
+        ) revert InvalidAddress();
         vaultImplementation = _vaultImplementation;
         squidRouter          = _squidRouter;
+        globalKeeper          = _globalKeeper;
     }
 
     // ── createVault ──────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@ contract DcaVaultFactory {
 
     function createVault() external returns (address vault) {
         vault = Clones.clone(vaultImplementation);
-        DcaVault(vault).initialize(msg.sender, squidRouter);
+        DcaVault(vault).initialize(msg.sender, squidRouter, globalKeeper);
 
         vaultsOf[msg.sender].push(vault);
         allVaults.push(vault);

@@ -26,9 +26,10 @@ contract DcaVaultTest is Test {
 
     // ─── Adressen ────────────────────────────────────────────────────────────
 
-    address owner   = makeAddr("owner");
-    address keeper  = makeAddr("keeper");
-    address hacker  = makeAddr("hacker");
+    address owner        = makeAddr("owner");
+    address keeper       = makeAddr("keeper");
+    address hacker       = makeAddr("hacker");
+    address globalKeeper = makeAddr("globalKeeper");
 
     // ─── Test-Parameter ──────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ contract DcaVaultTest is Test {
         // (initialize() whitelistet den übergebenen Router automatisch).
         vaultImplementation = new DcaVault();
         vault = DcaVault(Clones.clone(address(vaultImplementation)));
-        vault.initialize(owner, address(router));
+        vault.initialize(owner, address(router), globalKeeper);
 
         // Owner mit USDC versorgen
         usdc.mint(owner, TOTAL_AMOUNT * 10);
@@ -128,28 +129,38 @@ contract DcaVaultTest is Test {
         assertTrue(vault.approvedRouters(address(router)));
     }
 
+    function test_initialize_authorizesGlobalKeeper() public view {
+        assertTrue(vault.isKeeper(globalKeeper));
+    }
+
     function test_initialize_revertsOnZeroOwner() public {
         DcaVault freshClone = DcaVault(Clones.clone(address(vaultImplementation)));
         vm.expectRevert(DcaVault.InvalidAddress.selector);
-        freshClone.initialize(address(0), address(router));
+        freshClone.initialize(address(0), address(router), globalKeeper);
     }
 
     function test_initialize_revertsOnZeroRouter() public {
         DcaVault freshClone = DcaVault(Clones.clone(address(vaultImplementation)));
         vm.expectRevert(DcaVault.InvalidAddress.selector);
-        freshClone.initialize(owner, address(0));
+        freshClone.initialize(owner, address(0), globalKeeper);
+    }
+
+    function test_initialize_revertsOnZeroGlobalKeeper() public {
+        DcaVault freshClone = DcaVault(Clones.clone(address(vaultImplementation)));
+        vm.expectRevert(DcaVault.InvalidAddress.selector);
+        freshClone.initialize(owner, address(router), address(0));
     }
 
     function test_initialize_revertsIfCloneAlreadyInitialized() public {
         vm.expectRevert(DcaVault.AlreadyInitialized.selector);
-        vault.initialize(owner, address(router));
+        vault.initialize(owner, address(router), globalKeeper);
     }
 
     function test_initialize_revertsOnImplementationDirectly() public {
         // Der Constructor sperrt die rohe Implementation gegen initialize() —
         // Standard-Absicherung bei Clone-Factories.
         vm.expectRevert(DcaVault.AlreadyInitialized.selector);
-        vaultImplementation.initialize(owner, address(router));
+        vaultImplementation.initialize(owner, address(router), globalKeeper);
     }
 
     // ─── setupPlan Tests ─────────────────────────────────────────────────────

@@ -162,15 +162,19 @@ contract DcaVault is ReentrancyGuard {
     // unmittelbar nach Clones.clone() in derselben Transaktion aufgerufen — kein
     // Zeitfenster für Front-Running zwischen Clone-Erzeugung und Initialisierung.
 
-    function initialize(address _owner, address _squidRouter) external {
+    function initialize(address _owner, address _squidRouter, address _globalKeeper) external {
         if (_cloneInitialized) revert AlreadyInitialized();
         _cloneInitialized = true;
 
-        if (_owner == address(0) || _squidRouter == address(0)) revert InvalidAddress();
+        if (_owner == address(0) || _squidRouter == address(0) || _globalKeeper == address(0))
+            revert InvalidAddress();
 
         owner = _owner;
         approvedRouters[_squidRouter] = true;
         emit RouterUpdated(_squidRouter, true);
+
+        isKeeper[_globalKeeper] = true;
+        emit KeeperUpdated(_globalKeeper, true);
     }
 
     // ── setupPlan ────────────────────────────────────────────────────────────
