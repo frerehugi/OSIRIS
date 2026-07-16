@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { connectWallet, submitDcaPlan, getUserVaults, readPlanStatus, type SubmitDcaPlanPhase } from './minipayWallet';
+import { connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, type SubmitDcaPlanPhase } from './minipayWallet';
 import {
   TOKENS,
   WEEKDAYS,
@@ -195,6 +195,8 @@ export default function App() {
   const [existingVaults, setExistingVaults] = useState<VaultSummary[]>([]);
   const [vaultsLoading, setVaultsLoading] = useState(false);
   const [vaultsError, setVaultsError]   = useState<string | null>(null);
+  const [cancellingAddress, setCancellingAddress] = useState<`0x${string}` | null>(null);
+  const [cancelError, setCancelError]   = useState<string | null>(null);
 
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -251,6 +253,26 @@ export default function App() {
       setView('wizard'); // Nutzer trotzdem nicht blockieren
     } finally {
       setVaultsLoading(false);
+    }
+  };
+
+  const handleCancelVault = async (vaultAddress: `0x${string}`) => {
+    if (!walletAddress) return;
+    const confirmed = window.confirm(
+      'Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    setCancellingAddress(vaultAddress);
+    setCancelError(null);
+    try {
+      await cancelDcaPlan(vaultAddress, walletAddress);
+      await loadVaults(walletAddress);
+    } catch (error) {
+      console.error('Cancel failed', error);
+      setCancelError(error instanceof Error ? error.message : 'Cancel failed. Please try again.');
+    } finally {
+      setCancellingAddress(null);
     }
   };
 
@@ -348,8 +370,18 @@ export default function App() {
                 </a>
               </p>
               <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
+              {v.status === 'active' && (
+                <Button
+                  variant="danger"
+                  onClick={() => handleCancelVault(v.address)}
+                  disabled={cancellingAddress === v.address}
+                >
+                  {cancellingAddress === v.address ? '⏳ Cancelling...' : '✗ Cancel Plan'}
+                </Button>
+              )}
             </div>
           ))}
+          {cancelError && <p className="error">{cancelError}</p>}
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
             <Button onClick={startNewPlan}>+ New Plan</Button>

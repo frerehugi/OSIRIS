@@ -214,6 +214,29 @@ export async function submitDcaPlan(
   return { vaultAddress, createVaultReceipt, approveReceipt, setupPlanReceipt };
 }
 
+// ─── DCA-Plan canceln ──────────────────────────────────────────────────────────
+//
+// Nur der Owner darf canceln (onlyOwner in DcaVault.cancelPlan()). Gibt den
+// verbleibenden Restbestand des Input-Tokens automatisch an den Owner zurück.
+
+export async function cancelDcaPlan(
+  vaultAddress: `0x${string}`,
+  ownerAddress: `0x${string}`,
+): Promise<Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>> {
+  const { walletClient, publicClient } = getClients();
+  try {
+    const hash = await walletClient.writeContract({
+      account: ownerAddress,
+      address: vaultAddress,
+      abi:     DCA_VAULT_ABI,
+      functionName: "cancelPlan",
+    });
+    return await publicClient.waitForTransactionReceipt({ hash });
+  } catch (error) {
+    throw new Error(`Cancel fehlgeschlagen: ${describeError(error)}`);
+  }
+}
+
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────
 
 export async function readPlanStatus(contractAddress: `0x${string}`) {
