@@ -7,6 +7,7 @@ import {
   type Weekday,
   type InputToken,
   type DcaPlanState,
+  type Interval,
 } from './types';
 
 // ─── Konstanten ───────────────────────────────────────────────────────────────
@@ -104,6 +105,17 @@ function validateFullPlan(formData: DcaPlanState): ValidationResult {
   if (!durationValidation.valid) return durationValidation;
   if (!/^\d{2}:\d{2}$/.test(formData.executionTime)) return { valid: false, message: 'Choose a valid execution time.' };
   return { valid: true };
+}
+
+const INTERVAL_UNIT: Record<Interval, { singular: string; plural: string }> = {
+  hourly: { singular: 'hour', plural: 'hours' },
+  daily:  { singular: 'day',  plural: 'days' },
+  weekly: { singular: 'week', plural: 'weeks' },
+};
+
+function intervalUnit(interval: Interval | null, plural = true): string {
+  const unit = INTERVAL_UNIT[interval ?? 'daily'];
+  return plural ? unit.plural : unit.singular;
 }
 
 function getUtcTimeDisplay(localTime: string): string {
@@ -237,8 +249,18 @@ export default function App() {
   const trancheAmount       = duration > 0 ? totalAmount / duration : 0;
   const utcDisplay          = getUtcTimeDisplay(formData.executionTime);
 
-  const nextPage  = () => setFormData((p) => ({ ...p, step: Math.min(p.step + 1, MAX_STEP) }));
-  const prevPage  = () => setFormData((p) => ({ ...p, step: Math.max(p.step - 1, 1) }));
+  // Stündliche Pläne haben keinen festen Tageszeitpunkt, daher überspringt der
+  // Wizard für sie Schritt 5 (Zeitplan) in beide Richtungen.
+  const nextPage = () => setFormData((p) => {
+    let step = Math.min(p.step + 1, MAX_STEP);
+    if (p.interval === 'hourly' && step === 5) step = 6;
+    return { ...p, step };
+  });
+  const prevPage = () => setFormData((p) => {
+    let step = Math.max(p.step - 1, 1);
+    if (p.interval === 'hourly' && step === 5) step = 4;
+    return { ...p, step };
+  });
 
   const handleSliderChange = (token: TokenType, value: number) => {
     const safeValue   = Math.max(0, Math.min(TOTAL_PERCENT, value));
@@ -441,7 +463,7 @@ export default function App() {
           <h2 style={{ color: '#6ee7b7' }}>Plan Submitted!</h2>
           <p>
             <strong>{formData.totalAmount} {formData.inputToken}</strong> over{' '}
-            {formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}
+            {formData.duration} {intervalUnit(formData.interval)}
           </p>
           <a
             href={`https://celoscan.io/address/${newVaultAddress}`}
@@ -470,6 +492,7 @@ export default function App() {
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
           <p className="muted">Choose how often the plan should invest.</p>
           <div className="button-column">
+            <Button variant="secondary" onClick={() => { updateField('interval', 'hourly'); nextPage(); }}>⚡ Hourly</Button>
             <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>📅 Daily</Button>
             <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>🗓 Weekly</Button>
           </div>
@@ -549,11 +572,11 @@ export default function App() {
           <h2>⏱ Set Duration</h2>
           <InputField
             id="duration"
-            label={`Number of ${formData.interval === 'daily' ? 'days' : 'weeks'}`}
+            label={`Number of ${intervalUnit(formData.interval)}`}
             type="text"
             value={formData.duration}
             onChange={(value) => updateField('duration', value)}
-            placeholder={formData.interval === 'daily' ? '10' : '4'}
+            placeholder={formData.interval === 'hourly' ? '24' : formData.interval === 'daily' ? '10' : '4'}
             error={formData.duration ? durationValidation.message : undefined}
           />
           {duration > 0 && durationValidation.valid && (
@@ -561,7 +584,7 @@ export default function App() {
               <span>Your tranche</span>
               <strong>
                 {trancheAmount.toFixed(2)} {formData.inputToken} /{' '}
-                {formData.interval === 'daily' ? 'day' : 'week'}
+                {intervalUnit(formData.interval, false)}
               </strong>
             </div>
           )}
@@ -621,22 +644,28 @@ export default function App() {
           <h2>📋 Summary</h2>
           <div className="summary">
             <p>Plan amount: <strong>{formData.totalAmount} {formData.inputToken}</strong></p>
-            <p>Duration: <strong>{formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}</strong></p>
+            <p>Duration: <strong>{formData.duration} {intervalUnit(formData.interval)}</strong></p>
             <p>Tranche: <strong>{trancheAmount.toFixed(2)} {formData.inputToken}</strong></p>
             <hr />
             {TOKENS.filter((token) => formData.percentages[token] > 0).map((token) => (
               <p key={token}><strong>{formData.percentages[token]}%</strong> → {TOKEN_ICONS[token]} {token}</p>
             ))}
             <hr />
-            <p>
-              Schedule:{' '}
-              <strong>
-                {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
-                {formData.executionTime}
-              </strong>
-            </p>
-            <p>UTC reference: <strong>{utcDisplay}</strong></p>
-            <p>Timezone: <strong>{formData.timezone}</strong></p>
+            {formData.interval === 'hourly' ? (
+              <p>Schedule: <strong>every hour</strong></p>
+            ) : (
+              <>
+                <p>
+                  Schedule:{' '}
+                  <strong>
+                    {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
+                    {formData.executionTime}
+                  </strong>
+                </p>
+                <p>UTC reference: <strong>{utcDisplay}</strong></p>
+                <p>Timezone: <strong>{formData.timezone}</strong></p>
+              </>
+            )}
           </div>
           <p className="muted" style={{ fontSize: '0.8rem' }}>
             Confirming requires 3 wallet transactions: creating your vault, approving USDC, and starting the plan.

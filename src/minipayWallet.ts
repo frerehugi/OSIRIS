@@ -14,7 +14,7 @@ import {
   TARGET_TOKENS,
   INTERVAL_SECONDS,
 } from "./config";
-import type { DcaPlanState } from "./types";
+import type { DcaPlanState, Interval } from "./types";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,14 @@ function buildTargetArrays(percentages: Record<string, number>): {
 
 // ─── Execution Timestamp ──────────────────────────────────────────────────────
 
-function nextExecutionTimestamp(executionTimeLocal: string): bigint {
+function nextExecutionTimestamp(interval: Interval, executionTimeLocal: string): bigint {
+  // Stündliche Pläne haben keine feste Tageszeit — der Keeper pollt ohnehin
+  // stündlich, daher startet die erste Ausführung einfach beim nächsten
+  // Keeper-Durchlauf statt auf eine bestimmte Uhrzeit zu warten.
+  if (interval === "hourly") {
+    return BigInt(Math.floor(Date.now() / 1000) + 60);
+  }
+
   const [hours, minutes] = executionTimeLocal.split(":").map(Number);
   const now = new Date();
   const candidate = new Date(now);
@@ -129,7 +136,7 @@ export async function submitDcaPlan(
   const totalAmountRaw = parseUnits(formData.totalAmount, inputToken.decimals);
   const duration       = parseInt(formData.duration, 10);
   const interval       = BigInt(INTERVAL_SECONDS[formData.interval]);
-  const firstExecution = nextExecutionTimestamp(formData.executionTime);
+  const firstExecution = nextExecutionTimestamp(formData.interval, formData.executionTime);
 
   if (totalAmountRaw <= 0n) throw new Error("Gesamtbetrag muss > 0 sein.");
   if (duration <= 0)        throw new Error("Dauer muss > 0 sein.");

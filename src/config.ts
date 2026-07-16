@@ -137,7 +137,8 @@ const TARGET_TOKENS_BY_CHAIN: Record<"mainnet" | "sepolia", Record<"wBTC" | "wET
 
 export const TARGET_TOKENS = TARGET_TOKENS_BY_CHAIN[ACTIVE_CHAIN_ID === CELO_CHAIN_ID ? "mainnet" : "sepolia"];
 
-export const INTERVAL_SECONDS: Record<"daily" | "weekly", number> = {
+export const INTERVAL_SECONDS: Record<"hourly" | "daily" | "weekly", number> = {
+  hourly: 3_600,
   daily:  86_400,
   weekly: 604_800,
 };

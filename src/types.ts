@@ -8,7 +8,7 @@ export type TokenPercentages = Record<TokenType, number>;
 export const INPUT_TOKENS_KEYS = ['USDC', 'USDT', 'cUSD'] as const;
 export type InputToken = (typeof INPUT_TOKENS_KEYS)[number];
 
-export type Interval = 'daily' | 'weekly';
+export type Interval = 'hourly' | 'daily' | 'weekly';
 
 export const WEEKDAYS = [
   'Monday', 'Tuesday', 'Wednesday', 'Thursday',
