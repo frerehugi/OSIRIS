@@ -243,7 +243,7 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
   const { publicClient } = getClients();
   const [
     initialized, cancelled, currentStep, totalSteps,
-    nextExecTs, remainingBalance, trancheAmt,
+    nextExecTs, remainingBalance, trancheAmt, interval,
   ] = await Promise.all([
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "initialized" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "cancelled" }),
@@ -252,7 +252,9 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "nextExecutionTimestamp" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "remainingInputBalance" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
+    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "interval" }),
   ]);
   return { initialized, cancelled, currentStep, totalSteps,
-           nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt };
+           nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt,
+           interval };
 }

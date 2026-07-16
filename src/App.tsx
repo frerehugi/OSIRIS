@@ -121,6 +121,20 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
   return 'active';
 }
 
+// Abgeschlossene Pläne werden 24h nach der letzten Ausführung ausgeblendet, statt
+// dauerhaft in der Liste zu bleiben. Der Contract speichert keinen expliziten
+// "abgeschlossen am"-Zeitstempel — nach dem letzten executeStep() wurde
+// nextExecutionTimestamp aber bereits um ein weiteres `interval` erhöht, daher
+// ist (nextExecutionTimestamp - interval) die beste verfügbare Näherung für den
+// Zeitpunkt der letzten Ausführung.
+const HIDE_COMPLETED_AFTER_SECONDS = 24 * 60 * 60;
+
+function isStaleCompletedVault(status: Awaited<ReturnType<typeof readPlanStatus>>): boolean {
+  const lastExecutionTs = Number(status.nextExecutionTimestamp - status.interval);
+  const ageSeconds = Date.now() / 1000 - lastExecutionTs;
+  return ageSeconds > HIDE_COMPLETED_AFTER_SECONDS;
+}
+
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 
 // Der Keeper läuft stündlich (siehe .github/workflows/keeper.yml) — eine
@@ -197,6 +211,7 @@ export default function App() {
   const [vaultsError, setVaultsError]   = useState<string | null>(null);
   const [cancellingAddress, setCancellingAddress] = useState<`0x${string}` | null>(null);
   const [cancelError, setCancelError]   = useState<string | null>(null);
+  const [confirmingAddress, setConfirmingAddress] = useState<`0x${string}` | null>(null);
 
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -239,12 +254,15 @@ export default function App() {
     setVaultsError(null);
     try {
       const vaultAddresses = await getUserVaults(address);
-      const summaries = await Promise.all(
-        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
+      const rawSummaries = await Promise.all(
+        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary | null> => {
           const status = await readPlanStatus(vaultAddress);
-          return { address: vaultAddress, status: computeVaultStatus(status) };
+          const vaultStatus = computeVaultStatus(status);
+          if (vaultStatus === 'complete' && isStaleCompletedVault(status)) return null;
+          return { address: vaultAddress, status: vaultStatus };
         }),
       );
+      const summaries = rawSummaries.filter((s): s is VaultSummary => s !== null);
       setExistingVaults(summaries);
       setView(summaries.length > 0 ? 'vaultList' : 'wizard');
     } catch (error) {
@@ -256,13 +274,21 @@ export default function App() {
     }
   };
 
-  const handleCancelVault = async (vaultAddress: `0x${string}`) => {
-    if (!walletAddress) return;
-    const confirmed = window.confirm(
-      'Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.'
-    );
-    if (!confirmed) return;
+  // Kein window.confirm() — MiniPays In-App-Browser (wie viele eingebettete
+  // WebViews) unterdrückt native Dialoge und liefert sofort `false` zurück,
+  // ohne den Dialog je anzuzeigen. Bestätigung läuft deshalb über einen
+  // zweiten Klick innerhalb der App (confirmingAddress-State unten).
 
+  const requestCancel = (vaultAddress: `0x${string}`) => {
+    setCancelError(null);
+    setConfirmingAddress(vaultAddress);
+  };
+
+  const abortCancel = () => setConfirmingAddress(null);
+
+  const confirmCancel = async (vaultAddress: `0x${string}`) => {
+    if (!walletAddress) return;
+    setConfirmingAddress(null);
     setCancellingAddress(vaultAddress);
     setCancelError(null);
     try {
@@ -371,13 +397,27 @@ export default function App() {
               </p>
               <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
               {v.status === 'active' && (
-                <Button
-                  variant="danger"
-                  onClick={() => handleCancelVault(v.address)}
-                  disabled={cancellingAddress === v.address}
-                >
-                  {cancellingAddress === v.address ? '⏳ Cancelling...' : '✗ Cancel Plan'}
-                </Button>
+                confirmingAddress === v.address ? (
+                  <div className="stack">
+                    <p className="muted" style={{ fontSize: '0.85rem' }}>
+                      Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.
+                    </p>
+                    <div className="button-row">
+                      <Button variant="secondary" onClick={abortCancel}>No, keep it</Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => confirmCancel(v.address)}
+                        disabled={cancellingAddress === v.address}
+                      >
+                        {cancellingAddress === v.address ? '⏳ Cancelling...' : 'Yes, Cancel'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="danger" onClick={() => requestCancel(v.address)}>
+                    ✗ Cancel Plan
+                  </Button>
+                )
               )}
             </div>
           ))}
