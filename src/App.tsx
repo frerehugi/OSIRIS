@@ -33,10 +33,8 @@ interface VaultSummary {
   // Abschluss- bzw. Cancel-Zeitpunkt (Unix-Sekunden) für complete/cancelled —
   // null bei active/pending oder wenn der Zeitpunkt nicht ermittelbar ist
   // (z.B. ein außerhalb dieser App gecancelter Plan, siehe getCancelledAt()).
+  // Wird nur für die Anzeige auf der History-Seite gebraucht.
   eventTimestamp: number | null;
-  // true, wenn der Plan >24h nach eventTimestamp aus der "Your Plans"-Liste
-  // verschwinden soll (bleibt aber über die History-Seite weiter sichtbar).
-  hiddenFromPlans: boolean;
 }
 
 type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history';
@@ -148,10 +146,10 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
   return 'active';
 }
 
-// Abgeschlossene und gecancelte Pläne werden 24h nach ihrem letzten relevanten
-// Ereignis aus "Your Plans" ausgeblendet — bleiben aber über die History-Seite
-// (siehe view === 'history') weiter einsehbar, siehe VaultSummary.eventTimestamp.
-const HIDE_AFTER_SECONDS = 24 * 60 * 60;
+// Abgeschlossene und gecancelte Pläne werden sofort aus "Your Plans" entfernt
+// und landen stattdessen auf der History-Seite (siehe view === 'history') —
+// eventTimestamp wird dort nur noch zur Anzeige gebraucht, nicht mehr für
+// eine Verzögerung.
 
 // Der Contract speichert keinen expliziten "abgeschlossen am"-Zeitstempel —
 // nach dem letzten executeStep() wurde nextExecutionTimestamp aber bereits um
@@ -183,11 +181,6 @@ function getCancelledAt(vaultAddress: string): number | null {
   } catch {
     return null;
   }
-}
-
-function isStale(eventTimestamp: number | null): boolean {
-  if (eventTimestamp === null) return false;
-  return Date.now() / 1000 - eventTimestamp > HIDE_AFTER_SECONDS;
 }
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
@@ -284,11 +277,10 @@ export default function App() {
     [formData.percentages],
   );
 
-  // "Your Plans" zeigt nur nicht-versteckte Einträge, "History" alle
-  // abgeschlossenen/gecancelten (auch die schon >24h alten) mit Zeitstempel,
-  // neueste zuerst.
+  // "Your Plans" zeigt nur aktive/noch einzurichtende Pläne — abgeschlossene
+  // und gecancelte wandern sofort in "History" (siehe historyEntries unten).
   const visiblePlans = useMemo(
-    () => existingVaults.filter((v) => !v.hiddenFromPlans),
+    () => existingVaults.filter((v) => v.status === 'active' || v.status === 'pending'),
     [existingVaults],
   );
   const historyEntries = useMemo(
@@ -341,13 +333,11 @@ export default function App() {
             vaultStatus === 'complete'  ? completedEventTimestamp(status) :
             vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
             null;
-          const hiddenFromPlans =
-            (vaultStatus === 'complete' || vaultStatus === 'cancelled') && isStale(eventTimestamp);
-          return { address: vaultAddress, status: vaultStatus, eventTimestamp, hiddenFromPlans };
+          return { address: vaultAddress, status: vaultStatus, eventTimestamp };
         }),
       );
       setExistingVaults(summaries);
-      const visibleCount = summaries.filter((s) => !s.hiddenFromPlans).length;
+      const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
       setView(visibleCount > 0 ? 'vaultList' : 'wizard');
     } catch (error) {
       console.error('Loading existing vaults failed', error);
