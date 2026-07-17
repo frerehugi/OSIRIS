@@ -83,15 +83,44 @@ h2 {
   color: var(--text-muted);
 }
 
-.button-column,
 .button-row,
 .amount-row {
   display: flex;
   gap: 10px;
 }
 
-.button-column {
-  flex-direction: column;
+.pill-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-gold);
+  border-radius: 999px;
+}
+
+.pill-toggle button {
+  flex: 1;
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.pill-toggle button:focus-visible {
+  outline: 2px solid var(--gold-light);
+  outline-offset: 2px;
+}
+
+.pill-toggle button.active {
+  color: var(--dark2);
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  box-shadow: 0 4px 14px rgba(201, 168, 76, 0.35);
 }
 
 .button-row {
@@ -153,7 +182,7 @@ h2 {
   min-height: 44px;
   padding: 10px 20px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   font: inherit;
   font-weight: 700;
   letter-spacing: 0.02em;

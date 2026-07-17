@@ -13,13 +13,13 @@
 // vor der Factory direkt deployt wurde und nicht in factory.getAllVaults()
 // auftaucht) und führt jeden aus, der gerade dran ist.
 
-import { createWalletClient, createPublicClient, http, defineChain } from "viem";
+import { createWalletClient, createPublicClient, http, defineChain, parseUnits } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import axios from "axios";
 import { fileURLToPath } from "url";
-import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from "../src/dcaVaultAbi";
-import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID } from "../src/config";
+import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "../src/dcaVaultAbi";
+import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS } from "../src/config";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
 // passend zu den RPC-Endpoints aus foundry.toml.
@@ -66,17 +66,28 @@ function getValidatedIntegratorId(): string {
   return id;
 }
 
-// ─── Factory-Adresse ──────────────────────────────────────────────────────────
+// ─── Factory-Adressen ─────────────────────────────────────────────────────────
 //
 // Ebenfalls aus keeper/.env statt src/config.ts — gleicher Grund wie bei der
 // Integrator-ID (eigenständiger Prozess, eigene Konfiguration).
+//
+// Komma-getrennte Liste statt einer einzelnen Adresse: sobald ein neuer
+// Factory-Deploy stattfindet (z.B. für einen Contract-Upgrade wie den
+// Gebühren-Mechanismus), erstellen neue Nutzer ihre Vaults über die neue
+// Factory — bestehende Nutzer-Vaults laufen aber weiter über die ALTE
+// Factory. Würde FACTORY_ADDRESSES beim Upgrade einfach ersetzt statt
+// ergänzt, würde der Keeper die alten Vaults nicht mehr finden und sie
+// stillschweigend nicht mehr ausführen. Deshalb bleiben alte Factory-
+// Adressen hier stehen, bis die letzten darüber erstellten Vaults
+// ausgelaufen sind. FACTORY_ADDRESS (Singular) wird als Fallback weiter
+// unterstützt, um bestehende .env-Dateien nicht zu brechen.
 
-function getValidatedFactoryAddress(): `0x${string}` {
-  const address = process.env.FACTORY_ADDRESS;
-  if (!address) {
-    throw new Error("FACTORY_ADDRESS Umgebungsvariable fehlt (keeper/.env).");
+function getValidatedFactoryAddresses(): `0x${string}`[] {
+  const raw = process.env.FACTORY_ADDRESSES ?? process.env.FACTORY_ADDRESS;
+  if (!raw) {
+    throw new Error("FACTORY_ADDRESSES (oder FACTORY_ADDRESS) Umgebungsvariable fehlt (keeper/.env).");
   }
-  return address as `0x${string}`;
+  return raw.split(",").map((address) => address.trim() as `0x${string}`);
 }
 
 // ─── Wallet-Setup ─────────────────────────────────────────────────────────────
@@ -183,14 +194,18 @@ function applyBuffer(toAmountMin: string): bigint {
 // taucht in factory.getAllVaults() nicht auf — er läuft aber weiter, bis alle
 // 5 Tranchen ausgeführt sind, und wird deshalb explizit mit aufgenommen.
 
-async function getAllVaultAddresses(factoryAddress: `0x${string}`): Promise<`0x${string}`[]> {
-  const factoryVaults = await publicClient.readContract({
-    address: factoryAddress,
-    abi:     DCA_VAULT_FACTORY_ABI,
-    functionName: "getAllVaults",
-  }) as `0x${string}`[];
+async function getAllVaultAddresses(factoryAddresses: `0x${string}`[]): Promise<`0x${string}`[]> {
+  const perFactoryVaults = await Promise.all(
+    factoryAddresses.map((factoryAddress) =>
+      publicClient.readContract({
+        address: factoryAddress,
+        abi:     DCA_VAULT_FACTORY_ABI,
+        functionName: "getAllVaults",
+      }) as Promise<`0x${string}`[]>
+    )
+  );
 
-  return [...new Set([VAULT_ADDRESS, ...factoryVaults])];
+  return [...new Set([VAULT_ADDRESS, ...perFactoryVaults.flat()])];
 }
 
 // ─── canExecute() in Batches prüfen ───────────────────────────────────────────
@@ -270,6 +285,75 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
   return receipt;
 }
 
+// ─── CELO Auto-Refuel ─────────────────────────────────────────────────────────
+//
+// Die Keeper-Wallet ist gleichzeitig die Treasury (siehe DcaVaultFactory.
+// feeInfo() — treasury == globalKeeper) und sammelt dadurch laufend USDC/USDT-
+// Gebühren an. Statt die manuell in CELO umzutauschen, tauscht der Keeper nach
+// jedem Zyklus automatisch einen Teil davon in CELO, um sich selbst mit Gas
+// zu versorgen. USDC und USDT werden bewusst GETRENNT geprüft (eigene
+// Schwelle, eigener Swap) statt addiert — jeder Swap ist ohnehin ein eigener
+// Squid-Request pro Token, eine gemeinsame Prüfung würde nur Sonderlogik fürs
+// Kombinieren zweier ERC-20-Salden hinzufügen, ohne echten Vorteil.
+
+const REFUEL_THRESHOLD = parseUnits(process.env.KEEPER_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent
+const REFUEL_PERCENT_BPS = BigInt(process.env.KEEPER_REFUEL_PCT_BPS ?? "4000");     // 40 %
+
+const REFUEL_STABLE_TOKENS: { symbol: string; address: `0x${string}` }[] = [
+  { symbol: "USDC", address: INPUT_TOKENS.USDC.address },
+  { symbol: "USDT", address: INPUT_TOKENS.USDT.address },
+];
+
+async function refuelFromToken(token: { symbol: string; address: `0x${string}` }): Promise<void> {
+  const balance = await publicClient.readContract({
+    address: token.address, abi: ERC20_ABI, functionName: "balanceOf", args: [account.address],
+  }) as bigint;
+
+  if (balance <= REFUEL_THRESHOLD) return;
+
+  const swapAmount = (balance * REFUEL_PERCENT_BPS) / 10_000n;
+  if (swapAmount === 0n) return;
+
+  console.info(`Keeper: Auto-Refuel ${token.symbol} -> CELO, Betrag ${swapAmount}`);
+
+  const route = await getSquidRoute({
+    fromToken:   token.address,
+    toToken:     TARGET_TOKENS.CELO.address,
+    fromAmount:  swapAmount.toString(),
+    fromAddress: account.address,
+    toAddress:   account.address,
+  });
+
+  const approveHash = await walletClient.writeContract({
+    address:      token.address,
+    abi:          ERC20_ABI,
+    functionName: "approve",
+    args:         [route.transactionRequest.target, swapAmount],
+  });
+  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+  const swapHash = await walletClient.sendTransaction({
+    account,
+    to:   route.transactionRequest.target,
+    data: route.transactionRequest.data,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: swapHash });
+
+  console.info(`Keeper: Auto-Refuel ${token.symbol} erfolgreich. Tx: ${swapHash}`);
+}
+
+async function autoRefuelCelo(): Promise<void> {
+  for (const token of REFUEL_STABLE_TOKENS) {
+    try {
+      await refuelFromToken(token);
+    } catch (err) {
+      // Ein fehlschlagender Refuel darf den nächsten Keeper-Zyklus nicht
+      // blockieren — beim nächsten Lauf wird es einfach erneut versucht.
+      console.error(`Keeper: Auto-Refuel für ${token.symbol} fehlgeschlagen:`, err);
+    }
+  }
+}
+
 // ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
 
 export interface KeeperCycleResult {
@@ -279,31 +363,35 @@ export interface KeeperCycleResult {
 
 export async function runKeeperCycle(): Promise<KeeperCycleResult[]> {
   getValidatedIntegratorId(); // wirft früh, bevor irgendein Contract-Call passiert
-  const factoryAddress = getValidatedFactoryAddress();
+  const factoryAddresses = getValidatedFactoryAddresses();
 
-  const vaultAddresses = await getAllVaultAddresses(factoryAddress);
-  console.info(`Keeper: ${vaultAddresses.length} Vault(s) insgesamt (Factory: ${factoryAddress}).`);
+  const vaultAddresses = await getAllVaultAddresses(factoryAddresses);
+  console.info(`Keeper: ${vaultAddresses.length} Vault(s) insgesamt (Factories: ${factoryAddresses.join(", ")}).`);
 
   const executableVaults = await findExecutableVaults(vaultAddresses);
+  const results: KeeperCycleResult[] = [];
+
   if (executableVaults.length === 0) {
     console.info("Keeper: Kein Vault aktuell ausführbar (canExecute = false).");
-    return [];
-  }
-  console.info(`Keeper: ${executableVaults.length} Vault(s) ausführbar: ${executableVaults.join(", ")}`);
+  } else {
+    console.info(`Keeper: ${executableVaults.length} Vault(s) ausführbar: ${executableVaults.join(", ")}`);
 
-  // Sequenziell statt parallel: sowohl die Squid-Rate-Limits als auch die
-  // Nonce-Verwaltung des Keeper-Wallets vertragen keine parallelen Broadcasts.
-  const results: KeeperCycleResult[] = [];
-  for (const vaultAddress of executableVaults) {
-    try {
-      const receipt = await executeVaultStep(vaultAddress);
-      results.push({ vaultAddress, receipt });
-    } catch (err) {
-      // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
-      // Nutzer) darf die Ausführung für alle anderen Vaults nicht blockieren.
-      console.error(`Keeper: Fehler bei Vault ${vaultAddress}:`, err);
+    // Sequenziell statt parallel: sowohl die Squid-Rate-Limits als auch die
+    // Nonce-Verwaltung des Keeper-Wallets vertragen keine parallelen Broadcasts.
+    for (const vaultAddress of executableVaults) {
+      try {
+        const receipt = await executeVaultStep(vaultAddress);
+        results.push({ vaultAddress, receipt });
+      } catch (err) {
+        // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
+        // Nutzer) darf die Ausführung für alle anderen Vaults nicht blockieren.
+        console.error(`Keeper: Fehler bei Vault ${vaultAddress}:`, err);
+      }
     }
   }
+
+  await autoRefuelCelo();
+
   return results;
 }
 

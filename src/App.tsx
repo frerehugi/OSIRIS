@@ -30,9 +30,16 @@ type VaultStatus = 'pending' | 'active' | 'cancelled' | 'complete';
 interface VaultSummary {
   address: `0x${string}`;
   status:  VaultStatus;
+  // Abschluss- bzw. Cancel-Zeitpunkt (Unix-Sekunden) für complete/cancelled —
+  // null bei active/pending oder wenn der Zeitpunkt nicht ermittelbar ist
+  // (z.B. ein außerhalb dieser App gecancelter Plan, siehe getCancelledAt()).
+  eventTimestamp: number | null;
+  // true, wenn der Plan >24h nach eventTimestamp aus der "Your Plans"-Liste
+  // verschwinden soll (bleibt aber über die History-Seite weiter sichtbar).
+  hiddenFromPlans: boolean;
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success';
+type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -118,6 +125,14 @@ function intervalUnit(interval: Interval | null, plural = true): string {
   return plural ? unit.plural : unit.singular;
 }
 
+function formatHistoryTimestamp(eventTimestamp: number | null): string {
+  if (eventTimestamp === null) return 'Date unknown';
+  return new Date(eventTimestamp * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 function getUtcTimeDisplay(localTime: string): string {
   const [hours, minutes] = localTime.split(':').map(Number);
   if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return 'Invalid time';
@@ -133,18 +148,46 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
   return 'active';
 }
 
-// Abgeschlossene Pläne werden 24h nach der letzten Ausführung ausgeblendet, statt
-// dauerhaft in der Liste zu bleiben. Der Contract speichert keinen expliziten
-// "abgeschlossen am"-Zeitstempel — nach dem letzten executeStep() wurde
-// nextExecutionTimestamp aber bereits um ein weiteres `interval` erhöht, daher
-// ist (nextExecutionTimestamp - interval) die beste verfügbare Näherung für den
-// Zeitpunkt der letzten Ausführung.
-const HIDE_COMPLETED_AFTER_SECONDS = 24 * 60 * 60;
+// Abgeschlossene und gecancelte Pläne werden 24h nach ihrem letzten relevanten
+// Ereignis aus "Your Plans" ausgeblendet — bleiben aber über die History-Seite
+// (siehe view === 'history') weiter einsehbar, siehe VaultSummary.eventTimestamp.
+const HIDE_AFTER_SECONDS = 24 * 60 * 60;
 
-function isStaleCompletedVault(status: Awaited<ReturnType<typeof readPlanStatus>>): boolean {
-  const lastExecutionTs = Number(status.nextExecutionTimestamp - status.interval);
-  const ageSeconds = Date.now() / 1000 - lastExecutionTs;
-  return ageSeconds > HIDE_COMPLETED_AFTER_SECONDS;
+// Der Contract speichert keinen expliziten "abgeschlossen am"-Zeitstempel —
+// nach dem letzten executeStep() wurde nextExecutionTimestamp aber bereits um
+// ein weiteres `interval` erhöht, daher ist (nextExecutionTimestamp - interval)
+// die beste verfügbare Näherung für den Zeitpunkt der letzten Ausführung.
+function completedEventTimestamp(status: Awaited<ReturnType<typeof readPlanStatus>>): number {
+  return Number(status.nextExecutionTimestamp - status.interval);
+}
+
+// Für den Cancel-Zeitpunkt gibt es kein On-Chain-Äquivalent (cancelPlan()
+// rührt nextExecutionTimestamp nicht an, das wäre also keine brauchbare
+// Näherung). Stattdessen wird der Zeitpunkt beim Canceln lokal gemerkt — kennt
+// die App ihn nicht (z.B. Cancel von einem anderen Gerät aus), gilt der Plan
+// als nicht-veraltet und bleibt sicherheitshalber sichtbar.
+const CANCELLED_AT_KEY_PREFIX = 'osiris_cancelledAt_';
+
+function recordCancelledAt(vaultAddress: string): void {
+  try {
+    localStorage.setItem(CANCELLED_AT_KEY_PREFIX + vaultAddress, String(Date.now()));
+  } catch {
+    // localStorage kann in manchen eingebetteten WebViews blockiert sein — kein Blocker.
+  }
+}
+
+function getCancelledAt(vaultAddress: string): number | null {
+  try {
+    const raw = localStorage.getItem(CANCELLED_AT_KEY_PREFIX + vaultAddress);
+    return raw ? Number(raw) / 1000 : null; // ms -> s
+  } catch {
+    return null;
+  }
+}
+
+function isStale(eventTimestamp: number | null): boolean {
+  if (eventTimestamp === null) return false;
+  return Date.now() / 1000 - eventTimestamp > HIDE_AFTER_SECONDS;
 }
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
@@ -241,6 +284,20 @@ export default function App() {
     [formData.percentages],
   );
 
+  // "Your Plans" zeigt nur nicht-versteckte Einträge, "History" alle
+  // abgeschlossenen/gecancelten (auch die schon >24h alten) mit Zeitstempel,
+  // neueste zuerst.
+  const visiblePlans = useMemo(
+    () => existingVaults.filter((v) => !v.hiddenFromPlans),
+    [existingVaults],
+  );
+  const historyEntries = useMemo(
+    () => existingVaults
+      .filter((v) => v.status === 'complete' || v.status === 'cancelled')
+      .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
+    [existingVaults],
+  );
+
   const remainingBudget     = TOTAL_PERCENT - totalAllocated;
   const amountValidation    = validateAmount(formData.totalAmount);
   const durationValidation  = validateDuration(formData.duration, formData.totalAmount, formData.inputToken);
@@ -276,17 +333,22 @@ export default function App() {
     setVaultsError(null);
     try {
       const vaultAddresses = await getUserVaults(address);
-      const rawSummaries = await Promise.all(
-        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary | null> => {
+      const summaries = await Promise.all(
+        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
           const status = await readPlanStatus(vaultAddress);
           const vaultStatus = computeVaultStatus(status);
-          if (vaultStatus === 'complete' && isStaleCompletedVault(status)) return null;
-          return { address: vaultAddress, status: vaultStatus };
+          const eventTimestamp =
+            vaultStatus === 'complete'  ? completedEventTimestamp(status) :
+            vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
+            null;
+          const hiddenFromPlans =
+            (vaultStatus === 'complete' || vaultStatus === 'cancelled') && isStale(eventTimestamp);
+          return { address: vaultAddress, status: vaultStatus, eventTimestamp, hiddenFromPlans };
         }),
       );
-      const summaries = rawSummaries.filter((s): s is VaultSummary => s !== null);
       setExistingVaults(summaries);
-      setView(summaries.length > 0 ? 'vaultList' : 'wizard');
+      const visibleCount = summaries.filter((s) => !s.hiddenFromPlans).length;
+      setView(visibleCount > 0 ? 'vaultList' : 'wizard');
     } catch (error) {
       console.error('Loading existing vaults failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Could not load your vaults.');
@@ -315,6 +377,7 @@ export default function App() {
     setCancelError(null);
     try {
       await cancelDcaPlan(vaultAddress, walletAddress);
+      recordCancelledAt(vaultAddress);
       await loadVaults(walletAddress);
     } catch (error) {
       console.error('Cancel failed', error);
@@ -405,7 +468,7 @@ export default function App() {
       <Card>
         <section className="stack">
           <h2>📂 Your Plans</h2>
-          {existingVaults.map((v) => (
+          {visiblePlans.map((v) => (
             <div key={v.address} className="summary">
               <p>
                 <span className="muted">Vault:</span>{' '}
@@ -446,8 +509,41 @@ export default function App() {
           {cancelError && <p className="error">{cancelError}</p>}
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
+            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
             <Button onClick={startNewPlan}>+ New Plan</Button>
           </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: History (abgeschlossene + gecancelte Pläne) ─────────────────────
+
+  if (view === 'history') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>🕘 Plan History</h2>
+          {historyEntries.length === 0 && (
+            <p className="muted">No past plans yet.</p>
+          )}
+          {historyEntries.map((v) => (
+            <div key={v.address} className="summary">
+              <p>
+                <span className="muted">Vault:</span>{' '}
+                <a
+                  href={`https://celoscan.io/address/${v.address}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {v.address.slice(0, 6)}…{v.address.slice(-4)} ↗
+                </a>
+              </p>
+              <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
+              <p className="muted" style={{ fontSize: '0.8rem' }}>{formatHistoryTimestamp(v.eventTimestamp)}</p>
+            </div>
+          ))}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
         </section>
       </Card>
     );
@@ -491,13 +587,35 @@ export default function App() {
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
           <p className="muted">Choose how often the plan should invest.</p>
-          <div className="button-column">
-            <Button variant="secondary" onClick={() => { updateField('interval', 'hourly'); nextPage(); }}>⚡ Hourly</Button>
-            <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>📅 Daily</Button>
-            <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>🗓 Weekly</Button>
+          <div className="pill-toggle">
+            <button
+              type="button"
+              className={formData.interval === 'hourly' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'hourly')}
+            >
+              ⚡ Hourly
+            </button>
+            <button
+              type="button"
+              className={formData.interval === 'daily' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'daily')}
+            >
+              📅 Daily
+            </button>
+            <button
+              type="button"
+              className={formData.interval === 'weekly' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'weekly')}
+            >
+              🗓 Weekly
+            </button>
           </div>
-          {existingVaults.length > 0 && (
+          <Button onClick={nextPage} disabled={!formData.interval}>Next →</Button>
+          {visiblePlans.length > 0 && (
             <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          )}
+          {visiblePlans.length === 0 && historyEntries.length > 0 && (
+            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
           )}
         </section>
       )}

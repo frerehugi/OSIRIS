@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Test, console2} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {DcaVault} from "../contracts/DcaVault.sol";
+import {DcaVaultFactory} from "../contracts/DcaVaultFactory.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockSquidRouter} from "./mocks/MockSquidRouter.sol";
 
@@ -18,6 +19,7 @@ contract DcaVaultTest is Test {
     // ─── Contracts ───────────────────────────────────────────────────────────
 
     DcaVault         vaultImplementation;
+    DcaVaultFactory  vaultFactory;
     DcaVault         vault;
     MockERC20        usdc;
     MockERC20        weth;
@@ -30,6 +32,7 @@ contract DcaVaultTest is Test {
     address keeper       = makeAddr("keeper");
     address hacker       = makeAddr("hacker");
     address globalKeeper = makeAddr("globalKeeper");
+    address admin        = makeAddr("admin");
 
     // ─── Test-Parameter ──────────────────────────────────────────────────────
 
@@ -37,6 +40,12 @@ contract DcaVaultTest is Test {
     uint32  constant DURATION       = 10;     // 10 Tranchen
     uint256 constant INTERVAL       = 1 days;
     uint256 constant TRANCHE_AMOUNT = TOTAL_AMOUNT / DURATION; // 10 USDC
+
+    // Default-Gebühr aus DcaVaultFactory's Konstruktor (99 bps, 0,02 USDC-
+    // Floor) — hier gespiegelt, damit Tests die Netto-Beträge nach Gebühren-
+    // abzug für _executeStepArgs berechnen können.
+    uint256 constant DEFAULT_FEE_BPS = 99;
+    uint256 constant DEFAULT_MIN_FEE = 20_000;
 
     // ─── Setup ───────────────────────────────────────────────────────────────
 
@@ -47,11 +56,14 @@ contract DcaVaultTest is Test {
         celo   = new MockERC20("Celo",        "CELO", 18);
         router = new MockSquidRouter();
 
-        // Master-Implementation deployen, Clone ziehen, initialisieren
-        // (initialize() whitelistet den übergebenen Router automatisch).
+        // Master-Implementation + echte Factory deployen (statt direktem
+        // Clone+initialize()) — executeStep() braucht eine Factory, die
+        // feeInfo() beantwortet (siehe DcaVault.executeStep()).
         vaultImplementation = new DcaVault();
-        vault = DcaVault(Clones.clone(address(vaultImplementation)));
-        vault.initialize(owner, address(router), globalKeeper);
+        vaultFactory = new DcaVaultFactory(address(vaultImplementation), address(router), globalKeeper, admin);
+
+        vm.prank(owner);
+        vault = DcaVault(vaultFactory.createVault());
 
         // Owner mit USDC versorgen
         usdc.mint(owner, TOTAL_AMOUNT * 10);
@@ -62,6 +74,15 @@ contract DcaVaultTest is Test {
     }
 
     // ─── Hilfsfunktionen ─────────────────────────────────────────────────────
+
+    function _feeFor(uint256 amount) internal pure returns (uint256) {
+        uint256 fee = (amount * DEFAULT_FEE_BPS) / 10_000;
+        return fee < DEFAULT_MIN_FEE ? DEFAULT_MIN_FEE : fee;
+    }
+
+    function _netOfFee(uint256 amount) internal pure returns (uint256) {
+        return amount - _feeFor(amount);
+    }
 
     function _approveAndSetup(
         uint256 totalAmount,
@@ -335,7 +356,7 @@ contract DcaVaultTest is Test {
         uint256 nextTsBefore = vault.nextExecutionTimestamp();
 
         (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
-            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
 
         vm.prank(owner);
         vault.executeStep(routers, minOut, callData);
@@ -379,7 +400,7 @@ contract DcaVaultTest is Test {
         vault.setKeeper(keeper, true);
 
         (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
-            _executeStepArgs(TRANCHE_AMOUNT, 1e18, 1e18);
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
 
         vm.prank(keeper);
         vault.executeStep(routers, minOut, callData);
@@ -394,7 +415,7 @@ contract DcaVaultTest is Test {
         vm.warp(firstExecution);
 
         (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
-            _executeStepArgs(TOTAL_AMOUNT, 1e18, 1e18);
+            _executeStepArgs(_netOfFee(TOTAL_AMOUNT), 1e18, 1e18);
 
         vm.prank(owner);
         vault.executeStep(routers, minOut, callData);
@@ -409,7 +430,7 @@ contract DcaVaultTest is Test {
         vm.warp(firstExecution);
 
         (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
-            _executeStepArgs(TOTAL_AMOUNT, 1e18, 1e18);
+            _executeStepArgs(_netOfFee(TOTAL_AMOUNT), 1e18, 1e18);
 
         vm.startPrank(owner);
         vault.executeStep(routers, minOut, callData);
@@ -439,8 +460,9 @@ contract DcaVaultTest is Test {
         vm.warp(firstExecution);
 
         // Mock liefert 1 wei WETH, aber minAmountsOut verlangt 1e18
-        uint256 amountIn0 = TRANCHE_AMOUNT / 2;
-        uint256 amountIn1 = TRANCHE_AMOUNT - amountIn0;
+        uint256 netAmount = _netOfFee(TRANCHE_AMOUNT);
+        uint256 amountIn0 = netAmount / 2;
+        uint256 amountIn1 = netAmount - amountIn0;
 
         address[] memory routers = new address[](2);
         routers[0] = address(router);
@@ -475,6 +497,85 @@ contract DcaVaultTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(DcaVault.SwapFailed.selector);
+        vault.executeStep(routers, minOut, callData);
+    }
+
+    // ─── Gebühren-Tests ──────────────────────────────────────────────────────
+
+    event FeeCharged(uint32 indexed step, uint256 feeAmount, address treasury);
+
+    function test_executeStep_deductsPercentageFee() public {
+        // TRANCHE_AMOUNT = 10e6 → 0,99 % = 99_000, über dem Floor (20_000).
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        uint256 expectedFee = _feeFor(TRANCHE_AMOUNT);
+        assertEq(expectedFee, 99_000);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
+
+        uint256 keeperBalanceBefore = usdc.balanceOf(globalKeeper);
+
+        vm.prank(owner);
+        vault.executeStep(routers, minOut, callData);
+
+        assertEq(usdc.balanceOf(globalKeeper), keeperBalanceBefore + expectedFee);
+    }
+
+    function test_executeStep_deductsFloorFee() public {
+        // Tranche von 1 USDC → 0,99 % = 9_900, darunter greift der Floor (20_000).
+        uint256 totalAmount = 10e6;
+        uint32  duration    = 10;
+        uint256 tranche     = totalAmount / duration;
+
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(totalAmount, duration, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        uint256 expectedFee = _feeFor(tranche);
+        assertEq(expectedFee, DEFAULT_MIN_FEE);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(tranche - expectedFee, 1e18, 1e18);
+
+        uint256 keeperBalanceBefore = usdc.balanceOf(globalKeeper);
+
+        vm.prank(owner);
+        vault.executeStep(routers, minOut, callData);
+
+        assertEq(usdc.balanceOf(globalKeeper), keeperBalanceBefore + expectedFee);
+    }
+
+    function test_executeStep_emitsFeeChargedEvent() public {
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        uint256 expectedFee = _feeFor(TRANCHE_AMOUNT);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit FeeCharged(1, expectedFee, globalKeeper);
+
+        vm.prank(owner);
+        vault.executeStep(routers, minOut, callData);
+    }
+
+    function test_executeStep_revertsWhenFeeExceedsAmount() public {
+        // trancheAmount = 1 (kleinstmögliche Einheit) < Floor (20_000).
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(2, 2, INTERVAL, firstExecution);
+        vm.warp(firstExecution);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(1, 1, 1);
+
+        vm.prank(owner);
+        vm.expectRevert(DcaVault.FeeExceedsAmount.selector);
         vault.executeStep(routers, minOut, callData);
     }
 
