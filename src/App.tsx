@@ -1,5 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, type SubmitDcaPlanPhase } from './minipayWallet';
+import { formatUnits } from 'viem';
+import {
+  connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
+  type SubmitDcaPlanPhase, type PurchaseEvent,
+} from './minipayWallet';
+import { TARGET_TOKENS } from './config';
 import {
   TOKENS,
   WEEKDAYS,
@@ -37,7 +42,7 @@ interface VaultSummary {
   eventTimestamp: number | null;
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history';
+type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -184,6 +189,32 @@ function getCancelledAt(vaultAddress: string): number | null {
 }
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
+const TOKEN_LABELS: Record<TokenType, string> = { wBTC: 'wBTC', wETH: 'wETH', CELO: 'CELO', XAUoT: 'Gold' };
+
+// Wie viele Nachkommastellen pro Token sinnvoll angezeigt werden — an der
+// jeweils üblichen Größenordnung der Beträge orientiert, nicht an den
+// tatsächlichen On-Chain-Dezimalstellen (die wären für wBTC z.B. 8, aber so
+// viele Nachkommastellen sind für die Anzeige nicht lesbar).
+const TOKEN_DISPLAY_DECIMALS: Record<TokenType, number> = { wBTC: 6, wETH: 5, CELO: 2, XAUoT: 4 };
+
+// Reverse-Lookup Zieltoken-Adresse -> TokenType, um DcaSwapExecuted-Events
+// (die nur die Adresse mitliefern) den 4 UI-Kategorien zuzuordnen.
+const TARGET_TOKEN_BY_ADDRESS: Record<string, TokenType> = Object.fromEntries(
+  TOKENS.map((token) => [TARGET_TOKENS[token].address.toLowerCase(), token]),
+) as Record<string, TokenType>;
+
+function formatTokenAmount(raw: bigint, token: TokenType): string {
+  const value = Number(formatUnits(raw, TARGET_TOKENS[token].decimals));
+  return value.toFixed(TOKEN_DISPLAY_DECIMALS[token]);
+}
+
+// amountIn ist immer USDC oder USDT (beide 6 Dezimalstellen) — für die
+// aggregierte Summe wird das bewusst nicht auf ein einzelnes Symbol
+// festgelegt (siehe Aufruf-Stellen), um keinen falschen Token-Namen
+// vorzutäuschen, wenn ein Nutzer mit beiden Stablecoins gekauft hat.
+function formatInputAmount(raw: bigint): string {
+  return Number(formatUnits(raw, 6)).toFixed(2);
+}
 
 // Der Keeper läuft stündlich (siehe .github/workflows/keeper.yml) — eine
 // minutengenaue Startzeit würde also ohnehin nur ±1h eingehalten. Die Auswahl
@@ -261,6 +292,11 @@ export default function App() {
   const [cancelError, setCancelError]   = useState<string | null>(null);
   const [confirmingAddress, setConfirmingAddress] = useState<`0x${string}` | null>(null);
 
+  const [purchases, setPurchases]       = useState<PurchaseEvent[] | null>(null);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [purchasesError, setPurchasesError]     = useState<string | null>(null);
+  const [selectedToken, setSelectedToken]       = useState<TokenType | null>(null);
+
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -288,6 +324,35 @@ export default function App() {
       .filter((v) => v.status === 'complete' || v.status === 'cancelled')
       .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
     [existingVaults],
+  );
+
+  // "My Purchases": alle DcaSwapExecuted-Events, nach Zieltoken gruppiert.
+  const purchasesByToken = useMemo(() => {
+    const groups: Record<TokenType, PurchaseEvent[]> = { wBTC: [], wETH: [], CELO: [], XAUoT: [] };
+    if (!purchases) return groups;
+    for (const purchase of purchases) {
+      const token = TARGET_TOKEN_BY_ADDRESS[purchase.targetToken.toLowerCase()];
+      if (token) groups[token].push(purchase);
+    }
+    return groups;
+  }, [purchases]);
+
+  const purchaseTotals = useMemo(() => {
+    const totals = {} as Record<TokenType, { amountOut: bigint; amountIn: bigint; count: number }>;
+    for (const token of TOKENS) {
+      const rows = purchasesByToken[token];
+      totals[token] = {
+        amountOut: rows.reduce((sum, row) => sum + row.amountOut, 0n),
+        amountIn:  rows.reduce((sum, row) => sum + row.amountIn, 0n),
+        count:     rows.length,
+      };
+    }
+    return totals;
+  }, [purchasesByToken]);
+
+  const totalInvested = useMemo(
+    () => TOKENS.reduce((sum, token) => sum + purchaseTotals[token].amountIn, 0n),
+    [purchaseTotals],
   );
 
   const remainingBudget     = TOTAL_PERCENT - totalAllocated;
@@ -345,6 +410,29 @@ export default function App() {
       setView('wizard'); // Nutzer trotzdem nicht blockieren
     } finally {
       setVaultsLoading(false);
+    }
+  };
+
+  // ── "My Purchases" öffnen ─────────────────────────────────────────────────
+  //
+  // Lädt bei jedem Öffnen frisch (statt zu cachen) — Swap-Events können sich
+  // durch den stündlichen Keeper-Lauf jederzeit ändern, und die Liste ist
+  // klein genug, dass ein Re-Fetch pro Klick unproblematisch ist.
+
+  const openPurchases = async () => {
+    setSelectedToken(null);
+    setView('purchases');
+    setPurchasesError(null);
+    setPurchasesLoading(true);
+    try {
+      const vaultAddresses = existingVaults.map((v) => v.address);
+      const events = await getUserPurchases(vaultAddresses);
+      setPurchases(events);
+    } catch (error) {
+      console.error('Loading purchases failed', error);
+      setPurchasesError(error instanceof Error ? error.message : 'Could not load your purchase history.');
+    } finally {
+      setPurchasesLoading(false);
     }
   };
 
@@ -500,6 +588,7 @@ export default function App() {
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
             <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
+            <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
             <Button onClick={startNewPlan}>+ New Plan</Button>
           </div>
         </section>
@@ -533,6 +622,83 @@ export default function App() {
               <p className="muted" style={{ fontSize: '0.8rem' }}>{formatHistoryTimestamp(v.eventTimestamp)}</p>
             </div>
           ))}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: My Purchases (Übersicht + Detail pro Token) ──────────────────────
+
+  if (view === 'purchases') {
+    // ── Sub-Screen: Detail-Liste für ein einzelnes Zieltoken ──────────────
+    if (selectedToken) {
+      const rows  = purchasesByToken[selectedToken];
+      const total = purchaseTotals[selectedToken];
+      return (
+        <Card>
+          <section className="stack">
+            <h2>{TOKEN_ICONS[selectedToken]} {TOKEN_LABELS[selectedToken]} Purchases</h2>
+            <div className="summary">
+              <p>Total holdings: <strong>{formatTokenAmount(total.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
+              <p className="muted" style={{ fontSize: '0.8rem' }}>
+                ≈ {formatInputAmount(total.amountIn)} invested across {total.count} purchase{total.count === 1 ? '' : 's'}
+              </p>
+            </div>
+            {rows.length === 0 && <p className="muted">No purchases yet.</p>}
+            {rows.map((row) => (
+              <div key={row.txHash + row.step} className="summary">
+                <p>Step {row.step}: <strong>+{formatTokenAmount(row.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
+                <p className="muted" style={{ fontSize: '0.8rem' }}>
+                  for {formatInputAmount(row.amountIn)} {row.inputTokenSymbol} · {formatHistoryTimestamp(row.timestamp)}
+                </p>
+                <a
+                  href={`https://celoscan.io/tx/${row.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: '0.8rem' }}
+                >
+                  {row.txHash.slice(0, 8)}…{row.txHash.slice(-6)} ↗
+                </a>
+              </div>
+            ))}
+            <Button variant="secondary" onClick={() => setSelectedToken(null)}>← Back to My Purchases</Button>
+          </section>
+        </Card>
+      );
+    }
+
+    // ── Sub-Screen: Übersicht mit den 4 Summen-Kacheln ─────────────────────
+    return (
+      <Card>
+        <section className="stack">
+          <h2>💰 My Purchases</h2>
+          {purchasesLoading && <p className="muted">⏳ Loading your purchase history...</p>}
+          {purchasesError && <p className="error">{purchasesError}</p>}
+          {!purchasesLoading && !purchasesError && purchases && (
+            <>
+              <div className="summary">
+                <p>Total invested: <strong>{formatInputAmount(totalInvested)}</strong></p>
+              </div>
+              <div className="tile-grid">
+                {TOKENS.map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    className="tile"
+                    onClick={() => setSelectedToken(token)}
+                  >
+                    <span className="tile-symbol">{TOKEN_ICONS[token]} {TOKEN_LABELS[token]}</span>
+                    <span className="tile-amount">{formatTokenAmount(purchaseTotals[token].amountOut, token)}</span>
+                    <span className="muted" style={{ fontSize: '0.75rem' }}>
+                      {purchaseTotals[token].count} purchase{purchaseTotals[token].count === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {purchases.length === 0 && <p className="muted">No purchases yet.</p>}
+            </>
+          )}
           <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
         </section>
       </Card>

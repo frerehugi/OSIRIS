@@ -244,6 +244,82 @@ export async function cancelDcaPlan(
   }
 }
 
+// ─── Purchases (DcaSwapExecuted-Events) ───────────────────────────────────────
+//
+// "My Purchases" braucht die komplette Swap-Historie aller Vaults eines
+// Nutzers — das steht nicht im Contract-State (nur currentStep etc.), sondern
+// ausschließlich in den DcaSwapExecuted-Events. fromBlock: 0n ist bewusst
+// simpel gehalten (kein Chunking über einen Block-Range-Cap) — bei sehr vielen
+// Vaults/sehr langer Historie ggf. später auf Batches umstellen, falls der
+// RPC-Provider eth_getLogs für so große Ranges ablehnt.
+
+export interface PurchaseEvent {
+  vaultAddress:     `0x${string}`;
+  step:             number;
+  targetToken:      `0x${string}`;
+  amountIn:         bigint; // im Input-Token des jeweiligen Vaults (6 Dezimalstellen)
+  amountOut:        bigint; // im Zieltoken, dessen Dezimalstellen siehe TARGET_TOKENS
+  inputTokenSymbol: string;
+  txHash:           `0x${string}`;
+  blockNumber:      bigint;
+  timestamp:        number | null; // Unix-Sekunden, null falls Block-Lookup fehlschlägt
+}
+
+function resolveInputTokenSymbol(address: `0x${string}`): string {
+  const lower = address.toLowerCase();
+  for (const token of Object.values(INPUT_TOKENS)) {
+    if (token.address.toLowerCase() === lower) return token.symbol;
+  }
+  return "input token";
+}
+
+export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise<PurchaseEvent[]> {
+  if (vaultAddresses.length === 0) return [];
+  const { publicClient } = getClients();
+
+  const perVault = await Promise.all(
+    vaultAddresses.map(async (vaultAddress) => {
+      const [logs, inputTokenAddress] = await Promise.all([
+        publicClient.getContractEvents({
+          address:   vaultAddress,
+          abi:       DCA_VAULT_ABI,
+          eventName: "DcaSwapExecuted",
+          fromBlock: 0n,
+          toBlock:   "latest",
+        }),
+        publicClient.readContract({
+          address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
+        }) as Promise<`0x${string}`>,
+      ]);
+      const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
+
+      return logs.map((log) => ({
+        vaultAddress,
+        step:             Number(log.args.step),
+        targetToken:      log.args.targetToken as `0x${string}`,
+        amountIn:         log.args.amountIn as bigint,
+        amountOut:        log.args.amountOut as bigint,
+        inputTokenSymbol,
+        txHash:            log.transactionHash as `0x${string}`,
+        blockNumber:       log.blockNumber as bigint,
+        timestamp:         null as number | null,
+      }));
+    }),
+  );
+
+  const flat = perVault.flat();
+
+  // Block-Timestamps nachladen — ein getBlock() pro einzigartigem Block,
+  // nicht pro Event (mehrere Swaps eines Schritts landen im selben Block).
+  const uniqueBlocks = [...new Set(flat.map((p) => p.blockNumber))];
+  const blocks = await Promise.all(uniqueBlocks.map((bn) => publicClient.getBlock({ blockNumber: bn })));
+  const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn, Number(blocks[i].timestamp)]));
+
+  return flat
+    .map((p) => ({ ...p, timestamp: timestampByBlock.get(p.blockNumber) ?? null }))
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+}
+
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────
 
 export async function readPlanStatus(contractAddress: `0x${string}`) {
