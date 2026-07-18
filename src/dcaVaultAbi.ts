@@ -47,6 +47,14 @@ export const DCA_VAULT_ABI = [
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
+  // Nur auf Vaults der neuen (Gebühren-)Factory vorhanden — bei Legacy-Vaults
+  // (alte Implementation ohne diesen Getter) revertet der Call, das nutzt der
+  // Keeper als Unterscheidungsmerkmal (siehe executeVaultStep()).
+  {
+    type: "function", name: "factory",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
   {
     type: "function", name: "initialized",
     stateMutability: "view", inputs: [],
@@ -330,6 +338,17 @@ export const DCA_VAULT_FACTORY_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "feeInfo",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "feeBps",   type: "uint16"  },
+      { name: "minFee",   type: "uint256" },
+      { name: "treasury", type: "address" },
+    ],
   },
   {
     type: "event", name: "VaultCreated",

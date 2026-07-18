@@ -231,12 +231,50 @@ async function findExecutableVaults(vaultAddresses: `0x${string}`[]): Promise<`0
 // ─── Einen Vault ausführen ────────────────────────────────────────────────────
 
 async function executeVaultStep(vaultAddress: `0x${string}`) {
-  const [trancheAmount, targetConfigs, inputTokenAddress, ownerAddress] = await Promise.all([
+  const [trancheAmount, targetConfigs, inputTokenAddress, ownerAddress, currentStep, totalSteps] = await Promise.all([
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "owner" }),
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
+    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
   ]);
+
+  // amountForThisStep wie im Contract: beim letzten Schritt der komplette
+  // Restbestand (fängt Rundungs-Dust aus totalAmount/duration auf), sonst
+  // die feste trancheAmount.
+  const isLastStep = BigInt(currentStep as number) + 1n === BigInt(totalSteps as number);
+  const amountForThisStep = isLastStep
+    ? (await publicClient.readContract({
+        address:      inputTokenAddress as `0x${string}`,
+        abi:          ERC20_ABI,
+        functionName: "balanceOf",
+        args:         [vaultAddress],
+      })) as bigint
+    : (trancheAmount as bigint);
+
+  // ── Gebühr spiegeln ──────────────────────────────────────────────────────
+  // Der Contract zieht bei Vaults der neuen Factory vor dem Swap eine Gebühr
+  // ab (feeInfo() auf der Factory) — der Keeper muss denselben Netto-Betrag
+  // an Squid melden, sonst approved der Contract weniger, als die Squid-
+  // Calldata abziehen will, und der Swap-Call revertet mit SwapFailed().
+  // Legacy-Vaults (alte Factory-Implementation) haben keinen factory()-
+  // Getter — der Call revertet dann einfach, amountNet bleibt = gross.
+  let amountNet = amountForThisStep;
+  try {
+    const vaultFactory = await publicClient.readContract({
+      address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "factory",
+    }) as `0x${string}`;
+    const [feeBps, minFee] = await publicClient.readContract({
+      address: vaultFactory, abi: DCA_VAULT_FACTORY_ABI, functionName: "feeInfo",
+    }) as [number, bigint, `0x${string}`];
+
+    let feeAmount = (amountForThisStep * BigInt(feeBps)) / 10_000n;
+    if (feeAmount < minFee) feeAmount = minFee;
+    amountNet = amountForThisStep - feeAmount;
+  } catch {
+    // Kein factory()/feeInfo() auffindbar — Legacy-Vault, keine Gebühr.
+  }
 
   const routers:       `0x${string}`[] = [];
   const minAmountsOut: bigint[]        = [];
@@ -247,7 +285,7 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
     if (i > 0) await sleep(SQUID_REQUEST_SPACING_MS); // Rate-Limit-Abstand zwischen Zieltoken
 
     const config = configs[i];
-    const amountIn = (trancheAmount as bigint * BigInt(config.bps)) / 10_000n;
+    const amountIn = (amountNet * BigInt(config.bps)) / 10_000n;
 
     const route = await getSquidRoute({
       fromToken:   inputTokenAddress as `0x${string}`,
