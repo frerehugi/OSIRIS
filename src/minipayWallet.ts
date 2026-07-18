@@ -248,10 +248,72 @@ export async function cancelDcaPlan(
 //
 // "My Purchases" braucht die komplette Swap-Historie aller Vaults eines
 // Nutzers — das steht nicht im Contract-State (nur currentStep etc.), sondern
-// ausschließlich in den DcaSwapExecuted-Events. fromBlock: 0n ist bewusst
-// simpel gehalten (kein Chunking über einen Block-Range-Cap) — bei sehr vielen
-// Vaults/sehr langer Historie ggf. später auf Batches umstellen, falls der
-// RPC-Provider eth_getLogs für so große Ranges ablehnt.
+// ausschließlich in den DcaSwapExecuted-Events.
+//
+// Zwei RPC-Einschränkungen von forno.celo.org, die das naive "fromBlock: 0n"
+// unbrauchbar machen (live gesehen: "query exceeds range, retry smaller (max
+// block range 5000)"):
+//   1. eth_getLogs erlaubt maximal 5000 Blöcke pro Anfrage -> Chunking nötig.
+//   2. Block 0 bis "latest" wäre auf Celo Mainnet >70 Mio. Blöcke, viel mehr
+//      als nötig — getUserVaults() liefert ohnehin nur Vaults der aktuellen
+//      FACTORY_ADDRESS (siehe dort), also reicht als unterer Rand deren
+//      Deploy-Block. Der wird per Binärsuche auf getCode() einmalig ermittelt
+//      und für die Dauer der Session gecacht (ändert sich nie).
+
+const MAX_LOG_BLOCK_RANGE = 4_999n; // Server-Limit ist 5000 Blöcke (inklusive)
+
+let factoryDeployBlockCache: bigint | null = null;
+
+async function findDeploymentBlock(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+  address: `0x${string}`,
+): Promise<bigint> {
+  const latest = await publicClient.getBlockNumber();
+  let lo = 0n;
+  let hi = latest;
+  while (lo < hi) {
+    const mid = (lo + hi) / 2n;
+    const code = await publicClient.getCode({ address, blockNumber: mid });
+    if (code && code !== "0x") {
+      hi = mid;
+    } else {
+      lo = mid + 1n;
+    }
+  }
+  return lo;
+}
+
+async function getFactoryDeployBlock(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+): Promise<bigint> {
+  if (factoryDeployBlockCache === null) {
+    factoryDeployBlockCache = await findDeploymentBlock(publicClient, FACTORY_ADDRESS);
+  }
+  return factoryDeployBlockCache;
+}
+
+async function getSwapLogsChunked(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+  vaultAddress: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+) {
+  const allLogs = [];
+  let start = fromBlock;
+  while (start <= toBlock) {
+    const end = start + MAX_LOG_BLOCK_RANGE > toBlock ? toBlock : start + MAX_LOG_BLOCK_RANGE;
+    const logs = await publicClient.getContractEvents({
+      address:   vaultAddress,
+      abi:       DCA_VAULT_ABI,
+      eventName: "DcaSwapExecuted",
+      fromBlock: start,
+      toBlock:   end,
+    });
+    allLogs.push(...logs);
+    start = end + 1n;
+  }
+  return allLogs;
+}
 
 export interface PurchaseEvent {
   vaultAddress:     `0x${string}`;
@@ -277,16 +339,15 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
   if (vaultAddresses.length === 0) return [];
   const { publicClient } = getClients();
 
+  const [deployBlock, latestBlock] = await Promise.all([
+    getFactoryDeployBlock(publicClient),
+    publicClient.getBlockNumber(),
+  ]);
+
   const perVault = await Promise.all(
     vaultAddresses.map(async (vaultAddress) => {
       const [logs, inputTokenAddress] = await Promise.all([
-        publicClient.getContractEvents({
-          address:   vaultAddress,
-          abi:       DCA_VAULT_ABI,
-          eventName: "DcaSwapExecuted",
-          fromBlock: 0n,
-          toBlock:   "latest",
-        }),
+        getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
         publicClient.readContract({
           address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
         }) as Promise<`0x${string}`>,
