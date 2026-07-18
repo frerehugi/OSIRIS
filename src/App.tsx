@@ -642,7 +642,7 @@ export default function App() {
             <div className="summary">
               <p>Total holdings: <strong>{formatTokenAmount(total.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
               <p className="muted" style={{ fontSize: '0.8rem' }}>
-                ≈ {formatInputAmount(total.amountIn)} invested across {total.count} purchase{total.count === 1 ? '' : 's'}
+                ≈ {formatInputAmount(total.amountIn)} USDC/USDT invested across {total.count} purchase{total.count === 1 ? '' : 's'}
               </p>
             </div>
             {rows.length === 0 && <p className="muted">No purchases yet.</p>}
@@ -678,7 +678,7 @@ export default function App() {
           {!purchasesLoading && !purchasesError && purchases && (
             <>
               <div className="summary">
-                <p>Total invested: <strong>{formatInputAmount(totalInvested)}</strong></p>
+                <p>Total invested: <strong>{formatInputAmount(totalInvested)} USDC/USDT</strong></p>
               </div>
               <div className="tile-grid">
                 {TOKENS.map((token) => (
