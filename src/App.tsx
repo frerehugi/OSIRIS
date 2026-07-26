@@ -42,7 +42,7 @@ interface VaultSummary {
   eventTimestamp: number | null;
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases';
+type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -534,6 +534,69 @@ export default function App() {
           <Button onClick={handleConnect} disabled={vaultsLoading}>
             {vaultsLoading ? '⏳ Connecting...' : '👛 Connect Wallet'}
           </Button>
+          <Button variant="secondary" onClick={() => setView('about')}>ℹ️ About OSIRIS</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: About ──────────────────────────────────────────────────────────
+
+  if (view === 'about') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>ℹ️ About OSIRIS</h2>
+          <p className="muted">
+            OSIRIS is a non-custodial DCA (dollar-cost averaging) vault. It automatically
+            invests your USDC or USDT into a diversified basket of crypto assets, on a
+            schedule you choose — no manual swaps, no missed entries.
+          </p>
+
+          <div className="summary">
+            <p><strong>🔒 Non-custodial</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Your funds live in your own dedicated smart contract vault, created just for
+              you. Only you can cancel a plan and withdraw — OSIRIS never holds custody.
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>🔄 How it works</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              1. Configure your plan (amount, allocation, interval)<br />
+              2. Your own vault is created<br />
+              3. An automated keeper executes each step via Squid Router<br />
+              4. Assets arrive directly in your wallet
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>💰 Fees</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              0.99% per execution, minimum $0.02 — whichever is higher. No hidden costs,
+              no subscription.
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>🪙 Target assets</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              wBTC · wETH · CELO · Gold (XAUoT) — choose your own allocation, nothing is fixed.
+            </p>
+          </div>
+
+          <a
+            href="https://celoscan.io/address/0xba148255d757912442A97f87c50DD2F65FBab7E0"
+            target="_blank"
+            rel="noreferrer"
+            className="muted"
+            style={{ fontSize: '0.85rem' }}
+          >
+            View verified contract on Celoscan ↗
+          </a>
+
+          <Button variant="secondary" onClick={() => setView('connect')}>← Back</Button>
         </section>
       </Card>
     );
