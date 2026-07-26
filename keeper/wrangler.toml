@@ -1,0 +1,6 @@
+name = "osiris-keeper"
+main = "worker.ts"
+compatibility_date = "2026-01-01"
+
+[triggers]
+crons = ["0 * * * *"]

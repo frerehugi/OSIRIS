@@ -1,4 +1,10 @@
-// Keeper-Service (Node.js, läuft als Cron-Job / scheduled Task).
+// Keeper-Service — plattformneutraler Kern.
+//
+// Läuft sowohl als Node.js-Prozess (keeper/cli.ts, GitHub Actions) als auch
+// als Cloudflare Worker (keeper/worker.ts, Cron Trigger). Deshalb greift
+// dieser Kern NICHT direkt auf process.env zu — alle Konfiguration kommt
+// über das Env-Objekt (createKeeperContext), das die jeweilige Entry-Point-
+// Datei aus ihrer eigenen Laufzeitumgebung befüllt.
 //
 // Architektur: Der Vault ruft keinen DEX-Router mehr selbst auf. Stattdessen
 // holt DIESER Keeper für jeden Zieltoken eine fertige, ausführbare Route
@@ -16,8 +22,6 @@
 import { createWalletClient, createPublicClient, http, defineChain, parseUnits } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import axios from "axios";
-import { fileURLToPath } from "url";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "../src/dcaVaultAbi";
 import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS } from "../src/config";
 
@@ -43,68 +47,82 @@ const activeChain = ACTIVE_CHAIN_ID === CELO_CHAIN_ID ? celo : celoSepolia;
 // Calls zu überlasten.
 const BATCH_SIZE = 10;
 
-// ─── Squid-Integrator-ID ──────────────────────────────────────────────────────
-//
-// Kommt bewusst aus keeper/.env (nicht aus src/config.ts) — der Keeper ist ein
-// eigenständiger Prozess mit eigenen Secrets. Solange die echte ID bei Squid
-// noch nicht beantragt/vergeben ist, steht hier der Platzhalter "PENDING";
-// der Keeper verweigert in dem Fall den Start mit einer klaren Fehlermeldung,
-// statt Requests zu senden, die Squid im Zweifel ablehnt oder ratelimited.
-
-function getValidatedIntegratorId(): string {
-  const id = process.env.SQUID_INTEGRATOR_ID;
-  if (!id) {
-    throw new Error("SQUID_INTEGRATOR_ID Umgebungsvariable fehlt (keeper/.env).");
-  }
-  if (id === "PENDING") {
-    throw new Error(
-      "SQUID_INTEGRATOR_ID ist noch der Platzhalter 'PENDING'. " +
-      "Echte Integrator-ID bei Squid (https://app.squidrouter.com/) beantragen " +
-      "und in keeper/.env eintragen, bevor der Keeper live läuft."
-    );
-  }
-  return id;
-}
-
-// ─── Factory-Adressen ─────────────────────────────────────────────────────────
-//
-// Ebenfalls aus keeper/.env statt src/config.ts — gleicher Grund wie bei der
-// Integrator-ID (eigenständiger Prozess, eigene Konfiguration).
-//
-// Komma-getrennte Liste statt einer einzelnen Adresse: sobald ein neuer
-// Factory-Deploy stattfindet (z.B. für einen Contract-Upgrade wie den
-// Gebühren-Mechanismus), erstellen neue Nutzer ihre Vaults über die neue
-// Factory — bestehende Nutzer-Vaults laufen aber weiter über die ALTE
-// Factory. Würde FACTORY_ADDRESSES beim Upgrade einfach ersetzt statt
-// ergänzt, würde der Keeper die alten Vaults nicht mehr finden und sie
-// stillschweigend nicht mehr ausführen. Deshalb bleiben alte Factory-
-// Adressen hier stehen, bis die letzten darüber erstellten Vaults
-// ausgelaufen sind. FACTORY_ADDRESS (Singular) wird als Fallback weiter
-// unterstützt, um bestehende .env-Dateien nicht zu brechen.
-
-function getValidatedFactoryAddresses(): `0x${string}`[] {
-  const raw = process.env.FACTORY_ADDRESSES ?? process.env.FACTORY_ADDRESS;
-  if (!raw) {
-    throw new Error("FACTORY_ADDRESSES (oder FACTORY_ADDRESS) Umgebungsvariable fehlt (keeper/.env).");
-  }
-  return raw.split(",").map((address) => address.trim() as `0x${string}`);
-}
-
-// ─── Wallet-Setup ─────────────────────────────────────────────────────────────
-
-const KEEPER_PRIVATE_KEY = process.env.KEEPER_PRIVATE_KEY as `0x${string}`;
-if (!KEEPER_PRIVATE_KEY) {
-  throw new Error("KEEPER_PRIVATE_KEY Umgebungsvariable fehlt.");
-}
-
 // 1 % zusätzlicher Puffer auf Squids eigene Slippage-Berechnung,
 // um kurzfristige Marktbewegungen zwischen Quote und On-Chain-Ausführung
 // abzufedern, ohne die Slippage-Kontrolle auszuhebeln.
 const SLIPPAGE_BPS_BUFFER = 300;
 
-const account = privateKeyToAccount(KEEPER_PRIVATE_KEY);
-const walletClient = createWalletClient({ account, chain: activeChain, transport: http() });
-const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+// ─── Konfiguration (plattformneutral) ─────────────────────────────────────────
+//
+// Env wird von der jeweiligen Entry-Point-Datei befüllt: cli.ts aus
+// process.env (Node/GitHub Actions), worker.ts aus dem env-Parameter, den
+// Cloudflare Workers dem scheduled()-Handler übergibt (Workers Secrets).
+
+export interface Env {
+  KEEPER_PRIVATE_KEY:     string;
+  SQUID_INTEGRATOR_ID:    string;
+  FACTORY_ADDRESSES?:     string;
+  FACTORY_ADDRESS?:       string;
+  KEEPER_REFUEL_THRESHOLD?: string;
+  KEEPER_REFUEL_PCT_BPS?:   string;
+}
+
+// Von der tatsächlichen Rückgabe von createKeeperContext() abgeleitet statt
+// als separates Interface deklariert: viem's createWalletClient/createPublicClient
+// sind generisch — ReturnType<typeof createWalletClient> (ohne konkrete
+// Aufruf-Argumente) liefert die unspezifische Default-Instanziierung und
+// verliert die aus dem echten Aufruf hier unten inferierten konkreten Typen
+// (chain, account), was writeContract()/sendTransaction()-Aufrufen weiter
+// unten fälschlich ein fehlendes `chain`-Feld vorwirft.
+type KeeperContext = ReturnType<typeof createKeeperContext>;
+
+function createKeeperContext(env: Env) {
+  const privateKey = env.KEEPER_PRIVATE_KEY as `0x${string}`;
+  if (!privateKey) {
+    throw new Error("KEEPER_PRIVATE_KEY Umgebungsvariable fehlt.");
+  }
+
+  // Solange die echte Integrator-ID bei Squid noch nicht beantragt/vergeben
+  // ist, steht hier der Platzhalter "PENDING"; der Keeper verweigert in dem
+  // Fall den Start mit einer klaren Fehlermeldung, statt Requests zu senden,
+  // die Squid im Zweifel ablehnt oder ratelimited.
+  const integratorId = env.SQUID_INTEGRATOR_ID;
+  if (!integratorId) {
+    throw new Error("SQUID_INTEGRATOR_ID Umgebungsvariable fehlt.");
+  }
+  if (integratorId === "PENDING") {
+    throw new Error(
+      "SQUID_INTEGRATOR_ID ist noch der Platzhalter 'PENDING'. " +
+      "Echte Integrator-ID bei Squid (https://app.squidrouter.com/) beantragen " +
+      "und als Secret hinterlegen, bevor der Keeper live läuft."
+    );
+  }
+
+  // Komma-getrennte Liste statt einer einzelnen Adresse: sobald ein neuer
+  // Factory-Deploy stattfindet (z.B. für einen Contract-Upgrade wie den
+  // Gebühren-Mechanismus), erstellen neue Nutzer ihre Vaults über die neue
+  // Factory — bestehende Nutzer-Vaults laufen aber weiter über die ALTE
+  // Factory. Würde FACTORY_ADDRESSES beim Upgrade einfach ersetzt statt
+  // ergänzt, würde der Keeper die alten Vaults nicht mehr finden und sie
+  // stillschweigend nicht mehr ausführen. Deshalb bleiben alte Factory-
+  // Adressen hier stehen, bis die letzten darüber erstellten Vaults
+  // ausgelaufen sind. FACTORY_ADDRESS (Singular) wird als Fallback weiter
+  // unterstützt, um bestehende Konfigurationen nicht zu brechen.
+  const rawFactories = env.FACTORY_ADDRESSES ?? env.FACTORY_ADDRESS;
+  if (!rawFactories) {
+    throw new Error("FACTORY_ADDRESSES (oder FACTORY_ADDRESS) Umgebungsvariable fehlt.");
+  }
+  const factoryAddresses = rawFactories.split(",").map((address) => address.trim() as `0x${string}`);
+
+  const account = privateKeyToAccount(privateKey);
+  const walletClient = createWalletClient({ account, chain: activeChain, transport: http() });
+  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+
+  const refuelThreshold = parseUnits(env.KEEPER_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent
+  const refuelPercentBps = BigInt(env.KEEPER_REFUEL_PCT_BPS ?? "4000");     // 40 %
+
+  return { account, walletClient, publicClient, integratorId, factoryAddresses, refuelThreshold, refuelPercentBps };
+}
 
 // ─── Squid-Route holen ────────────────────────────────────────────────────────
 
@@ -134,49 +152,49 @@ function sleep(ms: number): Promise<void> {
 const SQUID_REQUEST_SPACING_MS = 4_000;
 const SQUID_MAX_RETRIES = 5;
 
-async function getSquidRoute(params: {
+async function getSquidRoute(integratorId: string, params: {
   fromToken:   `0x${string}`;
   toToken:     `0x${string}`;
   fromAmount:  string;
   fromAddress: `0x${string}`;
   toAddress:   `0x${string}`;
 }): Promise<SquidRoute> {
-  const integratorId = getValidatedIntegratorId();
-
   for (let attempt = 1; attempt <= SQUID_MAX_RETRIES; attempt++) {
-    try {
-      const response = await axios.post(
-        "https://apiplus.squidrouter.com/v2/route",
-        {
-          fromChain:   ACTIVE_CHAIN_ID,
-          toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
-          fromToken:   params.fromToken,
-          toToken:     params.toToken,
-          fromAmount:  params.fromAmount,
-          fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
-          toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
-          slippage:      5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
-          quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
-        },
-        {
-          headers: {
-            "x-integrator-id": integratorId,
-            "Content-Type":    "application/json",
-          },
-        }
-      );
-      return response.data.route as SquidRoute;
-    } catch (err) {
-      const isRateLimit = axios.isAxiosError(err) && err.response?.status === 429;
-      if (!isRateLimit || attempt === SQUID_MAX_RETRIES) throw err;
+    const response = await fetch("https://apiplus.squidrouter.com/v2/route", {
+      method: "POST",
+      headers: {
+        "x-integrator-id": integratorId,
+        "Content-Type":    "application/json",
+      },
+      body: JSON.stringify({
+        fromChain:   ACTIVE_CHAIN_ID,
+        toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
+        fromToken:   params.fromToken,
+        toToken:     params.toToken,
+        fromAmount:  params.fromAmount,
+        fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
+        toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
+        slippage:      5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
+        quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
+      }),
+    });
 
-      const backoffMs = SQUID_REQUEST_SPACING_MS * attempt; // 4s, 8s, 12s, 16s
-      console.warn(
-        `Squid: Rate-Limit (429) für ${params.toToken} — warte ${backoffMs}ms ` +
-        `(Versuch ${attempt}/${SQUID_MAX_RETRIES})`
-      );
-      await sleep(backoffMs);
+    if (response.ok) {
+      const data = await response.json() as { route: SquidRoute };
+      return data.route;
     }
+
+    const isRateLimit = response.status === 429;
+    if (!isRateLimit || attempt === SQUID_MAX_RETRIES) {
+      throw new Error(`Squid-Route fehlgeschlagen: ${response.status} ${await response.text()}`);
+    }
+
+    const backoffMs = SQUID_REQUEST_SPACING_MS * attempt; // 4s, 8s, 12s, 16s
+    console.warn(
+      `Squid: Rate-Limit (429) für ${params.toToken} — warte ${backoffMs}ms ` +
+      `(Versuch ${attempt}/${SQUID_MAX_RETRIES})`
+    );
+    await sleep(backoffMs);
   }
   throw new Error("Squid-Route: unerreichbar nach maximalen Versuchen.");
 }
@@ -194,10 +212,10 @@ function applyBuffer(toAmountMin: string): bigint {
 // taucht in factory.getAllVaults() nicht auf — er läuft aber weiter, bis alle
 // 5 Tranchen ausgeführt sind, und wird deshalb explizit mit aufgenommen.
 
-async function getAllVaultAddresses(factoryAddresses: `0x${string}`[]): Promise<`0x${string}`[]> {
+async function getAllVaultAddresses(ctx: KeeperContext): Promise<`0x${string}`[]> {
   const perFactoryVaults = await Promise.all(
-    factoryAddresses.map((factoryAddress) =>
-      publicClient.readContract({
+    ctx.factoryAddresses.map((factoryAddress) =>
+      ctx.publicClient.readContract({
         address: factoryAddress,
         abi:     DCA_VAULT_FACTORY_ABI,
         functionName: "getAllVaults",
@@ -210,14 +228,14 @@ async function getAllVaultAddresses(factoryAddresses: `0x${string}`[]): Promise<
 
 // ─── canExecute() in Batches prüfen ───────────────────────────────────────────
 
-async function findExecutableVaults(vaultAddresses: `0x${string}`[]): Promise<`0x${string}`[]> {
+async function findExecutableVaults(ctx: KeeperContext, vaultAddresses: `0x${string}`[]): Promise<`0x${string}`[]> {
   const executable: `0x${string}`[] = [];
 
   for (let i = 0; i < vaultAddresses.length; i += BATCH_SIZE) {
     const batch = vaultAddresses.slice(i, i + BATCH_SIZE);
     const results = await Promise.all(
       batch.map((vault) =>
-        publicClient.readContract({ address: vault, abi: DCA_VAULT_ABI, functionName: "canExecute" })
+        ctx.publicClient.readContract({ address: vault, abi: DCA_VAULT_ABI, functionName: "canExecute" })
       )
     );
     batch.forEach((vault, idx) => {
@@ -230,14 +248,14 @@ async function findExecutableVaults(vaultAddresses: `0x${string}`[]): Promise<`0
 
 // ─── Einen Vault ausführen ────────────────────────────────────────────────────
 
-async function executeVaultStep(vaultAddress: `0x${string}`) {
+async function executeVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`) {
   const [trancheAmount, targetConfigs, inputTokenAddress, ownerAddress, currentStep, totalSteps] = await Promise.all([
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "owner" }),
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
-    publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "owner" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
+    ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
   ]);
 
   // amountForThisStep wie im Contract: beim letzten Schritt der komplette
@@ -245,7 +263,7 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
   // die feste trancheAmount.
   const isLastStep = BigInt(currentStep as number) + 1n === BigInt(totalSteps as number);
   const amountForThisStep = isLastStep
-    ? (await publicClient.readContract({
+    ? (await ctx.publicClient.readContract({
         address:      inputTokenAddress as `0x${string}`,
         abi:          ERC20_ABI,
         functionName: "balanceOf",
@@ -262,10 +280,10 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
   // Getter — der Call revertet dann einfach, amountNet bleibt = gross.
   let amountNet = amountForThisStep;
   try {
-    const vaultFactory = await publicClient.readContract({
+    const vaultFactory = await ctx.publicClient.readContract({
       address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "factory",
     }) as `0x${string}`;
-    const [feeBps, minFee] = await publicClient.readContract({
+    const [feeBps, minFee] = await ctx.publicClient.readContract({
       address: vaultFactory, abi: DCA_VAULT_FACTORY_ABI, functionName: "feeInfo",
     }) as [number, bigint, `0x${string}`];
 
@@ -287,7 +305,7 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
     const config = configs[i];
     const amountIn = (amountNet * BigInt(config.bps)) / 10_000n;
 
-    const route = await getSquidRoute({
+    const route = await getSquidRoute(ctx.integratorId, {
       fromToken:   inputTokenAddress as `0x${string}`,
       toToken:     config.token,
       fromAmount:  amountIn.toString(),
@@ -304,18 +322,18 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
 
   // Vor dem Broadcast simulieren — deckt z.B. RouterNotApproved oder
   // SlippageExceeded auf, ohne echtes Gas zu verbrennen.
-  const { request } = await publicClient.simulateContract({
-    account,
+  const { request } = await ctx.publicClient.simulateContract({
+    account: ctx.account,
     address:      vaultAddress,
     abi:          DCA_VAULT_ABI,
     functionName: "executeStep",
     args:         [routers, minAmountsOut, callData],
   });
 
-  const hash = await walletClient.writeContract(request);
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  const hash = await ctx.walletClient.writeContract(request);
+  const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
 
-  const newStep = await publicClient.readContract({
+  const newStep = await ctx.publicClient.readContract({
     address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep",
   });
 
@@ -334,56 +352,53 @@ async function executeVaultStep(vaultAddress: `0x${string}`) {
 // Squid-Request pro Token, eine gemeinsame Prüfung würde nur Sonderlogik fürs
 // Kombinieren zweier ERC-20-Salden hinzufügen, ohne echten Vorteil.
 
-const REFUEL_THRESHOLD = parseUnits(process.env.KEEPER_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent
-const REFUEL_PERCENT_BPS = BigInt(process.env.KEEPER_REFUEL_PCT_BPS ?? "4000");     // 40 %
-
 const REFUEL_STABLE_TOKENS: { symbol: string; address: `0x${string}` }[] = [
   { symbol: "USDC", address: INPUT_TOKENS.USDC.address },
   { symbol: "USDT", address: INPUT_TOKENS.USDT.address },
 ];
 
-async function refuelFromToken(token: { symbol: string; address: `0x${string}` }): Promise<void> {
-  const balance = await publicClient.readContract({
-    address: token.address, abi: ERC20_ABI, functionName: "balanceOf", args: [account.address],
+async function refuelFromToken(ctx: KeeperContext, token: { symbol: string; address: `0x${string}` }): Promise<void> {
+  const balance = await ctx.publicClient.readContract({
+    address: token.address, abi: ERC20_ABI, functionName: "balanceOf", args: [ctx.account.address],
   }) as bigint;
 
-  if (balance <= REFUEL_THRESHOLD) return;
+  if (balance <= ctx.refuelThreshold) return;
 
-  const swapAmount = (balance * REFUEL_PERCENT_BPS) / 10_000n;
+  const swapAmount = (balance * ctx.refuelPercentBps) / 10_000n;
   if (swapAmount === 0n) return;
 
   console.info(`Keeper: Auto-Refuel ${token.symbol} -> CELO, Betrag ${swapAmount}`);
 
-  const route = await getSquidRoute({
+  const route = await getSquidRoute(ctx.integratorId, {
     fromToken:   token.address,
     toToken:     TARGET_TOKENS.CELO.address,
     fromAmount:  swapAmount.toString(),
-    fromAddress: account.address,
-    toAddress:   account.address,
+    fromAddress: ctx.account.address,
+    toAddress:   ctx.account.address,
   });
 
-  const approveHash = await walletClient.writeContract({
+  const approveHash = await ctx.walletClient.writeContract({
     address:      token.address,
     abi:          ERC20_ABI,
     functionName: "approve",
     args:         [route.transactionRequest.target, swapAmount],
   });
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  await ctx.publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-  const swapHash = await walletClient.sendTransaction({
-    account,
+  const swapHash = await ctx.walletClient.sendTransaction({
+    account: ctx.account,
     to:   route.transactionRequest.target,
     data: route.transactionRequest.data,
   });
-  await publicClient.waitForTransactionReceipt({ hash: swapHash });
+  await ctx.publicClient.waitForTransactionReceipt({ hash: swapHash });
 
   console.info(`Keeper: Auto-Refuel ${token.symbol} erfolgreich. Tx: ${swapHash}`);
 }
 
-async function autoRefuelCelo(): Promise<void> {
+async function autoRefuelCelo(ctx: KeeperContext): Promise<void> {
   for (const token of REFUEL_STABLE_TOKENS) {
     try {
-      await refuelFromToken(token);
+      await refuelFromToken(ctx, token);
     } catch (err) {
       // Ein fehlschlagender Refuel darf den nächsten Keeper-Zyklus nicht
       // blockieren — beim nächsten Lauf wird es einfach erneut versucht.
@@ -399,14 +414,13 @@ export interface KeeperCycleResult {
   receipt:      Awaited<ReturnType<typeof executeVaultStep>>;
 }
 
-export async function runKeeperCycle(): Promise<KeeperCycleResult[]> {
-  getValidatedIntegratorId(); // wirft früh, bevor irgendein Contract-Call passiert
-  const factoryAddresses = getValidatedFactoryAddresses();
+export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
+  const ctx = createKeeperContext(env);
 
-  const vaultAddresses = await getAllVaultAddresses(factoryAddresses);
-  console.info(`Keeper: ${vaultAddresses.length} Vault(s) insgesamt (Factories: ${factoryAddresses.join(", ")}).`);
+  const vaultAddresses = await getAllVaultAddresses(ctx);
+  console.info(`Keeper: ${vaultAddresses.length} Vault(s) insgesamt (Factories: ${ctx.factoryAddresses.join(", ")}).`);
 
-  const executableVaults = await findExecutableVaults(vaultAddresses);
+  const executableVaults = await findExecutableVaults(ctx, vaultAddresses);
   const results: KeeperCycleResult[] = [];
 
   if (executableVaults.length === 0) {
@@ -418,7 +432,7 @@ export async function runKeeperCycle(): Promise<KeeperCycleResult[]> {
     // Nonce-Verwaltung des Keeper-Wallets vertragen keine parallelen Broadcasts.
     for (const vaultAddress of executableVaults) {
       try {
-        const receipt = await executeVaultStep(vaultAddress);
+        const receipt = await executeVaultStep(ctx, vaultAddress);
         results.push({ vaultAddress, receipt });
       } catch (err) {
         // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
@@ -428,27 +442,7 @@ export async function runKeeperCycle(): Promise<KeeperCycleResult[]> {
     }
   }
 
-  await autoRefuelCelo();
+  await autoRefuelCelo(ctx);
 
   return results;
-}
-
-// ─── Entry Point (z.B. per Cron aufgerufen) ───────────────────────────────────
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runKeeperCycle()
-    .then((results) => {
-      if (results.length === 0) {
-        console.info("Done: nichts ausgeführt.");
-      } else {
-        for (const { vaultAddress, receipt } of results) {
-          console.info(`Done: ${vaultAddress} -> ${receipt.transactionHash}`);
-        }
-      }
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error("Keeper-Fehler:", err);
-      process.exit(1);
-    });
 }
