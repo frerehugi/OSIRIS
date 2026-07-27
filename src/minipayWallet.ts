@@ -272,6 +272,34 @@ export async function cancelDcaPlan(
 
 const MAX_LOG_BLOCK_RANGE = 4_999n; // Server-Limit ist 5000 Blöcke (inklusive)
 
+// Wie viele Vaults gleichzeitig ihre Swap-Historie laden dürfen. Bei voller
+// Parallelität über alle Vaults (je mit vielen Chunk-Anfragen) hat der
+// öffentliche forno.celo.org-Knoten wiederholt mit "Load failed"
+// abgebrochen — Batching hält die Anzahl gleichzeitiger Requests niedrig.
+const VAULT_BATCH_SIZE = 3;
+
+// Ein einzelner fehlgeschlagener Chunk (Netzwerk-Hänger, Rate-Limit) soll
+// nicht gleich die ganze "My Purchases"-Ansicht scheitern lassen.
+const CHUNK_RETRY_COUNT = 3;
+const CHUNK_RETRY_DELAY_MS = 1_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    results.push(...(await Promise.all(batch.map(worker))));
+  }
+  return results;
+}
+
 let factoryDeployBlockCache: bigint | null = null;
 
 async function findDeploymentBlock(
@@ -312,13 +340,24 @@ async function getSwapLogsChunked(
   let start = fromBlock;
   while (start <= toBlock) {
     const end = start + MAX_LOG_BLOCK_RANGE > toBlock ? toBlock : start + MAX_LOG_BLOCK_RANGE;
-    const logs = await publicClient.getContractEvents({
-      address:   vaultAddress,
-      abi:       DCA_VAULT_ABI,
-      eventName: "DcaSwapExecuted",
-      fromBlock: start,
-      toBlock:   end,
-    });
+
+    let logs;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        logs = await publicClient.getContractEvents({
+          address:   vaultAddress,
+          abi:       DCA_VAULT_ABI,
+          eventName: "DcaSwapExecuted",
+          fromBlock: start,
+          toBlock:   end,
+        });
+        break;
+      } catch (error) {
+        if (attempt >= CHUNK_RETRY_COUNT) throw error;
+        await sleep(CHUNK_RETRY_DELAY_MS * attempt);
+      }
+    }
+
     allLogs.push(...logs);
     start = end + 1n;
   }
@@ -354,36 +393,35 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
     publicClient.getBlockNumber(),
   ]);
 
-  const perVault = await Promise.all(
-    vaultAddresses.map(async (vaultAddress) => {
-      const [logs, inputTokenAddress] = await Promise.all([
-        getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
-        publicClient.readContract({
-          address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
-        }) as Promise<`0x${string}`>,
-      ]);
-      const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
+  const perVault = await runInBatches(vaultAddresses, VAULT_BATCH_SIZE, async (vaultAddress) => {
+    const [logs, inputTokenAddress] = await Promise.all([
+      getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
+      publicClient.readContract({
+        address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
+      }) as Promise<`0x${string}`>,
+    ]);
+    const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
 
-      return logs.map((log) => ({
-        vaultAddress,
-        step:             Number(log.args.step),
-        targetToken:      log.args.targetToken as `0x${string}`,
-        amountIn:         log.args.amountIn as bigint,
-        amountOut:        log.args.amountOut as bigint,
-        inputTokenSymbol,
-        txHash:            log.transactionHash as `0x${string}`,
-        blockNumber:       log.blockNumber as bigint,
-        timestamp:         null as number | null,
-      }));
-    }),
-  );
+    return logs.map((log) => ({
+      vaultAddress,
+      step:             Number(log.args.step),
+      targetToken:      log.args.targetToken as `0x${string}`,
+      amountIn:         log.args.amountIn as bigint,
+      amountOut:        log.args.amountOut as bigint,
+      inputTokenSymbol,
+      txHash:            log.transactionHash as `0x${string}`,
+      blockNumber:       log.blockNumber as bigint,
+      timestamp:         null as number | null,
+    }));
+  });
 
   const flat = perVault.flat();
 
   // Block-Timestamps nachladen — ein getBlock() pro einzigartigem Block,
   // nicht pro Event (mehrere Swaps eines Schritts landen im selben Block).
+  // Ebenfalls gebatcht statt komplett parallel, aus demselben Grund wie oben.
   const uniqueBlocks = [...new Set(flat.map((p) => p.blockNumber))];
-  const blocks = await Promise.all(uniqueBlocks.map((bn) => publicClient.getBlock({ blockNumber: bn })));
+  const blocks = await runInBatches(uniqueBlocks, VAULT_BATCH_SIZE, (bn) => publicClient.getBlock({ blockNumber: bn }));
   const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn, Number(blocks[i].timestamp)]));
 
   return flat
