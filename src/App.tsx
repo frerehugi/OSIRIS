@@ -836,6 +836,9 @@ export default function App() {
           {visiblePlans.length === 0 && historyEntries.length > 0 && (
             <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
           )}
+          {existingVaults.length > 0 && (
+            <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
+          )}
         </section>
       )}
 
