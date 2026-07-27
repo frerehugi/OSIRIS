@@ -76,7 +76,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const RPC_RETRY_COUNT = 3;
+const RPC_RETRY_COUNT = 5;
 const RPC_RETRY_DELAY_MS = 1_000;
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
