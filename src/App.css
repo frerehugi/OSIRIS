@@ -327,6 +327,196 @@ h2 {
   font-size: 0.85rem;
 }
 
+/* ─── Plan cards ("Your Plans" + "History") ─────────────────────────────────── */
+
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-gold);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.plan-complete  { border-color: rgba(16, 185, 129, 0.35); }
+.plan-cancelled { border-color: var(--border); opacity: 0.72; }
+
+.plan-vault {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vault-address {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.vault-address a {
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.25);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-pill.status-pending,
+.status-pill.status-active    { color: var(--gold-light); background: var(--gold-dim); border: 1px solid var(--border-gold); }
+.status-pill.status-complete  { color: #6ee7b7; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); }
+.status-pill.status-cancelled { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); }
+
+.plan-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.amount-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.amount-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.32);
+  margin-bottom: 2px;
+}
+
+.mode-tag {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.progress-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.progress-label b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
+}
+
+.plan-complete .progress-fill  { background: linear-gradient(90deg, #10b981, #6ee7b7); }
+.plan-cancelled .progress-fill { background: rgba(255, 255, 255, 0.25); }
+
+.assets-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.assets-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.assets-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.assets-bar span { height: 100%; }
+.asset-seg-0 { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+.asset-seg-1 { background: #7FB3D9; }
+.asset-seg-2 { background: #8f8fe0; }
+.asset-seg-3 { background: #e08fc4; }
+.asset-seg-muted { background: rgba(255, 255, 255, 0.25); }
+
+.assets-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.assets-legend .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.dot-0 { background: var(--gold-light); }
+.dot-1 { background: #7FB3D9; }
+.dot-2 { background: #8f8fe0; }
+.dot-3 { background: #e08fc4; }
+.dot-muted { background: rgba(255, 255, 255, 0.25); }
+
+.cancelled-note {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.32);
+}
+
 @media (max-width: 420px) {
   .amount-row,
   .button-row {

@@ -2,10 +2,10 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import {
   connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
-  runInBatches, RPC_BATCH_SIZE,
+  runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
   type SubmitDcaPlanPhase, type PurchaseEvent,
 } from './minipayWallet';
-import { TARGET_TOKENS } from './config';
+import { TARGET_TOKENS, INTERVAL_SECONDS } from './config';
 import {
   TOKENS,
   WEEKDAYS,
@@ -33,6 +33,11 @@ interface ValidationResult {
 
 type VaultStatus = 'pending' | 'active' | 'cancelled' | 'complete';
 
+interface VaultAsset {
+  token: TokenType;
+  bps:   number; // von 10_000 = 100%
+}
+
 interface VaultSummary {
   address: `0x${string}`;
   status:  VaultStatus;
@@ -41,6 +46,14 @@ interface VaultSummary {
   // (z.B. ein außerhalb dieser App gecancelter Plan, siehe getCancelledAt()).
   // Wird nur für die Anzeige auf der History-Seite gebraucht.
   eventTimestamp: number | null;
+  // Für die Plan-Karte (leer/0 bei status 'pending', da setupPlan() dort noch
+  // nicht lief und der Contract entsprechend nur Default-Werte liefert).
+  inputTokenSymbol: string;
+  totalAmount:      bigint; // roh, 6 Dezimalstellen (USDC/USDT)
+  interval:         Interval | null;
+  currentStep:      number;
+  totalSteps:       number;
+  assets:           VaultAsset[];
 }
 
 type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about';
@@ -49,13 +62,6 @@ const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
   'approving':        '⏳ Approving USDC...',
   'setting-up-plan':  '⏳ Setting up plan...',
-};
-
-const VAULT_STATUS_LABEL: Record<VaultStatus, string> = {
-  pending:   '⚠ Setup incomplete',
-  active:    '🟢 Active',
-  cancelled: '⨯ Cancelled',
-  complete:  '✓ Complete',
 };
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
@@ -128,6 +134,18 @@ function intervalUnit(interval: Interval | null, plural = true): string {
   const unit = INTERVAL_UNIT[interval ?? 'daily'];
   return plural ? unit.plural : unit.singular;
 }
+
+// Reverse-Lookup Contract-Sekunden -> Interval-Label, für die Plan-Karte
+// (der Contract liefert nur den rohen Sekundenwert, siehe INTERVAL_SECONDS).
+const INTERVAL_BY_SECONDS: Record<string, Interval> = Object.fromEntries(
+  (Object.entries(INTERVAL_SECONDS) as [Interval, number][]).map(([key, seconds]) => [String(seconds), key]),
+);
+
+const INTERVAL_MODE_LABEL: Record<Interval, string> = {
+  hourly: '⏱ Hourly',
+  daily:  '📅 Daily',
+  weekly: '📆 Weekly',
+};
 
 function formatHistoryTimestamp(eventTimestamp: number | null): string {
   if (eventTimestamp === null) return 'Date unknown';
@@ -281,6 +299,85 @@ function InputField({
   );
 }
 
+const STATUS_PILL_LABEL: Record<VaultStatus, string> = {
+  pending:   'Setup incomplete',
+  active:    'Active',
+  cancelled: 'Cancelled',
+  complete:  'Complete',
+};
+
+// Zeigt einen Plan als Karte mit den 7 Kernfeldern (Vault, Status, Amount,
+// Modus, Progress, Assets, plus einen optionalen Trailing-Slot für den
+// Cancel-Button bzw. eine History-Zeitangabe) — genutzt sowohl in "Your
+// Plans" (active/pending) als auch in "History" (complete/cancelled).
+function PlanCard({ vault, extra }: { vault: VaultSummary; extra?: ReactNode }) {
+  const progressPercent = vault.totalSteps > 0
+    ? Math.min(100, (vault.currentStep / vault.totalSteps) * 100)
+    : 0;
+  const isMuted = vault.status === 'cancelled';
+
+  return (
+    <div className={`plan plan-${vault.status}`}>
+      <div className="plan-vault">
+        <span className="vault-address">
+          🔗{' '}
+          <a href={`https://celoscan.io/address/${vault.address}`} target="_blank" rel="noreferrer">
+            {vault.address.slice(0, 6)}…{vault.address.slice(-4)} ↗
+          </a>
+        </span>
+        <span className={`status-pill status-${vault.status}`}>{STATUS_PILL_LABEL[vault.status]}</span>
+      </div>
+
+      {vault.status !== 'pending' && (
+        <>
+          <div className="plan-meta">
+            <div>
+              <span className="amount-label">Amount</span>
+              <span className="amount-value">{formatInputAmount(vault.totalAmount)} {vault.inputTokenSymbol}</span>
+            </div>
+            {vault.interval && <span className="mode-tag">{INTERVAL_MODE_LABEL[vault.interval]}</span>}
+          </div>
+
+          <div className="progress-block">
+            <div className="progress-label">
+              <span>Progress</span>
+              <b>{vault.currentStep} / {vault.totalSteps} {intervalUnit(vault.interval)}</b>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+            </div>
+          </div>
+
+          {vault.assets.length > 0 && (
+            <div className="assets-block">
+              <span className="assets-label">Assets</span>
+              <div className="assets-bar">
+                {vault.assets.map((asset, index) => (
+                  <span
+                    key={asset.token}
+                    className={isMuted ? 'asset-seg-muted' : `asset-seg-${index % 4}`}
+                    style={{ width: `${asset.bps / 100}%` }}
+                  />
+                ))}
+              </div>
+              <div className="assets-legend">
+                {vault.assets.map((asset, index) => (
+                  <span key={asset.token}>
+                    <span className={isMuted ? 'dot dot-muted' : `dot dot-${index % 4}`} />
+                    {(asset.bps / 100).toFixed(0)}% {TOKEN_ICONS[asset.token]} {TOKEN_LABELS[asset.token]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {extra}
+    </div>
+  );
+}
+
 // ─── Haupt-App ────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -401,7 +498,23 @@ export default function App() {
           vaultStatus === 'complete'  ? completedEventTimestamp(status) :
           vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
           null;
-        return { address: vaultAddress, status: vaultStatus, eventTimestamp };
+        const assets: VaultAsset[] = status.targetConfigs
+          .map((config) => ({
+            token: TARGET_TOKEN_BY_ADDRESS[config.token.toLowerCase()],
+            bps:   config.bps,
+          }))
+          .filter((asset): asset is VaultAsset => asset.token !== undefined);
+        return {
+          address:           vaultAddress,
+          status:            vaultStatus,
+          eventTimestamp,
+          inputTokenSymbol:  resolveInputTokenSymbol(status.inputToken),
+          totalAmount:       status.totalDeposited,
+          interval:          INTERVAL_BY_SECONDS[String(status.interval)] ?? null,
+          currentStep:       Number(status.currentStep),
+          totalSteps:        Number(status.totalSteps),
+          assets,
+        };
       });
       setExistingVaults(summaries);
       const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
@@ -611,44 +724,37 @@ export default function App() {
       <Card>
         <section className="stack">
           <h2>📂 Your Plans</h2>
-          {visiblePlans.map((v) => (
-            <div key={v.address} className="summary">
-              <p>
-                <span className="muted">Vault:</span>{' '}
-                <a
-                  href={`https://celoscan.io/address/${v.address}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {v.address.slice(0, 6)}…{v.address.slice(-4)} ↗
-                </a>
-              </p>
-              <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
-              {v.status === 'active' && (
-                confirmingAddress === v.address ? (
-                  <div className="stack">
-                    <p className="muted" style={{ fontSize: '0.85rem' }}>
-                      Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.
-                    </p>
-                    <div className="button-row">
-                      <Button variant="secondary" onClick={abortCancel}>No, keep it</Button>
-                      <Button
-                        variant="danger"
-                        onClick={() => confirmCancel(v.address)}
-                        disabled={cancellingAddress === v.address}
-                      >
-                        {cancellingAddress === v.address ? '⏳ Cancelling...' : 'Yes, Cancel'}
-                      </Button>
+          <div className="plan-list">
+            {visiblePlans.map((v) => (
+              <PlanCard
+                key={v.address}
+                vault={v}
+                extra={v.status === 'active' ? (
+                  confirmingAddress === v.address ? (
+                    <div className="stack">
+                      <p className="muted" style={{ fontSize: '0.85rem' }}>
+                        Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.
+                      </p>
+                      <div className="button-row">
+                        <Button variant="secondary" onClick={abortCancel}>No, keep it</Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => confirmCancel(v.address)}
+                          disabled={cancellingAddress === v.address}
+                        >
+                          {cancellingAddress === v.address ? '⏳ Cancelling...' : 'Yes, Cancel'}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <Button variant="danger" onClick={() => requestCancel(v.address)}>
-                    ✗ Cancel Plan
-                  </Button>
-                )
-              )}
-            </div>
-          ))}
+                  ) : (
+                    <Button variant="danger" onClick={() => requestCancel(v.address)}>
+                      ✗ Cancel Plan
+                    </Button>
+                  )
+                ) : undefined}
+              />
+            ))}
+          </div>
           {cancelError && <p className="error">{cancelError}</p>}
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
@@ -671,22 +777,19 @@ export default function App() {
           {historyEntries.length === 0 && (
             <p className="muted">No past plans yet.</p>
           )}
-          {historyEntries.map((v) => (
-            <div key={v.address} className="summary">
-              <p>
-                <span className="muted">Vault:</span>{' '}
-                <a
-                  href={`https://celoscan.io/address/${v.address}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {v.address.slice(0, 6)}…{v.address.slice(-4)} ↗
-                </a>
-              </p>
-              <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
-              <p className="muted" style={{ fontSize: '0.8rem' }}>{formatHistoryTimestamp(v.eventTimestamp)}</p>
-            </div>
-          ))}
+          <div className="plan-list">
+            {historyEntries.map((v) => (
+              <PlanCard
+                key={v.address}
+                vault={v}
+                extra={
+                  <span className="cancelled-note">
+                    {v.status === 'cancelled' ? 'Cancelled on' : 'Completed on'} {formatHistoryTimestamp(v.eventTimestamp)}
+                  </span>
+                }
+              />
+            ))}
+          </div>
           <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
         </section>
       </Card>

@@ -398,7 +398,7 @@ export interface PurchaseEvent {
   timestamp:        number | null; // Unix-Sekunden, null falls Block-Lookup fehlschlägt
 }
 
-function resolveInputTokenSymbol(address: `0x${string}`): string {
+export function resolveInputTokenSymbol(address: `0x${string}`): string {
   const lower = address.toLowerCase();
   for (const token of Object.values(INPUT_TOKENS)) {
     if (token.address.toLowerCase() === lower) return token.symbol;
@@ -455,7 +455,8 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
 
 type PlanStatusField =
   | "initialized" | "cancelled" | "currentStep" | "totalSteps"
-  | "nextExecutionTimestamp" | "remainingInputBalance" | "trancheAmount" | "interval";
+  | "nextExecutionTimestamp" | "remainingInputBalance" | "trancheAmount" | "interval"
+  | "inputToken" | "totalDeposited";
 
 export async function readPlanStatus(contractAddress: `0x${string}`) {
   const { publicClient } = getClients();
@@ -465,6 +466,7 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
   const [
     initialized, cancelled, currentStep, totalSteps,
     nextExecTs, remainingBalance, trancheAmt, interval,
+    inputTokenAddress, totalDeposited, targetConfigs,
   ] = await Promise.all([
     read("initialized"),
     read("cancelled"),
@@ -474,8 +476,13 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
     read("remainingInputBalance"),
     read("trancheAmount"),
     read("interval"),
+    read("inputToken"),
+    read("totalDeposited"),
+    withRetry(() => publicClient.readContract({
+      address: contractAddress, abi: DCA_VAULT_ABI, functionName: "getTargetConfigs",
+    })),
   ]);
   return { initialized, cancelled, currentStep, totalSteps,
            nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt,
-           interval };
+           interval, inputToken: inputTokenAddress, totalDeposited, targetConfigs };
 }
