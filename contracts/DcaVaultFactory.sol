@@ -23,6 +23,15 @@ contract DcaVaultFactory {
     address public immutable globalKeeper;
 
     // ── State ─────────────────────────────────────────────────────────────────
+    //
+    // Gebühr pro executeStep(): feeBps auf den Tranchenbetrag, mindestens
+    // minFee (Floor greift bei sehr kleinen Tranchen). Treasury ist bewusst
+    // KEIN separates Wallet, sondern globalKeeper selbst — deckt dessen
+    // Gas-Kosten direkt aus den Gebühreneinnahmen.
+
+    address public admin;
+    uint16  public feeBps;
+    uint256 public minFee;
 
     mapping(address => address[]) public vaultsOf;
     address[] public allVaults;
@@ -30,22 +39,61 @@ contract DcaVaultFactory {
     // ── Errors ───────────────────────────────────────────────────────────────
 
     error InvalidAddress();
+    error NotAdmin();
+    error FeeTooHigh();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
     event VaultCreated(address indexed owner, address indexed vault);
+    event FeeUpdated(uint16 feeBps, uint256 minFee);
+    event AdminUpdated(address indexed admin);
+
+    // ── Modifier ─────────────────────────────────────────────────────────────
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert NotAdmin();
+        _;
+    }
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _vaultImplementation, address _squidRouter, address _globalKeeper) {
+    constructor(address _vaultImplementation, address _squidRouter, address _globalKeeper, address _admin) {
         if (
             _vaultImplementation == address(0) ||
             _squidRouter         == address(0) ||
-            _globalKeeper        == address(0)
+            _globalKeeper        == address(0) ||
+            _admin                == address(0)
         ) revert InvalidAddress();
         vaultImplementation = _vaultImplementation;
         squidRouter          = _squidRouter;
         globalKeeper          = _globalKeeper;
+        admin                 = _admin;
+        feeBps                = 99;     // 0,99 %
+        minFee                 = 20_000; // 0,02 USDC/USDT (6 Decimals)
+    }
+
+    // ── Admin-Funktionen ─────────────────────────────────────────────────────
+
+    function setFee(uint16 _feeBps, uint256 _minFee) external onlyAdmin {
+        if (_feeBps > 500) revert FeeTooHigh(); // 5 % Hard-Cap
+        feeBps = _feeBps;
+        minFee = _minFee;
+        emit FeeUpdated(_feeBps, _minFee);
+    }
+
+    function setAdmin(address _admin) external onlyAdmin {
+        if (_admin == address(0)) revert InvalidAddress();
+        admin = _admin;
+        emit AdminUpdated(_admin);
+    }
+
+    // ── feeInfo ──────────────────────────────────────────────────────────────
+    //
+    // Ein kombinierter Getter statt drei separater External Calls aus
+    // DcaVault.executeStep() — spart Gas bei jeder Ausführung.
+
+    function feeInfo() external view returns (uint16 _feeBps, uint256 _minFee, address _treasury) {
+        return (feeBps, minFee, globalKeeper);
     }
 
     // ── createVault ──────────────────────────────────────────────────────────

@@ -25,8 +25,14 @@ export const VAULT_ADDRESS       = "0x22541bDAf712920330F2d0FC26D1Ac807e914FDc" 
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Factory (EIP-1167-Clones) ────────────────────────────────────────────────
-export const FACTORY_ADDRESS               = "0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411" as `0x${string}`;
-export const VAULT_IMPLEMENTATION_ADDRESS  = "0x83cf517d752D8eB449BEBE12201885AC088318Fc" as `0x${string}`;
+//
+// Ab diesem Deploy (Gebühren-Mechanismus, 0,99 % + 0,02 USDC-Floor): neue
+// Pläne laufen über diese Factory. Die vorherige Factory-Adresse
+// (0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411) bleibt für die darüber
+// bereits erstellten, gebührenfreien Bestands-Vaults in Betrieb — der Keeper
+// braucht deshalb BEIDE Adressen (siehe FACTORY_ADDRESSES in keeper/.env).
+export const FACTORY_ADDRESS               = "0xba148255d757912442A97f87c50DD2F65FBab7E0" as `0x${string}`;
+export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477E43b87fd" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
@@ -137,7 +143,8 @@ const TARGET_TOKENS_BY_CHAIN: Record<"mainnet" | "sepolia", Record<"wBTC" | "wET
 
 export const TARGET_TOKENS = TARGET_TOKENS_BY_CHAIN[ACTIVE_CHAIN_ID === CELO_CHAIN_ID ? "mainnet" : "sepolia"];
 
-export const INTERVAL_SECONDS: Record<"daily" | "weekly", number> = {
+export const INTERVAL_SECONDS: Record<"hourly" | "daily" | "weekly", number> = {
+  hourly: 3_600,
   daily:  86_400,
   weekly: 604_800,
 };

@@ -14,7 +14,7 @@ import {
   TARGET_TOKENS,
   INTERVAL_SECONDS,
 } from "./config";
-import type { DcaPlanState } from "./types";
+import type { DcaPlanState, Interval } from "./types";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,14 @@ function buildTargetArrays(percentages: Record<string, number>): {
 
 // ─── Execution Timestamp ──────────────────────────────────────────────────────
 
-function nextExecutionTimestamp(executionTimeLocal: string): bigint {
+function nextExecutionTimestamp(interval: Interval, executionTimeLocal: string): bigint {
+  // Stündliche Pläne haben keine feste Tageszeit — der Keeper pollt ohnehin
+  // stündlich, daher startet die erste Ausführung einfach beim nächsten
+  // Keeper-Durchlauf statt auf eine bestimmte Uhrzeit zu warten.
+  if (interval === "hourly") {
+    return BigInt(Math.floor(Date.now() / 1000) + 60);
+  }
+
   const [hours, minutes] = executionTimeLocal.split(":").map(Number);
   const now = new Date();
   const candidate = new Date(now);
@@ -129,7 +136,7 @@ export async function submitDcaPlan(
   const totalAmountRaw = parseUnits(formData.totalAmount, inputToken.decimals);
   const duration       = parseInt(formData.duration, 10);
   const interval       = BigInt(INTERVAL_SECONDS[formData.interval]);
-  const firstExecution = nextExecutionTimestamp(formData.executionTime);
+  const firstExecution = nextExecutionTimestamp(formData.interval, formData.executionTime);
 
   if (totalAmountRaw <= 0n) throw new Error("Gesamtbetrag muss > 0 sein.");
   if (duration <= 0)        throw new Error("Dauer muss > 0 sein.");
@@ -237,13 +244,150 @@ export async function cancelDcaPlan(
   }
 }
 
+// ─── Purchases (DcaSwapExecuted-Events) ───────────────────────────────────────
+//
+// "My Purchases" braucht die komplette Swap-Historie aller Vaults eines
+// Nutzers — das steht nicht im Contract-State (nur currentStep etc.), sondern
+// ausschließlich in den DcaSwapExecuted-Events.
+//
+// Zwei RPC-Einschränkungen von forno.celo.org, die das naive "fromBlock: 0n"
+// unbrauchbar machen (live gesehen: "query exceeds range, retry smaller (max
+// block range 5000)"):
+//   1. eth_getLogs erlaubt maximal 5000 Blöcke pro Anfrage -> Chunking nötig.
+//   2. Block 0 bis "latest" wäre auf Celo Mainnet >70 Mio. Blöcke, viel mehr
+//      als nötig — getUserVaults() liefert ohnehin nur Vaults der aktuellen
+//      FACTORY_ADDRESS (siehe dort), also reicht als unterer Rand deren
+//      Deploy-Block. Der wird per Binärsuche auf getCode() einmalig ermittelt
+//      und für die Dauer der Session gecacht (ändert sich nie).
+
+const MAX_LOG_BLOCK_RANGE = 4_999n; // Server-Limit ist 5000 Blöcke (inklusive)
+
+let factoryDeployBlockCache: bigint | null = null;
+
+async function findDeploymentBlock(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+  address: `0x${string}`,
+): Promise<bigint> {
+  const latest = await publicClient.getBlockNumber();
+  let lo = 0n;
+  let hi = latest;
+  while (lo < hi) {
+    const mid = (lo + hi) / 2n;
+    const code = await publicClient.getCode({ address, blockNumber: mid });
+    if (code && code !== "0x") {
+      hi = mid;
+    } else {
+      lo = mid + 1n;
+    }
+  }
+  return lo;
+}
+
+async function getFactoryDeployBlock(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+): Promise<bigint> {
+  if (factoryDeployBlockCache === null) {
+    factoryDeployBlockCache = await findDeploymentBlock(publicClient, FACTORY_ADDRESS);
+  }
+  return factoryDeployBlockCache;
+}
+
+async function getSwapLogsChunked(
+  publicClient: ReturnType<typeof getClients>["publicClient"],
+  vaultAddress: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+) {
+  const allLogs = [];
+  let start = fromBlock;
+  while (start <= toBlock) {
+    const end = start + MAX_LOG_BLOCK_RANGE > toBlock ? toBlock : start + MAX_LOG_BLOCK_RANGE;
+    const logs = await publicClient.getContractEvents({
+      address:   vaultAddress,
+      abi:       DCA_VAULT_ABI,
+      eventName: "DcaSwapExecuted",
+      fromBlock: start,
+      toBlock:   end,
+    });
+    allLogs.push(...logs);
+    start = end + 1n;
+  }
+  return allLogs;
+}
+
+export interface PurchaseEvent {
+  vaultAddress:     `0x${string}`;
+  step:             number;
+  targetToken:      `0x${string}`;
+  amountIn:         bigint; // im Input-Token des jeweiligen Vaults (6 Dezimalstellen)
+  amountOut:        bigint; // im Zieltoken, dessen Dezimalstellen siehe TARGET_TOKENS
+  inputTokenSymbol: string;
+  txHash:           `0x${string}`;
+  blockNumber:      bigint;
+  timestamp:        number | null; // Unix-Sekunden, null falls Block-Lookup fehlschlägt
+}
+
+function resolveInputTokenSymbol(address: `0x${string}`): string {
+  const lower = address.toLowerCase();
+  for (const token of Object.values(INPUT_TOKENS)) {
+    if (token.address.toLowerCase() === lower) return token.symbol;
+  }
+  return "input token";
+}
+
+export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise<PurchaseEvent[]> {
+  if (vaultAddresses.length === 0) return [];
+  const { publicClient } = getClients();
+
+  const [deployBlock, latestBlock] = await Promise.all([
+    getFactoryDeployBlock(publicClient),
+    publicClient.getBlockNumber(),
+  ]);
+
+  const perVault = await Promise.all(
+    vaultAddresses.map(async (vaultAddress) => {
+      const [logs, inputTokenAddress] = await Promise.all([
+        getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
+        publicClient.readContract({
+          address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
+        }) as Promise<`0x${string}`>,
+      ]);
+      const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
+
+      return logs.map((log) => ({
+        vaultAddress,
+        step:             Number(log.args.step),
+        targetToken:      log.args.targetToken as `0x${string}`,
+        amountIn:         log.args.amountIn as bigint,
+        amountOut:        log.args.amountOut as bigint,
+        inputTokenSymbol,
+        txHash:            log.transactionHash as `0x${string}`,
+        blockNumber:       log.blockNumber as bigint,
+        timestamp:         null as number | null,
+      }));
+    }),
+  );
+
+  const flat = perVault.flat();
+
+  // Block-Timestamps nachladen — ein getBlock() pro einzigartigem Block,
+  // nicht pro Event (mehrere Swaps eines Schritts landen im selben Block).
+  const uniqueBlocks = [...new Set(flat.map((p) => p.blockNumber))];
+  const blocks = await Promise.all(uniqueBlocks.map((bn) => publicClient.getBlock({ blockNumber: bn })));
+  const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn, Number(blocks[i].timestamp)]));
+
+  return flat
+    .map((p) => ({ ...p, timestamp: timestampByBlock.get(p.blockNumber) ?? null }))
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+}
+
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────
 
 export async function readPlanStatus(contractAddress: `0x${string}`) {
   const { publicClient } = getClients();
   const [
     initialized, cancelled, currentStep, totalSteps,
-    nextExecTs, remainingBalance, trancheAmt,
+    nextExecTs, remainingBalance, trancheAmt, interval,
   ] = await Promise.all([
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "initialized" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "cancelled" }),
@@ -252,7 +396,9 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "nextExecutionTimestamp" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "remainingInputBalance" }),
     publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
+    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "interval" }),
   ]);
   return { initialized, cancelled, currentStep, totalSteps,
-           nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt };
+           nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt,
+           interval };
 }

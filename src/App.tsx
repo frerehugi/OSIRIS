@@ -1,5 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, type SubmitDcaPlanPhase } from './minipayWallet';
+import { formatUnits } from 'viem';
+import {
+  connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
+  type SubmitDcaPlanPhase, type PurchaseEvent,
+} from './minipayWallet';
+import { TARGET_TOKENS } from './config';
 import {
   TOKENS,
   WEEKDAYS,
@@ -7,6 +12,7 @@ import {
   type Weekday,
   type InputToken,
   type DcaPlanState,
+  type Interval,
 } from './types';
 
 // ─── Konstanten ───────────────────────────────────────────────────────────────
@@ -29,9 +35,14 @@ type VaultStatus = 'pending' | 'active' | 'cancelled' | 'complete';
 interface VaultSummary {
   address: `0x${string}`;
   status:  VaultStatus;
+  // Abschluss- bzw. Cancel-Zeitpunkt (Unix-Sekunden) für complete/cancelled —
+  // null bei active/pending oder wenn der Zeitpunkt nicht ermittelbar ist
+  // (z.B. ein außerhalb dieser App gecancelter Plan, siehe getCancelledAt()).
+  // Wird nur für die Anzeige auf der History-Seite gebraucht.
+  eventTimestamp: number | null;
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success';
+type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -106,6 +117,25 @@ function validateFullPlan(formData: DcaPlanState): ValidationResult {
   return { valid: true };
 }
 
+const INTERVAL_UNIT: Record<Interval, { singular: string; plural: string }> = {
+  hourly: { singular: 'hour', plural: 'hours' },
+  daily:  { singular: 'day',  plural: 'days' },
+  weekly: { singular: 'week', plural: 'weeks' },
+};
+
+function intervalUnit(interval: Interval | null, plural = true): string {
+  const unit = INTERVAL_UNIT[interval ?? 'daily'];
+  return plural ? unit.plural : unit.singular;
+}
+
+function formatHistoryTimestamp(eventTimestamp: number | null): string {
+  if (eventTimestamp === null) return 'Date unknown';
+  return new Date(eventTimestamp * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 function getUtcTimeDisplay(localTime: string): string {
   const [hours, minutes] = localTime.split(':').map(Number);
   if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return 'Invalid time';
@@ -121,7 +151,70 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
   return 'active';
 }
 
+// Abgeschlossene und gecancelte Pläne werden sofort aus "Your Plans" entfernt
+// und landen stattdessen auf der History-Seite (siehe view === 'history') —
+// eventTimestamp wird dort nur noch zur Anzeige gebraucht, nicht mehr für
+// eine Verzögerung.
+
+// Der Contract speichert keinen expliziten "abgeschlossen am"-Zeitstempel —
+// nach dem letzten executeStep() wurde nextExecutionTimestamp aber bereits um
+// ein weiteres `interval` erhöht, daher ist (nextExecutionTimestamp - interval)
+// die beste verfügbare Näherung für den Zeitpunkt der letzten Ausführung.
+function completedEventTimestamp(status: Awaited<ReturnType<typeof readPlanStatus>>): number {
+  return Number(status.nextExecutionTimestamp - status.interval);
+}
+
+// Für den Cancel-Zeitpunkt gibt es kein On-Chain-Äquivalent (cancelPlan()
+// rührt nextExecutionTimestamp nicht an, das wäre also keine brauchbare
+// Näherung). Stattdessen wird der Zeitpunkt beim Canceln lokal gemerkt — kennt
+// die App ihn nicht (z.B. Cancel von einem anderen Gerät aus), gilt der Plan
+// als nicht-veraltet und bleibt sicherheitshalber sichtbar.
+const CANCELLED_AT_KEY_PREFIX = 'osiris_cancelledAt_';
+
+function recordCancelledAt(vaultAddress: string): void {
+  try {
+    localStorage.setItem(CANCELLED_AT_KEY_PREFIX + vaultAddress, String(Date.now()));
+  } catch {
+    // localStorage kann in manchen eingebetteten WebViews blockiert sein — kein Blocker.
+  }
+}
+
+function getCancelledAt(vaultAddress: string): number | null {
+  try {
+    const raw = localStorage.getItem(CANCELLED_AT_KEY_PREFIX + vaultAddress);
+    return raw ? Number(raw) / 1000 : null; // ms -> s
+  } catch {
+    return null;
+  }
+}
+
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
+const TOKEN_LABELS: Record<TokenType, string> = { wBTC: 'wBTC', wETH: 'wETH', CELO: 'CELO', XAUoT: 'Gold' };
+
+// Wie viele Nachkommastellen pro Token sinnvoll angezeigt werden — an der
+// jeweils üblichen Größenordnung der Beträge orientiert, nicht an den
+// tatsächlichen On-Chain-Dezimalstellen (die wären für wBTC z.B. 8, aber so
+// viele Nachkommastellen sind für die Anzeige nicht lesbar).
+const TOKEN_DISPLAY_DECIMALS: Record<TokenType, number> = { wBTC: 6, wETH: 5, CELO: 2, XAUoT: 4 };
+
+// Reverse-Lookup Zieltoken-Adresse -> TokenType, um DcaSwapExecuted-Events
+// (die nur die Adresse mitliefern) den 4 UI-Kategorien zuzuordnen.
+const TARGET_TOKEN_BY_ADDRESS: Record<string, TokenType> = Object.fromEntries(
+  TOKENS.map((token) => [TARGET_TOKENS[token].address.toLowerCase(), token]),
+) as Record<string, TokenType>;
+
+function formatTokenAmount(raw: bigint, token: TokenType): string {
+  const value = Number(formatUnits(raw, TARGET_TOKENS[token].decimals));
+  return value.toFixed(TOKEN_DISPLAY_DECIMALS[token]);
+}
+
+// amountIn ist immer USDC oder USDT (beide 6 Dezimalstellen) — für die
+// aggregierte Summe wird das bewusst nicht auf ein einzelnes Symbol
+// festgelegt (siehe Aufruf-Stellen), um keinen falschen Token-Namen
+// vorzutäuschen, wenn ein Nutzer mit beiden Stablecoins gekauft hat.
+function formatInputAmount(raw: bigint): string {
+  return Number(formatUnits(raw, 6)).toFixed(2);
+}
 
 // Der Keeper läuft stündlich (siehe .github/workflows/keeper.yml) — eine
 // minutengenaue Startzeit würde also ohnehin nur ±1h eingehalten. Die Auswahl
@@ -197,6 +290,12 @@ export default function App() {
   const [vaultsError, setVaultsError]   = useState<string | null>(null);
   const [cancellingAddress, setCancellingAddress] = useState<`0x${string}` | null>(null);
   const [cancelError, setCancelError]   = useState<string | null>(null);
+  const [confirmingAddress, setConfirmingAddress] = useState<`0x${string}` | null>(null);
+
+  const [purchases, setPurchases]       = useState<PurchaseEvent[] | null>(null);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [purchasesError, setPurchasesError]     = useState<string | null>(null);
+  const [selectedToken, setSelectedToken]       = useState<TokenType | null>(null);
 
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -214,6 +313,48 @@ export default function App() {
     [formData.percentages],
   );
 
+  // "Your Plans" zeigt nur aktive/noch einzurichtende Pläne — abgeschlossene
+  // und gecancelte wandern sofort in "History" (siehe historyEntries unten).
+  const visiblePlans = useMemo(
+    () => existingVaults.filter((v) => v.status === 'active' || v.status === 'pending'),
+    [existingVaults],
+  );
+  const historyEntries = useMemo(
+    () => existingVaults
+      .filter((v) => v.status === 'complete' || v.status === 'cancelled')
+      .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
+    [existingVaults],
+  );
+
+  // "My Purchases": alle DcaSwapExecuted-Events, nach Zieltoken gruppiert.
+  const purchasesByToken = useMemo(() => {
+    const groups: Record<TokenType, PurchaseEvent[]> = { wBTC: [], wETH: [], CELO: [], XAUoT: [] };
+    if (!purchases) return groups;
+    for (const purchase of purchases) {
+      const token = TARGET_TOKEN_BY_ADDRESS[purchase.targetToken.toLowerCase()];
+      if (token) groups[token].push(purchase);
+    }
+    return groups;
+  }, [purchases]);
+
+  const purchaseTotals = useMemo(() => {
+    const totals = {} as Record<TokenType, { amountOut: bigint; amountIn: bigint; count: number }>;
+    for (const token of TOKENS) {
+      const rows = purchasesByToken[token];
+      totals[token] = {
+        amountOut: rows.reduce((sum, row) => sum + row.amountOut, 0n),
+        amountIn:  rows.reduce((sum, row) => sum + row.amountIn, 0n),
+        count:     rows.length,
+      };
+    }
+    return totals;
+  }, [purchasesByToken]);
+
+  const totalInvested = useMemo(
+    () => TOKENS.reduce((sum, token) => sum + purchaseTotals[token].amountIn, 0n),
+    [purchaseTotals],
+  );
+
   const remainingBudget     = TOTAL_PERCENT - totalAllocated;
   const amountValidation    = validateAmount(formData.totalAmount);
   const durationValidation  = validateDuration(formData.duration, formData.totalAmount, formData.inputToken);
@@ -222,8 +363,18 @@ export default function App() {
   const trancheAmount       = duration > 0 ? totalAmount / duration : 0;
   const utcDisplay          = getUtcTimeDisplay(formData.executionTime);
 
-  const nextPage  = () => setFormData((p) => ({ ...p, step: Math.min(p.step + 1, MAX_STEP) }));
-  const prevPage  = () => setFormData((p) => ({ ...p, step: Math.max(p.step - 1, 1) }));
+  // Stündliche Pläne haben keinen festen Tageszeitpunkt, daher überspringt der
+  // Wizard für sie Schritt 5 (Zeitplan) in beide Richtungen.
+  const nextPage = () => setFormData((p) => {
+    let step = Math.min(p.step + 1, MAX_STEP);
+    if (p.interval === 'hourly' && step === 5) step = 6;
+    return { ...p, step };
+  });
+  const prevPage = () => setFormData((p) => {
+    let step = Math.max(p.step - 1, 1);
+    if (p.interval === 'hourly' && step === 5) step = 4;
+    return { ...p, step };
+  });
 
   const handleSliderChange = (token: TokenType, value: number) => {
     const safeValue   = Math.max(0, Math.min(TOTAL_PERCENT, value));
@@ -242,11 +393,17 @@ export default function App() {
       const summaries = await Promise.all(
         vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
           const status = await readPlanStatus(vaultAddress);
-          return { address: vaultAddress, status: computeVaultStatus(status) };
+          const vaultStatus = computeVaultStatus(status);
+          const eventTimestamp =
+            vaultStatus === 'complete'  ? completedEventTimestamp(status) :
+            vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
+            null;
+          return { address: vaultAddress, status: vaultStatus, eventTimestamp };
         }),
       );
       setExistingVaults(summaries);
-      setView(summaries.length > 0 ? 'vaultList' : 'wizard');
+      const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
+      setView(visibleCount > 0 ? 'vaultList' : 'wizard');
     } catch (error) {
       console.error('Loading existing vaults failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Could not load your vaults.');
@@ -256,17 +413,49 @@ export default function App() {
     }
   };
 
-  const handleCancelVault = async (vaultAddress: `0x${string}`) => {
-    if (!walletAddress) return;
-    const confirmed = window.confirm(
-      'Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.'
-    );
-    if (!confirmed) return;
+  // ── "My Purchases" öffnen ─────────────────────────────────────────────────
+  //
+  // Lädt bei jedem Öffnen frisch (statt zu cachen) — Swap-Events können sich
+  // durch den stündlichen Keeper-Lauf jederzeit ändern, und die Liste ist
+  // klein genug, dass ein Re-Fetch pro Klick unproblematisch ist.
 
+  const openPurchases = async () => {
+    setSelectedToken(null);
+    setView('purchases');
+    setPurchasesError(null);
+    setPurchasesLoading(true);
+    try {
+      const vaultAddresses = existingVaults.map((v) => v.address);
+      const events = await getUserPurchases(vaultAddresses);
+      setPurchases(events);
+    } catch (error) {
+      console.error('Loading purchases failed', error);
+      setPurchasesError(error instanceof Error ? error.message : 'Could not load your purchase history.');
+    } finally {
+      setPurchasesLoading(false);
+    }
+  };
+
+  // Kein window.confirm() — MiniPays In-App-Browser (wie viele eingebettete
+  // WebViews) unterdrückt native Dialoge und liefert sofort `false` zurück,
+  // ohne den Dialog je anzuzeigen. Bestätigung läuft deshalb über einen
+  // zweiten Klick innerhalb der App (confirmingAddress-State unten).
+
+  const requestCancel = (vaultAddress: `0x${string}`) => {
+    setCancelError(null);
+    setConfirmingAddress(vaultAddress);
+  };
+
+  const abortCancel = () => setConfirmingAddress(null);
+
+  const confirmCancel = async (vaultAddress: `0x${string}`) => {
+    if (!walletAddress) return;
+    setConfirmingAddress(null);
     setCancellingAddress(vaultAddress);
     setCancelError(null);
     try {
       await cancelDcaPlan(vaultAddress, walletAddress);
+      recordCancelledAt(vaultAddress);
       await loadVaults(walletAddress);
     } catch (error) {
       console.error('Cancel failed', error);
@@ -345,6 +534,69 @@ export default function App() {
           <Button onClick={handleConnect} disabled={vaultsLoading}>
             {vaultsLoading ? '⏳ Connecting...' : '👛 Connect Wallet'}
           </Button>
+          <Button variant="secondary" onClick={() => setView('about')}>ℹ️ About OSIRIS</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: About ──────────────────────────────────────────────────────────
+
+  if (view === 'about') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>ℹ️ About OSIRIS</h2>
+          <p className="muted">
+            OSIRIS is a non-custodial DCA (dollar-cost averaging) vault. It automatically
+            invests your USDC or USDT into a diversified basket of crypto assets, on a
+            schedule you choose — no manual swaps, no missed entries.
+          </p>
+
+          <div className="summary">
+            <p><strong>🔒 Non-custodial</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Your funds live in your own dedicated smart contract vault, created just for
+              you. Only you can cancel a plan and withdraw — OSIRIS never holds custody.
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>🔄 How it works</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              1. Configure your plan (amount, allocation, interval)<br />
+              2. Your own vault is created<br />
+              3. An automated keeper executes each step via Squid Router<br />
+              4. Assets arrive directly in your wallet
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>💰 Fees</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              0.99% per execution, minimum $0.02 — whichever is higher. No hidden costs,
+              no subscription.
+            </p>
+          </div>
+
+          <div className="summary">
+            <p><strong>🪙 Target assets</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              wBTC · wETH · CELO · Gold (XAUoT) — choose your own allocation, nothing is fixed.
+            </p>
+          </div>
+
+          <a
+            href="https://celoscan.io/address/0xba148255d757912442A97f87c50DD2F65FBab7E0"
+            target="_blank"
+            rel="noreferrer"
+            className="muted"
+            style={{ fontSize: '0.85rem' }}
+          >
+            View verified contract on Celoscan ↗
+          </a>
+
+          <Button variant="secondary" onClick={() => setView('connect')}>← Back</Button>
         </section>
       </Card>
     );
@@ -357,7 +609,7 @@ export default function App() {
       <Card>
         <section className="stack">
           <h2>📂 Your Plans</h2>
-          {existingVaults.map((v) => (
+          {visiblePlans.map((v) => (
             <div key={v.address} className="summary">
               <p>
                 <span className="muted">Vault:</span>{' '}
@@ -371,21 +623,146 @@ export default function App() {
               </p>
               <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
               {v.status === 'active' && (
-                <Button
-                  variant="danger"
-                  onClick={() => handleCancelVault(v.address)}
-                  disabled={cancellingAddress === v.address}
-                >
-                  {cancellingAddress === v.address ? '⏳ Cancelling...' : '✗ Cancel Plan'}
-                </Button>
+                confirmingAddress === v.address ? (
+                  <div className="stack">
+                    <p className="muted" style={{ fontSize: '0.85rem' }}>
+                      Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.
+                    </p>
+                    <div className="button-row">
+                      <Button variant="secondary" onClick={abortCancel}>No, keep it</Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => confirmCancel(v.address)}
+                        disabled={cancellingAddress === v.address}
+                      >
+                        {cancellingAddress === v.address ? '⏳ Cancelling...' : 'Yes, Cancel'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="danger" onClick={() => requestCancel(v.address)}>
+                    ✗ Cancel Plan
+                  </Button>
+                )
               )}
             </div>
           ))}
           {cancelError && <p className="error">{cancelError}</p>}
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
+            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
+            <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
             <Button onClick={startNewPlan}>+ New Plan</Button>
           </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: History (abgeschlossene + gecancelte Pläne) ─────────────────────
+
+  if (view === 'history') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>🕘 Plan History</h2>
+          {historyEntries.length === 0 && (
+            <p className="muted">No past plans yet.</p>
+          )}
+          {historyEntries.map((v) => (
+            <div key={v.address} className="summary">
+              <p>
+                <span className="muted">Vault:</span>{' '}
+                <a
+                  href={`https://celoscan.io/address/${v.address}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {v.address.slice(0, 6)}…{v.address.slice(-4)} ↗
+                </a>
+              </p>
+              <p>Status: <strong>{VAULT_STATUS_LABEL[v.status]}</strong></p>
+              <p className="muted" style={{ fontSize: '0.8rem' }}>{formatHistoryTimestamp(v.eventTimestamp)}</p>
+            </div>
+          ))}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: My Purchases (Übersicht + Detail pro Token) ──────────────────────
+
+  if (view === 'purchases') {
+    // ── Sub-Screen: Detail-Liste für ein einzelnes Zieltoken ──────────────
+    if (selectedToken) {
+      const rows  = purchasesByToken[selectedToken];
+      const total = purchaseTotals[selectedToken];
+      return (
+        <Card>
+          <section className="stack">
+            <h2>{TOKEN_ICONS[selectedToken]} {TOKEN_LABELS[selectedToken]} Purchases</h2>
+            <div className="summary">
+              <p>Total holdings: <strong>{formatTokenAmount(total.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
+              <p className="muted" style={{ fontSize: '0.8rem' }}>
+                ≈ {formatInputAmount(total.amountIn)} USDC/USDT invested across {total.count} purchase{total.count === 1 ? '' : 's'}
+              </p>
+            </div>
+            {rows.length === 0 && <p className="muted">No purchases yet.</p>}
+            {rows.map((row) => (
+              <div key={row.txHash + row.step} className="summary">
+                <p>Step {row.step}: <strong>+{formatTokenAmount(row.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
+                <p className="muted" style={{ fontSize: '0.8rem' }}>
+                  for {formatInputAmount(row.amountIn)} {row.inputTokenSymbol} · {formatHistoryTimestamp(row.timestamp)}
+                </p>
+                <a
+                  href={`https://celoscan.io/tx/${row.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: '0.8rem' }}
+                >
+                  {row.txHash.slice(0, 8)}…{row.txHash.slice(-6)} ↗
+                </a>
+              </div>
+            ))}
+            <Button variant="secondary" onClick={() => setSelectedToken(null)}>← Back to My Purchases</Button>
+          </section>
+        </Card>
+      );
+    }
+
+    // ── Sub-Screen: Übersicht mit den 4 Summen-Kacheln ─────────────────────
+    return (
+      <Card>
+        <section className="stack">
+          <h2>💰 My Purchases</h2>
+          {purchasesLoading && <p className="muted">⏳ Loading your purchase history...</p>}
+          {purchasesError && <p className="error">{purchasesError}</p>}
+          {!purchasesLoading && !purchasesError && purchases && (
+            <>
+              <div className="summary">
+                <p>Total invested: <strong>{formatInputAmount(totalInvested)} USDC/USDT</strong></p>
+              </div>
+              <div className="tile-grid">
+                {TOKENS.map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    className="tile"
+                    onClick={() => setSelectedToken(token)}
+                  >
+                    <span className="tile-symbol">{TOKEN_ICONS[token]} {TOKEN_LABELS[token]}</span>
+                    <span className="tile-amount">{formatTokenAmount(purchaseTotals[token].amountOut, token)}</span>
+                    <span className="muted" style={{ fontSize: '0.75rem' }}>
+                      {purchaseTotals[token].count} purchase{purchaseTotals[token].count === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {purchases.length === 0 && <p className="muted">No purchases yet.</p>}
+            </>
+          )}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
         </section>
       </Card>
     );
@@ -401,7 +778,7 @@ export default function App() {
           <h2 style={{ color: '#6ee7b7' }}>Plan Submitted!</h2>
           <p>
             <strong>{formData.totalAmount} {formData.inputToken}</strong> over{' '}
-            {formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}
+            {formData.duration} {intervalUnit(formData.interval)}
           </p>
           <a
             href={`https://celoscan.io/address/${newVaultAddress}`}
@@ -429,12 +806,35 @@ export default function App() {
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
           <p className="muted">Choose how often the plan should invest.</p>
-          <div className="button-column">
-            <Button onClick={() => { updateField('interval', 'daily'); nextPage(); }}>📅 Daily</Button>
-            <Button variant="secondary" onClick={() => { updateField('interval', 'weekly'); nextPage(); }}>🗓 Weekly</Button>
+          <div className="pill-toggle">
+            <button
+              type="button"
+              className={formData.interval === 'hourly' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'hourly')}
+            >
+              ⚡ Hourly
+            </button>
+            <button
+              type="button"
+              className={formData.interval === 'daily' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'daily')}
+            >
+              📅 Daily
+            </button>
+            <button
+              type="button"
+              className={formData.interval === 'weekly' ? 'active' : undefined}
+              onClick={() => updateField('interval', 'weekly')}
+            >
+              🗓 Weekly
+            </button>
           </div>
-          {existingVaults.length > 0 && (
+          <Button onClick={nextPage} disabled={!formData.interval}>Next →</Button>
+          {visiblePlans.length > 0 && (
             <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          )}
+          {visiblePlans.length === 0 && historyEntries.length > 0 && (
+            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
           )}
         </section>
       )}
@@ -509,11 +909,11 @@ export default function App() {
           <h2>⏱ Set Duration</h2>
           <InputField
             id="duration"
-            label={`Number of ${formData.interval === 'daily' ? 'days' : 'weeks'}`}
+            label={`Number of ${intervalUnit(formData.interval)}`}
             type="text"
             value={formData.duration}
             onChange={(value) => updateField('duration', value)}
-            placeholder={formData.interval === 'daily' ? '10' : '4'}
+            placeholder={formData.interval === 'hourly' ? '24' : formData.interval === 'daily' ? '10' : '4'}
             error={formData.duration ? durationValidation.message : undefined}
           />
           {duration > 0 && durationValidation.valid && (
@@ -521,7 +921,7 @@ export default function App() {
               <span>Your tranche</span>
               <strong>
                 {trancheAmount.toFixed(2)} {formData.inputToken} /{' '}
-                {formData.interval === 'daily' ? 'day' : 'week'}
+                {intervalUnit(formData.interval, false)}
               </strong>
             </div>
           )}
@@ -581,22 +981,28 @@ export default function App() {
           <h2>📋 Summary</h2>
           <div className="summary">
             <p>Plan amount: <strong>{formData.totalAmount} {formData.inputToken}</strong></p>
-            <p>Duration: <strong>{formData.duration} {formData.interval === 'daily' ? 'days' : 'weeks'}</strong></p>
+            <p>Duration: <strong>{formData.duration} {intervalUnit(formData.interval)}</strong></p>
             <p>Tranche: <strong>{trancheAmount.toFixed(2)} {formData.inputToken}</strong></p>
             <hr />
             {TOKENS.filter((token) => formData.percentages[token] > 0).map((token) => (
               <p key={token}><strong>{formData.percentages[token]}%</strong> → {TOKEN_ICONS[token]} {token}</p>
             ))}
             <hr />
-            <p>
-              Schedule:{' '}
-              <strong>
-                {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
-                {formData.executionTime}
-              </strong>
-            </p>
-            <p>UTC reference: <strong>{utcDisplay}</strong></p>
-            <p>Timezone: <strong>{formData.timezone}</strong></p>
+            {formData.interval === 'hourly' ? (
+              <p>Schedule: <strong>every hour</strong></p>
+            ) : (
+              <>
+                <p>
+                  Schedule:{' '}
+                  <strong>
+                    {formData.interval === 'weekly' ? `every ${formData.executionDay}` : 'daily'} at{' '}
+                    {formData.executionTime}
+                  </strong>
+                </p>
+                <p>UTC reference: <strong>{utcDisplay}</strong></p>
+                <p>Timezone: <strong>{formData.timezone}</strong></p>
+              </>
+            )}
           </div>
           <p className="muted" style={{ fontSize: '0.8rem' }}>
             Confirming requires 3 wallet transactions: creating your vault, approving USDC, and starting the plan.

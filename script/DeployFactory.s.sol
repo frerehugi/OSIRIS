@@ -36,6 +36,9 @@ contract DeployFactory is Script {
     // kann.
     address constant GLOBAL_KEEPER = 0x02069c8AfceC69622c0F1C5316735042A86BC6fA;
 
+    // Admin für setFee()/setAdmin() auf der Factory — das Deployer-Wallet.
+    address constant ADMIN = 0xDbcB531c0a794c43CbE861ca147bE7e8A83Bb523;
+
     function run() external {
         require(
             block.chainid == 42220,
@@ -48,6 +51,7 @@ contract DeployFactory is Script {
         console2.log("Chain ID:      ", block.chainid);
         console2.log("Squid Router:  ", SQUID_ROUTER_MAINNET);
         console2.log("Global Keeper: ", GLOBAL_KEEPER);
+        console2.log("Admin:         ", ADMIN);
 
         vm.startBroadcast(deployerKey);
 
@@ -55,7 +59,8 @@ contract DeployFactory is Script {
         DcaVaultFactory factory = new DcaVaultFactory(
             address(implementation),
             SQUID_ROUTER_MAINNET,
-            GLOBAL_KEEPER
+            GLOBAL_KEEPER,
+            ADMIN
         );
 
         vm.stopBroadcast();

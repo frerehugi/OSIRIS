@@ -5,6 +5,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+/// @notice Minimal-Interface auf die Factory — nur die für die Gebühr
+///         benötigten Werte. Die Factory hält feeBps/minFee mutable (per
+///         setFee() vom Admin änderbar), damit muss der Vault sie bei jeder
+///         Ausführung frisch abfragen statt sie selbst zu cachen.
+interface IDcaVaultFactory {
+    function feeInfo() external view returns (uint16 feeBps, uint256 minFee, address treasury);
+}
+
 // ─── Architektur ──────────────────────────────────────────────────────────────
 //
 // Der Vault ruft selbst keinen DEX-Router mehr direkt auf (kein Uniswap V4 /
@@ -44,6 +52,14 @@ contract DcaVault is ReentrancyGuard {
     // oben. Wird einmalig in initialize() gesetzt.
 
     address public owner;
+
+    // ── Factory-Referenz ─────────────────────────────────────────────────────
+    //
+    // Wird in initialize() als msg.sender gesetzt (die Factory ruft
+    // initialize() unmittelbar nach dem Clone auf) — kein eigener Parameter
+    // nötig. Dient ausschließlich dem Gebühren-Lookup in executeStep().
+
+    address public factory;
 
     // ── Clone-Init-Guard ─────────────────────────────────────────────────────
     //
@@ -101,6 +117,7 @@ contract DcaVault is ReentrancyGuard {
     error RouterNotApproved();
     error SwapFailed();
     error SlippageExceeded();
+    error FeeExceedsAmount();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
@@ -126,6 +143,7 @@ contract DcaVault is ReentrancyGuard {
 
     event DcaStepExecuted(uint32 indexed step, uint256 totalAmountIn);
     event PlanCancelled(uint256 remainingBalance);
+    event FeeCharged(uint32 indexed step, uint256 feeAmount, address treasury);
 
     // ── Modifier ─────────────────────────────────────────────────────────────
 
@@ -169,7 +187,8 @@ contract DcaVault is ReentrancyGuard {
         if (_owner == address(0) || _squidRouter == address(0) || _globalKeeper == address(0))
             revert InvalidAddress();
 
-        owner = _owner;
+        owner   = _owner;
+        factory = msg.sender;
         approvedRouters[_squidRouter] = true;
         emit RouterUpdated(_squidRouter, true);
 
@@ -319,6 +338,19 @@ contract DcaVault is ReentrancyGuard {
 
         if (amountForThisStep == 0)           revert NothingToExecute();
         if (vaultBalance < amountForThisStep) revert InsufficientVaultBalance();
+
+        // ── Gebühr abziehen ─────────────────────────────────────────────────
+        // Prozentual auf den Tranchenbetrag, mindestens minFee (Floor greift
+        // bei sehr kleinen Tranchen). Geht direkt an die Keeper-Wallet
+        // (treasury), deckt so unmittelbar deren Gas-Kosten.
+        (uint16 feeBps, uint256 minFee, address treasury) = IDcaVaultFactory(factory).feeInfo();
+        uint256 feeAmount = (amountForThisStep * feeBps) / BPS_DENOMINATOR;
+        if (feeAmount < minFee) feeAmount = minFee;
+        if (feeAmount >= amountForThisStep) revert FeeExceedsAmount();
+
+        inputToken.safeTransfer(treasury, feeAmount);
+        amountForThisStep -= feeAmount;
+        emit FeeCharged(step, feeAmount, treasury);
 
         uint256 remainingForStep = amountForThisStep;
 
