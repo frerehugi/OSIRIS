@@ -32,6 +32,7 @@ export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beant
 // bereits erstellten, gebührenfreien Bestands-Vaults in Betrieb — der Keeper
 // braucht deshalb BEIDE Adressen (siehe FACTORY_ADDRESSES in keeper/.env).
 export const FACTORY_ADDRESS               = "0xba148255d757912442A97f87c50DD2F65FBab7E0" as `0x${string}`;
+export const OLD_FACTORY_ADDRESS            = "0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411" as `0x${string}`;
 export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477E43b87fd" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────

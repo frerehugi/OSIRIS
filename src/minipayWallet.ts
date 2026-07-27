@@ -10,6 +10,7 @@ import { celo } from "viem/chains";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "./dcaVaultAbi";
 import {
   FACTORY_ADDRESS,
+  OLD_FACTORY_ADDRESS,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
@@ -52,12 +53,21 @@ function describeError(error: unknown): string {
 
 export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
   const { publicClient } = getClients();
-  return publicClient.readContract({
-    address: FACTORY_ADDRESS,
-    abi:     DCA_VAULT_FACTORY_ABI,
-    functionName: "getVaults",
-    args: [ownerAddress],
-  }) as Promise<`0x${string}`[]>;
+  // Beide Factories abfragen (siehe OLD_FACTORY_ADDRESS in config.ts) — sonst
+  // verschwinden Vaults, die vor dem Gebuehren-Deploy ueber die alte Factory
+  // erstellt wurden, komplett aus der App (My Plans, My Purchases), obwohl
+  // sie on-chain weiter existieren.
+  const [current, legacy] = await Promise.all(
+    [FACTORY_ADDRESS, OLD_FACTORY_ADDRESS].map((factoryAddress) =>
+      publicClient.readContract({
+        address: factoryAddress,
+        abi:     DCA_VAULT_FACTORY_ABI,
+        functionName: "getVaults",
+        args: [ownerAddress],
+      }) as Promise<`0x${string}`[]>
+    )
+  );
+  return [...new Set([...current, ...legacy])];
 }
 
 // ─── Target-Arrays bauen ──────────────────────────────────────────────────────
