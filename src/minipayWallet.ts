@@ -49,6 +49,50 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// ─── RPC-Zuverlässigkeit ──────────────────────────────────────────────────────
+//
+// Der öffentliche forno.celo.org-Knoten bricht bei vielen gleichzeitigen
+// Requests wiederholt mit einem generischen "Load failed" ab (Netzwerk-
+// Abbruch, kein strukturierter RPC-Fehler). Jeder einzelne RPC-Call in
+// dieser Datei läuft deshalb über withRetry(), und Aufrufe über mehrere
+// Vaults hinweg laufen gebatcht statt komplett parallel (runInBatches).
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const RPC_RETRY_COUNT = 3;
+const RPC_RETRY_DELAY_MS = 1_000;
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= RPC_RETRY_COUNT) throw error;
+      await sleep(RPC_RETRY_DELAY_MS * attempt);
+    }
+  }
+}
+
+// Wie viele Vaults/Blöcke gleichzeitig verarbeitet werden dürfen — bei voller
+// Parallelität über viele Vaults hinweg hat der RPC-Knoten unter Last
+// wiederholt abgebrochen, selbst mit obigem Retry.
+export const RPC_BATCH_SIZE = 3;
+
+export async function runInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    results.push(...(await Promise.all(batch.map(worker))));
+  }
+  return results;
+}
+
 // ─── Factory: Vaults eines Nutzers lesen ──────────────────────────────────────
 
 export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
@@ -59,12 +103,12 @@ export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${s
   // sie on-chain weiter existieren.
   const [current, legacy] = await Promise.all(
     [FACTORY_ADDRESS, OLD_FACTORY_ADDRESS].map((factoryAddress) =>
-      publicClient.readContract({
+      withRetry(() => publicClient.readContract({
         address: factoryAddress,
         abi:     DCA_VAULT_FACTORY_ABI,
         functionName: "getVaults",
         args: [ownerAddress],
-      }) as Promise<`0x${string}`[]>
+      })) as Promise<`0x${string}`[]>
     )
   );
   return [...new Set([...current, ...legacy])];
@@ -272,46 +316,18 @@ export async function cancelDcaPlan(
 
 const MAX_LOG_BLOCK_RANGE = 4_999n; // Server-Limit ist 5000 Blöcke (inklusive)
 
-// Wie viele Vaults gleichzeitig ihre Swap-Historie laden dürfen. Bei voller
-// Parallelität über alle Vaults (je mit vielen Chunk-Anfragen) hat der
-// öffentliche forno.celo.org-Knoten wiederholt mit "Load failed"
-// abgebrochen — Batching hält die Anzahl gleichzeitiger Requests niedrig.
-const VAULT_BATCH_SIZE = 3;
-
-// Ein einzelner fehlgeschlagener Chunk (Netzwerk-Hänger, Rate-Limit) soll
-// nicht gleich die ganze "My Purchases"-Ansicht scheitern lassen.
-const CHUNK_RETRY_COUNT = 3;
-const CHUNK_RETRY_DELAY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function runInBatches<T, R>(
-  items: T[],
-  batchSize: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    results.push(...(await Promise.all(batch.map(worker))));
-  }
-  return results;
-}
-
 let factoryDeployBlockCache: bigint | null = null;
 
 async function findDeploymentBlock(
   publicClient: ReturnType<typeof getClients>["publicClient"],
   address: `0x${string}`,
 ): Promise<bigint> {
-  const latest = await publicClient.getBlockNumber();
+  const latest = await withRetry(() => publicClient.getBlockNumber());
   let lo = 0n;
   let hi = latest;
   while (lo < hi) {
     const mid = (lo + hi) / 2n;
-    const code = await publicClient.getCode({ address, blockNumber: mid });
+    const code = await withRetry(() => publicClient.getCode({ address, blockNumber: mid }));
     if (code && code !== "0x") {
       hi = mid;
     } else {
@@ -341,22 +357,13 @@ async function getSwapLogsChunked(
   while (start <= toBlock) {
     const end = start + MAX_LOG_BLOCK_RANGE > toBlock ? toBlock : start + MAX_LOG_BLOCK_RANGE;
 
-    let logs;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        logs = await publicClient.getContractEvents({
-          address:   vaultAddress,
-          abi:       DCA_VAULT_ABI,
-          eventName: "DcaSwapExecuted",
-          fromBlock: start,
-          toBlock:   end,
-        });
-        break;
-      } catch (error) {
-        if (attempt >= CHUNK_RETRY_COUNT) throw error;
-        await sleep(CHUNK_RETRY_DELAY_MS * attempt);
-      }
-    }
+    const logs = await withRetry(() => publicClient.getContractEvents({
+      address:   vaultAddress,
+      abi:       DCA_VAULT_ABI,
+      eventName: "DcaSwapExecuted",
+      fromBlock: start,
+      toBlock:   end,
+    }));
 
     allLogs.push(...logs);
     start = end + 1n;
@@ -390,15 +397,15 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
 
   const [deployBlock, latestBlock] = await Promise.all([
     getFactoryDeployBlock(publicClient),
-    publicClient.getBlockNumber(),
+    withRetry(() => publicClient.getBlockNumber()),
   ]);
 
-  const perVault = await runInBatches(vaultAddresses, VAULT_BATCH_SIZE, async (vaultAddress) => {
+  const perVault = await runInBatches(vaultAddresses, RPC_BATCH_SIZE, async (vaultAddress) => {
     const [logs, inputTokenAddress] = await Promise.all([
       getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
-      publicClient.readContract({
+      withRetry(() => publicClient.readContract({
         address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
-      }) as Promise<`0x${string}`>,
+      })) as Promise<`0x${string}`>,
     ]);
     const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
 
@@ -421,7 +428,7 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
   // nicht pro Event (mehrere Swaps eines Schritts landen im selben Block).
   // Ebenfalls gebatcht statt komplett parallel, aus demselben Grund wie oben.
   const uniqueBlocks = [...new Set(flat.map((p) => p.blockNumber))];
-  const blocks = await runInBatches(uniqueBlocks, VAULT_BATCH_SIZE, (bn) => publicClient.getBlock({ blockNumber: bn }));
+  const blocks = await runInBatches(uniqueBlocks, RPC_BATCH_SIZE, (bn) => withRetry(() => publicClient.getBlock({ blockNumber: bn })));
   const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn, Number(blocks[i].timestamp)]));
 
   return flat
@@ -431,20 +438,27 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
 
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────
 
+type PlanStatusField =
+  | "initialized" | "cancelled" | "currentStep" | "totalSteps"
+  | "nextExecutionTimestamp" | "remainingInputBalance" | "trancheAmount" | "interval";
+
 export async function readPlanStatus(contractAddress: `0x${string}`) {
   const { publicClient } = getClients();
+  const read = <F extends PlanStatusField>(functionName: F) => withRetry(() => publicClient.readContract({
+    address: contractAddress, abi: DCA_VAULT_ABI, functionName,
+  }));
   const [
     initialized, cancelled, currentStep, totalSteps,
     nextExecTs, remainingBalance, trancheAmt, interval,
   ] = await Promise.all([
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "initialized" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "cancelled" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "nextExecutionTimestamp" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "remainingInputBalance" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "trancheAmount" }),
-    publicClient.readContract({ address: contractAddress, abi: DCA_VAULT_ABI, functionName: "interval" }),
+    read("initialized"),
+    read("cancelled"),
+    read("currentStep"),
+    read("totalSteps"),
+    read("nextExecutionTimestamp"),
+    read("remainingInputBalance"),
+    read("trancheAmount"),
+    read("interval"),
   ]);
   return { initialized, cancelled, currentStep, totalSteps,
            nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt,
