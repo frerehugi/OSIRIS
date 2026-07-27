@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import {
   connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
+  runInBatches, RPC_BATCH_SIZE,
   type SubmitDcaPlanPhase, type PurchaseEvent,
 } from './minipayWallet';
 import { TARGET_TOKENS } from './config';
@@ -390,17 +391,18 @@ export default function App() {
     setVaultsError(null);
     try {
       const vaultAddresses = await getUserVaults(address);
-      const summaries = await Promise.all(
-        vaultAddresses.map(async (vaultAddress): Promise<VaultSummary> => {
-          const status = await readPlanStatus(vaultAddress);
-          const vaultStatus = computeVaultStatus(status);
-          const eventTimestamp =
-            vaultStatus === 'complete'  ? completedEventTimestamp(status) :
-            vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
-            null;
-          return { address: vaultAddress, status: vaultStatus, eventTimestamp };
-        }),
-      );
+      // Gebatcht statt komplett parallel — bei vielen Vaults (je 8 Reads via
+      // readPlanStatus) hat der öffentliche RPC-Knoten unter voller Last
+      // wiederholt mit "Load failed" abgebrochen.
+      const summaries = await runInBatches(vaultAddresses, RPC_BATCH_SIZE, async (vaultAddress): Promise<VaultSummary> => {
+        const status = await readPlanStatus(vaultAddress);
+        const vaultStatus = computeVaultStatus(status);
+        const eventTimestamp =
+          vaultStatus === 'complete'  ? completedEventTimestamp(status) :
+          vaultStatus === 'cancelled' ? getCancelledAt(vaultAddress) :
+          null;
+        return { address: vaultAddress, status: vaultStatus, eventTimestamp };
+      });
       setExistingVaults(summaries);
       const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
       setView(visibleCount > 0 ? 'vaultList' : 'wizard');
@@ -805,6 +807,7 @@ export default function App() {
           <img src="./banner.jpg" alt="OSIRIS" className="banner" />
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
+          {vaultsError && <p className="error">Could not load your existing plans: {vaultsError}</p>}
           <p className="muted">Choose how often the plan should invest.</p>
           <div className="pill-toggle">
             <button
