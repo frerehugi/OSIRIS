@@ -3,6 +3,7 @@ import {
   createPublicClient,
   custom,
   http,
+  fallback,
   parseUnits,
   parseEventLogs,
 } from "viem";
@@ -26,10 +27,24 @@ function getMiniPayProvider() {
   return window.ethereum;
 }
 
+// forno.celo.org (viems Default-Endpunkt für Celo) fällt unter Last öfter mit
+// einem undifferenzierten "Load failed" aus, insbesondere bei eth_getLogs —
+// die withRetry()-Wrapper unten helfen da nicht, weil sie denselben kaputten
+// Knoten erneut anfragen. fallback() wechselt bei einem Fehler stattdessen
+// automatisch auf den nächsten Endpunkt in der Liste.
+const RPC_URLS = [
+  "https://forno.celo.org",
+  "https://rpc.ankr.com/celo",
+  "https://celo.drpc.org",
+];
+
 export function getClients() {
   const provider = getMiniPayProvider();
   const walletClient = createWalletClient({ chain: celo, transport: custom(provider) });
-  const publicClient = createPublicClient({ chain: celo, transport: http() });
+  const publicClient = createPublicClient({
+    chain: celo,
+    transport: fallback(RPC_URLS.map((url) => http(url))),
+  });
   return { walletClient, publicClient };
 }
 
