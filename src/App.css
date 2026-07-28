@@ -483,10 +483,6 @@ h2 {
 }
 
 .assets-bar span { height: 100%; }
-.asset-seg-0 { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
-.asset-seg-1 { background: #7FB3D9; }
-.asset-seg-2 { background: #8f8fe0; }
-.asset-seg-3 { background: #e08fc4; }
 .asset-seg-muted { background: rgba(255, 255, 255, 0.25); }
 
 .assets-legend {
@@ -506,10 +502,6 @@ h2 {
   vertical-align: middle;
 }
 
-.dot-0 { background: var(--gold-light); }
-.dot-1 { background: #7FB3D9; }
-.dot-2 { background: #8f8fe0; }
-.dot-3 { background: #e08fc4; }
 .dot-muted { background: rgba(255, 255, 255, 0.25); }
 
 .cancelled-note {

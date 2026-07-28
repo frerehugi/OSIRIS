@@ -210,6 +210,16 @@ function getCancelledAt(vaultAddress: string): number | null {
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 const TOKEN_LABELS: Record<TokenType, string> = { wBTC: 'wBTC', wETH: 'wETH', CELO: 'CELO', XAUoT: 'Gold' };
 
+// Original-Markenfarben aus den Squid-Router-Buy-Screens in MiniPay (Bitcoin-
+// Orange, Ethereum-Blauviolett, Celo-Gelb), Gold nutzt den bestehenden
+// Gold-Akzent der App statt einer weiteren Farbe.
+const TOKEN_COLOR: Record<TokenType, string> = {
+  wBTC:  '#F7931A',
+  wETH:  '#627EEA',
+  CELO:  '#FCFF52',
+  XAUoT: 'var(--gold)',
+};
+
 // Wie viele Nachkommastellen pro Token sinnvoll angezeigt werden — an der
 // jeweils üblichen Größenordnung der Beträge orientiert, nicht an den
 // tatsächlichen On-Chain-Dezimalstellen (die wären für wBTC z.B. 8, aber so
@@ -352,18 +362,21 @@ function PlanCard({ vault, extra }: { vault: VaultSummary; extra?: ReactNode }) 
             <div className="assets-block">
               <span className="assets-label">Assets</span>
               <div className="assets-bar">
-                {vault.assets.map((asset, index) => (
+                {vault.assets.map((asset) => (
                   <span
                     key={asset.token}
-                    className={isMuted ? 'asset-seg-muted' : `asset-seg-${index % 4}`}
-                    style={{ width: `${asset.bps / 100}%` }}
+                    className={isMuted ? 'asset-seg-muted' : undefined}
+                    style={{ width: `${asset.bps / 100}%`, background: isMuted ? undefined : TOKEN_COLOR[asset.token] }}
                   />
                 ))}
               </div>
               <div className="assets-legend">
-                {vault.assets.map((asset, index) => (
+                {vault.assets.map((asset) => (
                   <span key={asset.token}>
-                    <span className={isMuted ? 'dot dot-muted' : `dot dot-${index % 4}`} />
+                    <span
+                      className={isMuted ? 'dot dot-muted' : 'dot'}
+                      style={isMuted ? undefined : { background: TOKEN_COLOR[asset.token] }}
+                    />
                     {(asset.bps / 100).toFixed(0)}% {TOKEN_ICONS[asset.token]} {TOKEN_LABELS[asset.token]}
                   </span>
                 ))}
