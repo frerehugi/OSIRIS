@@ -1012,6 +1012,7 @@ export default function App() {
                 max="100"
                 value={formData.percentages[token]}
                 onChange={(event) => handleSliderChange(token, Number(event.target.value))}
+                style={{ accentColor: TOKEN_COLOR[token] }}
               />
             </div>
           ))}
