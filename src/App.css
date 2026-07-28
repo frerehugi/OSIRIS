@@ -159,10 +159,19 @@ h2 {
 }
 
 .tile-symbol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.03em;
   color: var(--text-muted);
+}
+
+.title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tile-amount {
@@ -493,16 +502,30 @@ h2 {
   color: var(--text-muted);
 }
 
+.legend-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .assets-legend .dot {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 5px;
-  vertical-align: middle;
 }
 
 .dot-muted { background: rgba(255, 255, 255, 0.25); }
+
+.token-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-weight: 800;
+  line-height: 1;
+}
 
 .cancelled-note {
   font-size: 0.78rem;

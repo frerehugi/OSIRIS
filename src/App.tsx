@@ -220,6 +220,32 @@ const TOKEN_COLOR: Record<TokenType, string> = {
   XAUoT: 'var(--gold)',
 };
 
+// Textfarbe im Icon-Kreis — auf den hellen Untergründen (Celo-Gelb, Gold)
+// braucht es dunklen statt weißen Text für genug Kontrast.
+const TOKEN_ICON_TEXT: Record<TokenType, string> = {
+  wBTC:  '#ffffff',
+  wETH:  '#ffffff',
+  CELO:  'var(--dark2)',
+  XAUoT: 'var(--dark2)',
+};
+
+function TokenIcon({ token, size = 20 }: { token: TokenType; size?: number }) {
+  return (
+    <span
+      className="token-icon"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.55,
+        background: TOKEN_COLOR[token],
+        color: TOKEN_ICON_TEXT[token],
+      }}
+    >
+      {TOKEN_ICONS[token]}
+    </span>
+  );
+}
+
 // Wie viele Nachkommastellen pro Token sinnvoll angezeigt werden — an der
 // jeweils üblichen Größenordnung der Beträge orientiert, nicht an den
 // tatsächlichen On-Chain-Dezimalstellen (die wären für wBTC z.B. 8, aber so
@@ -372,12 +398,11 @@ function PlanCard({ vault, extra }: { vault: VaultSummary; extra?: ReactNode }) 
               </div>
               <div className="assets-legend">
                 {vault.assets.map((asset) => (
-                  <span key={asset.token}>
-                    <span
-                      className={isMuted ? 'dot dot-muted' : 'dot'}
-                      style={isMuted ? undefined : { background: TOKEN_COLOR[asset.token] }}
-                    />
-                    {(asset.bps / 100).toFixed(0)}% {TOKEN_ICONS[asset.token]} {TOKEN_LABELS[asset.token]}
+                  <span key={asset.token} className="legend-entry">
+                    {isMuted
+                      ? <span className="dot dot-muted" />
+                      : <TokenIcon token={asset.token} size={15} />}
+                    {(asset.bps / 100).toFixed(0)}% {TOKEN_LABELS[asset.token]}
                   </span>
                 ))}
               </div>
@@ -819,7 +844,7 @@ export default function App() {
       return (
         <Card>
           <section className="stack">
-            <h2>{TOKEN_ICONS[selectedToken]} {TOKEN_LABELS[selectedToken]} Purchases</h2>
+            <h2 className="title-row"><TokenIcon token={selectedToken} size={26} /> {TOKEN_LABELS[selectedToken]} Purchases</h2>
             <div className="summary">
               <p>Total holdings: <strong>{formatTokenAmount(total.amountOut, selectedToken)} {TOKEN_LABELS[selectedToken]}</strong></p>
               <p className="muted" style={{ fontSize: '0.8rem' }}>
@@ -869,7 +894,7 @@ export default function App() {
                     className="tile"
                     onClick={() => setSelectedToken(token)}
                   >
-                    <span className="tile-symbol">{TOKEN_ICONS[token]} {TOKEN_LABELS[token]}</span>
+                    <span className="tile-symbol"><TokenIcon token={token} size={16} /> {TOKEN_LABELS[token]}</span>
                     <span className="tile-amount">{formatTokenAmount(purchaseTotals[token].amountOut, token)}</span>
                     <span className="muted" style={{ fontSize: '0.75rem' }}>
                       {purchaseTotals[token].count} purchase{purchaseTotals[token].count === 1 ? '' : 's'}
@@ -1002,7 +1027,7 @@ export default function App() {
           {TOKENS.map((token) => (
             <div key={token} className="slider-row">
               <div className="label-row">
-                <label htmlFor={`allocation-${token}`}>{TOKEN_ICONS[token]} {token}</label>
+                <label htmlFor={`allocation-${token}`} className="title-row"><TokenIcon token={token} size={18} /> {token}</label>
                 <strong>{formData.percentages[token]}%</strong>
               </div>
               <input
@@ -1108,7 +1133,7 @@ export default function App() {
             <p>Tranche: <strong>{trancheAmount.toFixed(2)} {formData.inputToken}</strong></p>
             <hr />
             {TOKENS.filter((token) => formData.percentages[token] > 0).map((token) => (
-              <p key={token}><strong>{formData.percentages[token]}%</strong> → {TOKEN_ICONS[token]} {token}</p>
+              <p key={token} className="title-row"><strong>{formData.percentages[token]}%</strong> → <TokenIcon token={token} size={16} /> {token}</p>
             ))}
             <hr />
             {formData.interval === 'hourly' ? (
