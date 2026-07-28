@@ -2,13 +2,16 @@
   --gold:        #C9A84C;
   --gold-light:  #E8C96A;
   --gold-dim:    rgba(201, 168, 76, 0.15);
-  --dark:        #060e1a;
+  --dark:        #05070c;
   --dark2:       #0a1628;
-  --text:        rgba(255, 255, 255, 0.88);
+  --text:        rgba(255, 255, 255, 0.92);
   --text-muted:  rgba(255, 255, 255, 0.5);
-  --border:      rgba(255, 255, 255, 0.08);
+  --text-faint:  rgba(255, 255, 255, 0.32);
+  --border:      rgba(255, 255, 255, 0.09);
   --border-gold: rgba(201, 168, 76, 0.25);
-  --card:        rgba(255, 255, 255, 0.05);
+  --card:        rgba(255, 255, 255, 0.045);
+  --success:     #6ee7b7;
+  --danger:      #f87171;
 }
 
 * {
@@ -19,7 +22,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(26, 74, 46, 0.25) 0%, transparent 70%),
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(98, 126, 234, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 45% at 100% 15%, rgba(201, 168, 76, 0.14) 0%, transparent 55%),
     var(--dark);
   color: var(--text);
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -29,11 +33,13 @@ body {
   width: min(100% - 32px, 420px);
   margin: 24px auto;
   padding: 24px;
-  background: var(--card);
-  backdrop-filter: blur(12px);
+  background:
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(98, 126, 234, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 45% at 100% 15%, rgba(201, 168, 76, 0.14) 0%, transparent 55%),
+    var(--dark);
   border: 1px solid var(--border-gold);
-  border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 
 .stack {
@@ -49,7 +55,7 @@ body {
 .banner {
   width: 100%;
   height: auto;
-  border-radius: 10px;
+  border-radius: 16px;
   display: block;
 }
 
@@ -94,7 +100,7 @@ h2 {
   gap: 4px;
   padding: 4px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-gold);
+  border: 1px solid var(--border);
   border-radius: 999px;
 }
 
@@ -127,6 +133,36 @@ h2 {
   justify-content: space-between;
 }
 
+/* ─── Token-Ticker-Leiste ("Your Plans"-Kopf) ─────────────────────────────────── */
+
+.ticker {
+  display: flex;
+  gap: 8px;
+}
+
+.ticker-chip {
+  flex: 1;
+  border-radius: 12px;
+  padding: 10px 4px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+}
+
+.ticker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 auto 6px;
+}
+
+.ticker-symbol {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
 .tile-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -137,10 +173,11 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-gold);
-  border-radius: 12px;
+  padding: 16px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
   cursor: pointer;
   text-align: left;
   font: inherit;
@@ -175,7 +212,7 @@ h2 {
 }
 
 .tile-amount {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -205,8 +242,8 @@ h2 {
   min-height: 42px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-gold);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   color: var(--text);
   font: inherit;
 }
@@ -254,8 +291,8 @@ h2 {
 }
 
 .button-primary   { color: var(--dark2); background: linear-gradient(135deg, var(--gold), var(--gold-light)); }
-.button-secondary { color: var(--gold);  background: var(--gold-dim); border: 1px solid var(--border-gold); }
-.button-danger     { color: #f87171;      background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); }
+.button-secondary { color: rgba(255, 255, 255, 0.78); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); }
+.button-danger     { color: var(--danger); background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.32); }
 .button-success    { color: #ffffff;      background: linear-gradient(135deg, #10b981, #059669); }
 
 .slider-row {
@@ -277,62 +314,68 @@ h2 {
 .status,
 .tranche,
 .summary {
-  padding: 12px;
-  border-radius: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
   text-align: center;
 }
 
 .status.success {
-  color: #6ee7b7;
+  color: var(--success);
   background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.35);
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .status.warning {
   color: var(--gold-light);
-  background: var(--gold-dim);
+  background: rgba(201, 168, 76, 0.1);
   border: 1px solid var(--border-gold);
 }
 
 .status.info {
-  color: var(--text);
-  background: var(--gold-dim);
-  border: 1px solid var(--border-gold);
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid rgba(201, 168, 76, 0.2);
   font-size: 0.85rem;
+  text-align: left;
+  line-height: 1.6;
 }
 
 .tranche {
+  display: flex;
+  justify-content: center;
   color: var(--gold-light);
-  background: var(--gold-dim);
-  border: 1px solid var(--border-gold);
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid rgba(201, 168, 76, 0.22);
 }
 
 .tranche span {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
+  margin-bottom: 2px;
 }
 
 .summary {
   width: 100%;
   color: var(--text);
-  background: var(--gold-dim);
-  border: 1px solid var(--border-gold);
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   text-align: left;
   line-height: 1.6;
 }
 
 .summary hr {
   border: 0;
-  border-top: 1px solid var(--border-gold);
+  border-top: 1px solid var(--border);
   margin: 12px 0;
 }
 
 .error {
-  color: #f87171;
+  color: var(--danger);
   font-size: 0.85rem;
 }
 
@@ -348,15 +391,16 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-gold);
-  border-radius: 12px;
+  padding: 20px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 24px;
   text-align: left;
 }
 
-.plan-complete  { border-color: rgba(16, 185, 129, 0.35); }
-.plan-cancelled { border-color: var(--border); opacity: 0.72; }
+.plan-complete  { border-color: rgba(110, 231, 183, 0.3); }
+.plan-cancelled { border-color: var(--border); opacity: 0.68; }
 
 .plan-vault {
   display: flex;
@@ -396,11 +440,12 @@ h2 {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 
 .status-pill.status-pending,
 .status-pill.status-active    { color: var(--gold-light); background: var(--gold-dim); border: 1px solid var(--border-gold); }
-.status-pill.status-complete  { color: #6ee7b7; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); }
+.status-pill.status-complete  { color: var(--success); background: rgba(110, 231, 183, 0.12); border: 1px solid rgba(110, 231, 183, 0.3); }
 .status-pill.status-cancelled { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); }
 
 .plan-meta {
@@ -411,7 +456,7 @@ h2 {
 }
 
 .amount-value {
-  font-size: 1.4rem;
+  font-size: 1.6rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -419,44 +464,44 @@ h2 {
 
 .amount-label {
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--text-faint);
   margin-bottom: 2px;
 }
 
 .mode-tag {
-  padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
+  padding: 5px 13px;
+  background: rgba(201, 168, 76, 0.12);
+  color: var(--gold);
+  border: 1px solid rgba(201, 168, 76, 0.25);
   border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .progress-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .progress-label {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
 }
 
 .progress-label b { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .progress-track {
-  height: 6px;
+  height: 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
@@ -466,7 +511,7 @@ h2 {
   background: linear-gradient(90deg, var(--gold), var(--gold-light));
 }
 
-.plan-complete .progress-fill  { background: linear-gradient(90deg, #10b981, #6ee7b7); }
+.plan-complete .progress-fill  { background: linear-gradient(90deg, #10b981, var(--success)); }
 .plan-cancelled .progress-fill { background: rgba(255, 255, 255, 0.25); }
 
 .assets-block {
@@ -476,36 +521,37 @@ h2 {
 }
 
 .assets-label {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--text-faint);
 }
 
 .assets-bar {
   display: flex;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
+  gap: 2px;
 }
 
-.assets-bar span { height: 100%; }
+.assets-bar span { height: 100%; border-radius: 999px; }
 .asset-seg-muted { background: rgba(255, 255, 255, 0.25); }
 
 .assets-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
+  font-size: 0.76rem;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .legend-entry {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .assets-legend .dot {
@@ -528,8 +574,8 @@ h2 {
 }
 
 .cancelled-note {
-  font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.32);
+  font-size: 0.76rem;
+  color: var(--text-faint);
 }
 
 @media (max-width: 420px) {

@@ -342,6 +342,22 @@ const STATUS_PILL_LABEL: Record<VaultStatus, string> = {
   complete:  'Complete',
 };
 
+// Kleine Übersichtsleiste der 4 Zieltoken oben auf "Your Plans" — rein
+// dekorativ (keine Live-Kurse), zeigt auf einen Blick, welche Assets die App
+// unterstützt, in den jeweiligen Markenfarben.
+function TokenTicker() {
+  return (
+    <div className="ticker">
+      {TOKENS.map((token) => (
+        <div key={token} className="ticker-chip">
+          <div className="ticker-dot" style={{ background: TOKEN_COLOR[token] }} />
+          <div className="ticker-symbol">{TOKEN_LABELS[token]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Zeigt einen Plan als Karte mit den 7 Kernfeldern (Vault, Status, Amount,
 // Modus, Progress, Assets, plus einen optionalen Trailing-Slot für den
 // Cancel-Button bzw. eine History-Zeitangabe) — genutzt sowohl in "Your
@@ -761,6 +777,7 @@ export default function App() {
     return (
       <Card>
         <section className="stack">
+          <TokenTicker />
           <h2>📂 Your Plans</h2>
           <div className="plan-list">
             {visiblePlans.map((v) => (
