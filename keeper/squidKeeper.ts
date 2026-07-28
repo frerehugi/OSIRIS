@@ -19,7 +19,7 @@
 // vor der Factory direkt deployt wurde und nicht in factory.getAllVaults()
 // auftaucht) und führt jeden aus, der gerade dran ist.
 
-import { createWalletClient, createPublicClient, http, defineChain, parseUnits } from "viem";
+import { createWalletClient, createPublicClient, http, fallback, defineChain, parseUnits } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "../src/dcaVaultAbi";
@@ -114,9 +114,21 @@ function createKeeperContext(env: Env) {
   }
   const factoryAddresses = rawFactories.split(",").map((address) => address.trim() as `0x${string}`);
 
+  // forno.celo.org (viems Default-Endpunkt für Celo) fällt unter Last öfter
+  // mit einem undifferenzierten Netzwerkfehler aus (siehe src/minipayWallet.ts,
+  // dort dasselbe Problem beim Frontend) — fallback() wechselt bei einem
+  // Fehler automatisch auf den nächsten Endpunkt statt den ganzen Keeper-
+  // Zyklus für den betroffenen Vault abzubrechen.
+  const RPC_URLS = [
+    "https://forno.celo.org",
+    "https://rpc.ankr.com/celo",
+    "https://celo.drpc.org",
+  ];
+  const rpcTransport = activeChain === celo ? fallback(RPC_URLS.map((url) => http(url))) : http();
+
   const account = privateKeyToAccount(privateKey);
-  const walletClient = createWalletClient({ account, chain: activeChain, transport: http() });
-  const publicClient = createPublicClient({ chain: activeChain, transport: http() });
+  const walletClient = createWalletClient({ account, chain: activeChain, transport: rpcTransport });
+  const publicClient = createPublicClient({ chain: activeChain, transport: rpcTransport });
 
   const refuelThreshold = parseUnits(env.KEEPER_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent
   const refuelPercentBps = BigInt(env.KEEPER_REFUEL_PCT_BPS ?? "4000");     // 40 %
