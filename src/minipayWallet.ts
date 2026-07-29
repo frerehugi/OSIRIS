@@ -408,6 +408,58 @@ export function resolveInputTokenSymbol(address: `0x${string}`): string {
   return "input token";
 }
 
+// ─── Purchases-Cache (localStorage) ────────────────────────────────────────
+//
+// Ein voller Re-Scan der Swap-Historie bei jedem Öffnen von "My Purchases"
+// wird mit der Zeit immer langsamer (mehr Blöcke seit Factory-Deploy, mehr
+// eth_getLogs-Chunks pro Vault). Der Cache merkt sich pro Vault den zuletzt
+// gescannten Block und die schon aufgelösten Events (inkl. Timestamp) —
+// beim nächsten Mal wird nur noch ab dem folgenden Block weitergescannt.
+// Rein additiv und pro Vault-Adresse isoliert: geht der Cache verloren oder
+// ist er beschädigt, scannt die Funktion einfach wieder komplett neu (siehe
+// try/catch unten) — kein anderer Teil der App hängt daran.
+
+const PURCHASES_CACHE_PREFIX  = "osiris_purchasesCache_v1_";
+const PURCHASES_CACHE_VERSION = 1;
+
+interface CachedPurchaseEntry {
+  step:        number;
+  targetToken: `0x${string}`;
+  amountIn:    string; // bigint als String, JSON kennt kein bigint
+  amountOut:   string;
+  txHash:      `0x${string}`;
+  blockNumber: string;
+  logIndex:    number; // für Deduplizierung, falls sich Scan-Bereiche mal überlappen
+  timestamp:   number | null;
+}
+
+interface PurchasesCache {
+  version:          number;
+  lastScannedBlock: string;
+  inputTokenSymbol: string;
+  entries:          CachedPurchaseEntry[];
+}
+
+function loadPurchasesCache(vaultAddress: `0x${string}`): PurchasesCache | null {
+  try {
+    const raw = localStorage.getItem(PURCHASES_CACHE_PREFIX + vaultAddress);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PurchasesCache;
+    if (parsed.version !== PURCHASES_CACHE_VERSION) return null;
+    return parsed;
+  } catch {
+    return null; // localStorage blockiert oder Cache beschädigt — einfach neu scannen.
+  }
+}
+
+function savePurchasesCache(vaultAddress: `0x${string}`, cache: PurchasesCache): void {
+  try {
+    localStorage.setItem(PURCHASES_CACHE_PREFIX + vaultAddress, JSON.stringify(cache));
+  } catch {
+    // Speichern optional — kein Blocker, dann wird beim nächsten Mal wieder alles gescannt.
+  }
+}
+
 export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise<PurchaseEvent[]> {
   if (vaultAddresses.length === 0) return [];
   const { publicClient } = getClients();
@@ -418,39 +470,87 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
   ]);
 
   const perVault = await runInBatches(vaultAddresses, RPC_BATCH_SIZE, async (vaultAddress) => {
-    const [logs, inputTokenAddress] = await Promise.all([
-      getSwapLogsChunked(publicClient, vaultAddress, deployBlock, latestBlock),
-      withRetry(() => publicClient.readContract({
-        address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
-      })) as Promise<`0x${string}`>,
-    ]);
-    const inputTokenSymbol = resolveInputTokenSymbol(inputTokenAddress);
+    const cached = loadPurchasesCache(vaultAddress);
+    const cachedLastBlock = cached ? BigInt(cached.lastScannedBlock) : null;
+    const scanFrom = cachedLastBlock !== null ? cachedLastBlock + 1n : deployBlock;
 
-    return logs.map((log) => ({
-      vaultAddress,
-      step:             Number(log.args.step),
-      targetToken:      log.args.targetToken as `0x${string}`,
-      amountIn:         log.args.amountIn as bigint,
-      amountOut:        log.args.amountOut as bigint,
-      inputTokenSymbol,
-      txHash:            log.transactionHash as `0x${string}`,
-      blockNumber:       log.blockNumber as bigint,
-      timestamp:         null as number | null,
+    const [newLogs, inputTokenSymbol] = await Promise.all([
+      scanFrom <= latestBlock
+        ? getSwapLogsChunked(publicClient, vaultAddress, scanFrom, latestBlock)
+        : Promise.resolve([]),
+      cached
+        ? Promise.resolve(cached.inputTokenSymbol)
+        : withRetry(() => publicClient.readContract({
+            address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "inputToken",
+          })).then((address) => resolveInputTokenSymbol(address as `0x${string}`)),
+    ]);
+
+    const newEntries: CachedPurchaseEntry[] = newLogs.map((log) => ({
+      step:        Number(log.args.step),
+      targetToken: log.args.targetToken as `0x${string}`,
+      amountIn:    (log.args.amountIn as bigint).toString(),
+      amountOut:   (log.args.amountOut as bigint).toString(),
+      txHash:      log.transactionHash as `0x${string}`,
+      blockNumber: (log.blockNumber as bigint).toString(),
+      logIndex:    log.logIndex ?? 0,
+      timestamp:   null,
     }));
+
+    // Defensiv dedupliziert (txHash+logIndex) statt einfach anzuhängen, falls
+    // sich Scan-Bereiche durch einen Cache-Bug mal überlappen sollten.
+    const existingKeys = new Set((cached?.entries ?? []).map((e) => `${e.txHash}:${e.logIndex}`));
+    const merged = [
+      ...(cached?.entries ?? []),
+      ...newEntries.filter((e) => !existingKeys.has(`${e.txHash}:${e.logIndex}`)),
+    ];
+
+    return { vaultAddress, inputTokenSymbol, entries: merged };
   });
 
-  const flat = perVault.flat();
-
-  // Block-Timestamps nachladen — ein getBlock() pro einzigartigem Block,
-  // nicht pro Event (mehrere Swaps eines Schritts landen im selben Block).
-  // Ebenfalls gebatcht statt komplett parallel, aus demselben Grund wie oben.
-  const uniqueBlocks = [...new Set(flat.map((p) => p.blockNumber))];
+  // Block-Timestamps nachladen — nur für Events, die noch keinen haben (neu
+  // gescannte). Ein getBlock() pro einzigartigem Block, nicht pro Event
+  // (mehrere Swaps eines Schritts landen im selben Block). Gebatcht statt
+  // komplett parallel, aus demselben Grund wie beim Log-Scan oben.
+  const blocksNeeded = new Set<bigint>();
+  for (const { entries } of perVault) {
+    for (const entry of entries) {
+      if (entry.timestamp === null) blocksNeeded.add(BigInt(entry.blockNumber));
+    }
+  }
+  const uniqueBlocks = [...blocksNeeded];
   const blocks = await runInBatches(uniqueBlocks, RPC_BATCH_SIZE, (bn) => withRetry(() => publicClient.getBlock({ blockNumber: bn })));
-  const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn, Number(blocks[i].timestamp)]));
+  const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn.toString(), Number(blocks[i].timestamp)]));
 
-  return flat
-    .map((p) => ({ ...p, timestamp: timestampByBlock.get(p.blockNumber) ?? null }))
-    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  const result: PurchaseEvent[] = [];
+  for (const { vaultAddress, inputTokenSymbol, entries } of perVault) {
+    const resolvedEntries = entries.map((entry) => ({
+      ...entry,
+      timestamp: entry.timestamp ?? timestampByBlock.get(entry.blockNumber) ?? null,
+    }));
+
+    savePurchasesCache(vaultAddress, {
+      version: PURCHASES_CACHE_VERSION,
+      lastScannedBlock: latestBlock.toString(),
+      inputTokenSymbol,
+      entries: resolvedEntries,
+    });
+
+    for (const entry of resolvedEntries) {
+      result.push({
+        vaultAddress,
+        step:             entry.step,
+        targetToken:      entry.targetToken,
+        amountIn:         BigInt(entry.amountIn),
+        amountOut:        BigInt(entry.amountOut),
+        inputTokenSymbol,
+        txHash:           entry.txHash,
+        blockNumber:      BigInt(entry.blockNumber),
+        timestamp:        entry.timestamp,
+      });
+    }
+  }
+
+  return result.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 }
 
 // ─── Plan-Status lesen ────────────────────────────────────────────────────────
