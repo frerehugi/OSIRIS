@@ -331,7 +331,11 @@ export async function cancelDcaPlan(
 //      Deploy-Block. Der wird per Binärsuche auf getCode() einmalig ermittelt
 //      und für die Dauer der Session gecacht (ändert sich nie).
 
-const MAX_LOG_BLOCK_RANGE = 4_999n; // Server-Limit ist 5000 Blöcke (inklusive)
+// forno.celo.org erlaubt 5000 Blöcke pro eth_getLogs-Anfrage, rpc.ankr.com
+// (zweiter Fallback-Knoten, siehe RPC_URLS) hat ein niedrigeres eigenes
+// Limit und lehnt 4999 bereits mit "Block range is too large" ab. 2000 ist
+// konservativ genug für beide Knoten im Fallback.
+const MAX_LOG_BLOCK_RANGE = 2_000n;
 
 let factoryDeployBlockCache: bigint | null = null;
 
