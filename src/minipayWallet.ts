@@ -81,12 +81,16 @@ function sleep(ms: number): Promise<void> {
 const RPC_RETRY_COUNT = 5;
 const RPC_RETRY_DELAY_MS = 1_000;
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+// isNonRetryable: für Fehler, bei denen ein erneuter Versuch mit denselben
+// Parametern garantiert wieder scheitert (z.B. "Block range zu groß" — siehe
+// getSwapLogsChunked), damit withRetry() dort nicht nutzlos Zeit verbrennt,
+// sondern die Fehlerbehandlung sofort beim Aufrufer landet.
+async function withRetry<T>(fn: () => Promise<T>, isNonRetryable?: (error: unknown) => boolean): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      if (attempt >= RPC_RETRY_COUNT) throw error;
+      if (isNonRetryable?.(error) || attempt >= RPC_RETRY_COUNT) throw error;
       await sleep(RPC_RETRY_DELAY_MS * attempt);
     }
   }
@@ -321,21 +325,38 @@ export async function cancelDcaPlan(
 // Nutzers — das steht nicht im Contract-State (nur currentStep etc.), sondern
 // ausschließlich in den DcaSwapExecuted-Events.
 //
-// Zwei RPC-Einschränkungen von forno.celo.org, die das naive "fromBlock: 0n"
-// unbrauchbar machen (live gesehen: "query exceeds range, retry smaller (max
-// block range 5000)"):
-//   1. eth_getLogs erlaubt maximal 5000 Blöcke pro Anfrage -> Chunking nötig.
+// Zwei RPC-Einschränkungen, die das naive "fromBlock: 0n" unbrauchbar machen:
+//   1. eth_getLogs erlaubt nur eine begrenzte Blockspanne pro Anfrage ->
+//      Chunking nötig. Das genaue Limit ist aber je nach RPC-Knoten
+//      unterschiedlich UND undokumentiert (forno toleriert 5000, rpc.ankr.com
+//      lehnt schon 2000 mit "Block range is too large" ab) — und kann sich
+//      jederzeit ändern, ohne dass wir das mitbekommen. Eine feste Chunk-
+//      Größe zu raten ist deshalb keine dauerhafte Lösung. Stattdessen startet
+//      getSwapLogsChunked optimistisch groß und halbiert die Spanne bei genau
+//      diesem Fehlertyp automatisch, bis sie beim jeweils antwortenden Knoten
+//      durchgeht — funktioniert unabhängig davon, welcher der RPC_URLS-Knoten
+//      gerade antwortet, und bleibt auch dann korrekt, wenn sich Limits in
+//      Zukunft ändern.
 //   2. Block 0 bis "latest" wäre auf Celo Mainnet >70 Mio. Blöcke, viel mehr
 //      als nötig — getUserVaults() liefert ohnehin nur Vaults der aktuellen
 //      FACTORY_ADDRESS (siehe dort), also reicht als unterer Rand deren
 //      Deploy-Block. Der wird per Binärsuche auf getCode() einmalig ermittelt
 //      und für die Dauer der Session gecacht (ändert sich nie).
 
-// forno.celo.org erlaubt 5000 Blöcke pro eth_getLogs-Anfrage, rpc.ankr.com
-// (zweiter Fallback-Knoten, siehe RPC_URLS) hat ein niedrigeres eigenes
-// Limit und lehnt 4999 bereits mit "Block range is too large" ab. 2000 ist
-// konservativ genug für beide Knoten im Fallback.
-const MAX_LOG_BLOCK_RANGE = 2_000n;
+const INITIAL_LOG_BLOCK_RANGE = 5_000n; // Startpunkt, orientiert an forno's bekanntem Limit
+const MIN_LOG_BLOCK_RANGE     = 1n;      // Untergrenze — irgendwann muss auch 1 Block reichen
+
+function isBlockRangeError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes("block range") ||
+    message.includes("range is too large") ||
+    message.includes("exceeds range") ||
+    message.includes("query returned more than") ||
+    message.includes("limit exceeded") ||
+    message.includes("too many blocks")
+  );
+}
 
 let factoryDeployBlockCache: bigint | null = null;
 
@@ -375,19 +396,34 @@ async function getSwapLogsChunked(
 ) {
   const allLogs = [];
   let start = fromBlock;
+  let range = INITIAL_LOG_BLOCK_RANGE;
+
   while (start <= toBlock) {
-    const end = start + MAX_LOG_BLOCK_RANGE > toBlock ? toBlock : start + MAX_LOG_BLOCK_RANGE;
+    const end = start + range - 1n > toBlock ? toBlock : start + range - 1n;
 
-    const logs = await withRetry(() => publicClient.getContractEvents({
-      address:   vaultAddress,
-      abi:       DCA_VAULT_ABI,
-      eventName: "DcaSwapExecuted",
-      fromBlock: start,
-      toBlock:   end,
-    }));
+    try {
+      const logs = await withRetry(() => publicClient.getContractEvents({
+        address:   vaultAddress,
+        abi:       DCA_VAULT_ABI,
+        eventName: "DcaSwapExecuted",
+        fromBlock: start,
+        toBlock:   end,
+      }), isBlockRangeError);
 
-    allLogs.push(...logs);
-    start = end + 1n;
+      allLogs.push(...logs);
+      start = end + 1n;
+      // Nach einem Erfolg vorsichtig wieder vergrößern (z.B. falls zuvor ein
+      // strengerer Fallback-Knoten dran war, jetzt aber wieder forno
+      // antwortet) — aber nie über den Startwert hinaus.
+      if (range < INITIAL_LOG_BLOCK_RANGE) {
+        range = range * 2n > INITIAL_LOG_BLOCK_RANGE ? INITIAL_LOG_BLOCK_RANGE : range * 2n;
+      }
+    } catch (error) {
+      if (!isBlockRangeError(error) || range <= MIN_LOG_BLOCK_RANGE) throw error;
+      // Spanne halbieren und denselben Bereich (start unverändert) im
+      // nächsten Schleifendurchlauf mit kleinerer Chunk-Größe neu versuchen.
+      range = range / 2n > MIN_LOG_BLOCK_RANGE ? range / 2n : MIN_LOG_BLOCK_RANGE;
+    }
   }
   return allLogs;
 }
