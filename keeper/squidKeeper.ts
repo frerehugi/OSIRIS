@@ -119,10 +119,11 @@ function createKeeperContext(env: Env) {
   // dort dasselbe Problem beim Frontend) — fallback() wechselt bei einem
   // Fehler automatisch auf den nächsten Endpunkt statt den ganzen Keeper-
   // Zyklus für den betroffenen Vault abzubrechen.
+  // celo.drpc.org bewusst NICHT mehr dabei: lehnt eth_getLogs teils hart mit
+  // "method does not exist/is not available" ab (siehe src/minipayWallet.ts).
   const RPC_URLS = [
     "https://forno.celo.org",
     "https://rpc.ankr.com/celo",
-    "https://celo.drpc.org",
   ];
   const rpcTransport = activeChain === celo ? fallback(RPC_URLS.map((url) => http(url))) : http();
 

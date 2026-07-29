@@ -32,10 +32,12 @@ function getMiniPayProvider() {
 // die withRetry()-Wrapper unten helfen da nicht, weil sie denselben kaputten
 // Knoten erneut anfragen. fallback() wechselt bei einem Fehler stattdessen
 // automatisch auf den nächsten Endpunkt in der Liste.
+// celo.drpc.org bewusst NICHT mehr dabei: lehnt eth_getLogs teils hart mit
+// "method does not exist/is not available" ab (kein Netzwerkfehler, den ein
+// Retry beheben könnte) — genau die Methode, die "My Purchases" braucht.
 const RPC_URLS = [
   "https://forno.celo.org",
   "https://rpc.ankr.com/celo",
-  "https://celo.drpc.org",
 ];
 
 export function getClients() {
