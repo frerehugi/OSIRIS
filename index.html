@@ -16,22 +16,26 @@
       --gold: #C9A84C;
       --gold-light: #E8C96A;
       --gold-dim: rgba(201,168,76,0.15);
-      --dark: #060e1a;
+      --dark: #05070c;
       --dark2: #0a1628;
       --dark3: #0f1f38;
-      --green-dark: #0a1f12;
-      --text: rgba(255,255,255,0.88);
+      --text: rgba(255,255,255,0.92);
       --text-muted: rgba(255,255,255,0.5);
-      --border: rgba(255,255,255,0.08);
+      --text-faint: rgba(255,255,255,0.32);
+      --border: rgba(255,255,255,0.09);
       --border-gold: rgba(201,168,76,0.25);
-      --card: rgba(255,255,255,0.04);
+      --card: rgba(255,255,255,0.045);
+      --success: #6ee7b7;
+      --ambient:
+        radial-gradient(ellipse 90% 55% at 15% -5%, rgba(98,126,234,0.14) 0%, transparent 60%),
+        radial-gradient(ellipse 70% 45% at 100% 15%, rgba(201,168,76,0.14) 0%, transparent 55%);
     }
 
     html { scroll-behavior: smooth; }
 
     body {
       font-family: 'Inter', system-ui, sans-serif;
-      background: var(--dark);
+      background: var(--ambient), var(--dark);
       color: var(--text);
       line-height: 1.6;
       min-height: 100vh;
@@ -42,22 +46,22 @@
       position: sticky; top: 0; z-index: 100;
       display: flex; align-items: center; justify-content: space-between;
       padding: 16px 32px;
-      background: rgba(6,14,26,0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border-gold);
+      background: rgba(5,7,12,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
     }
-    .nav-logo { font-size: 1.1rem; font-weight: 700; color: var(--gold); letter-spacing: 0.08em; text-decoration: none; }
+    .nav-logo { font-size: 1.1rem; font-weight: 700; color: var(--gold); letter-spacing: 0.08em; text-decoration: none; text-shadow: 0 0 24px rgba(201,168,76,0.35); }
     .nav-links { display: flex; gap: 24px; align-items: center; }
     .nav-links a { color: var(--text-muted); font-size: 14px; text-decoration: none; transition: color 0.2s; }
     .nav-links a:hover { color: var(--text); }
     .nav-cta {
-      background: var(--gold); color: #0a1628;
-      border: none; border-radius: 7px;
-      padding: 8px 20px; font-size: 13px; font-weight: 700;
+      background: linear-gradient(135deg, var(--gold), var(--gold-light)); color: var(--dark2);
+      border: none; border-radius: 999px;
+      padding: 9px 22px; font-size: 13px; font-weight: 700;
       cursor: pointer; text-decoration: none;
-      transition: opacity 0.2s;
+      transition: opacity 0.2s, transform 0.15s;
     }
-    .nav-cta:hover { opacity: 0.88; }
+    .nav-cta:hover { opacity: 0.9; transform: translateY(-1px); }
 
     /* ── Hero ── */
     .hero {
@@ -65,36 +69,33 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       padding: 80px 24px 100px;
-      background:
-        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(26,74,46,0.35) 0%, transparent 70%),
-        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(201,168,76,0.06) 0%, transparent 60%),
-        var(--dark);
-      border-bottom: 1px solid var(--border-gold);
+      background: var(--ambient), var(--dark);
+      border-bottom: 1px solid var(--border);
     }
 
     .live-badge {
       display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(74,222,128,0.08);
-      border: 1px solid rgba(74,222,128,0.25);
-      border-radius: 20px; padding: 6px 16px;
+      background: rgba(110,231,183,0.08);
+      border: 1px solid rgba(110,231,183,0.3);
+      border-radius: 999px; padding: 6px 16px;
       margin-bottom: 32px;
     }
     .live-dot {
       width: 7px; height: 7px; border-radius: 50%;
-      background: #4ade80;
+      background: var(--success);
       animation: pulse 2s ease-in-out infinite;
     }
     @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
-    .live-badge span { font-size: 12px; font-weight: 600; color: #4ade80; letter-spacing: 0.06em; text-transform: uppercase; }
+    .live-badge span { font-size: 12px; font-weight: 600; color: var(--success); letter-spacing: 0.06em; text-transform: uppercase; }
 
     .hero h1 {
       font-size: clamp(3.5rem, 10vw, 6rem);
-      font-weight: 700;
+      font-weight: 800;
       color: var(--gold);
       letter-spacing: 0.1em;
       line-height: 1;
       margin-bottom: 14px;
-      text-shadow: 0 0 60px rgba(201,168,76,0.2);
+      text-shadow: 0 0 60px rgba(201,168,76,0.35);
     }
     .hero-eyebrow {
       font-size: clamp(10px, 2vw, 13px);
@@ -117,16 +118,17 @@
     }
     .token-chip {
       display: flex; align-items: center; gap: 9px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px; padding: 9px 16px;
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 999px; padding: 8px 18px 8px 8px;
       transition: border-color 0.2s, background 0.2s;
     }
     .token-chip:hover { background: rgba(255,255,255,0.08); border-color: var(--border-gold); }
     .token-icon {
       width: 30px; height: 30px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px;
+      font-size: 14px; font-weight: 800; flex-shrink: 0;
     }
     .token-name { font-size: 14px; font-weight: 600; }
     .token-pct { font-size: 12px; color: rgba(201,168,76,0.7); margin-left: 2px; }
@@ -134,8 +136,8 @@
     .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
     .btn-gold {
       display: inline-flex; align-items: center; gap: 8px;
-      background: var(--gold); color: #0a1628;
-      border: none; border-radius: 8px;
+      background: linear-gradient(135deg, var(--gold), var(--gold-light)); color: var(--dark2);
+      border: none; border-radius: 999px;
       padding: 14px 32px; font-size: 15px; font-weight: 700;
       cursor: pointer; text-decoration: none;
       transition: opacity 0.2s, transform 0.15s;
@@ -143,13 +145,13 @@
     .btn-gold:hover { opacity: 0.9; transform: translateY(-1px); }
     .btn-outline {
       display: inline-flex; align-items: center; gap: 8px;
-      background: transparent; color: var(--gold);
-      border: 1px solid var(--border-gold);
-      border-radius: 8px; padding: 14px 32px; font-size: 15px;
+      background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.78);
+      border: 1px solid var(--border);
+      border-radius: 999px; padding: 14px 32px; font-size: 15px; font-weight: 700;
       cursor: pointer; text-decoration: none;
       transition: background 0.2s, transform 0.15s;
     }
-    .btn-outline:hover { background: var(--gold-dim); transform: translateY(-1px); }
+    .btn-outline:hover { background: rgba(255,255,255,0.09); transform: translateY(-1px); }
 
     /* ── Sections ── */
     section { padding: 80px 24px; max-width: 960px; margin: 0 auto; }
@@ -159,7 +161,7 @@
       text-transform: uppercase; color: var(--gold);
       margin-bottom: 14px;
     }
-    section h2 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 700; margin-bottom: 16px; }
+    section h2 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 800; margin-bottom: 16px; }
     section > p { color: var(--text-muted); font-size: 16px; max-width: 600px; line-height: 1.75; }
 
     /* ── How it works ── */
@@ -170,11 +172,12 @@
     }
     .step-card {
       background: var(--card);
+      backdrop-filter: blur(20px);
       border: 1px solid var(--border);
-      border-radius: 12px; padding: 28px 24px;
-      transition: border-color 0.2s;
+      border-radius: 16px; padding: 28px 24px;
+      transition: border-color 0.2s, background 0.2s;
     }
-    .step-card:hover { border-color: var(--border-gold); }
+    .step-card:hover { border-color: var(--border-gold); background: rgba(255,255,255,0.07); }
     .step-num { font-size: 11px; font-weight: 700; color: var(--gold); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 16px; }
     .step-icon { font-size: 28px; margin-bottom: 14px; }
     .step-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
@@ -187,12 +190,12 @@
       display: flex; align-items: center; justify-content: center;
       flex-wrap: wrap; gap: 0;
       margin-top: 40px;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 28px;
+      background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px;
     }
     .arch-node {
       background: rgba(255,255,255,0.05); border: 1px solid var(--border);
-      border-radius: 10px; padding: 14px 20px;
+      border-radius: 12px; padding: 14px 20px;
       text-align: center; min-width: 130px;
     }
     .arch-node.highlight { border-color: var(--border-gold); }
@@ -206,10 +209,10 @@
       gap: 14px; margin-top: 40px;
     }
     .stat-card {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 24px; text-align: center;
+      background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; text-align: center;
     }
-    .stat-val { font-size: 2rem; font-weight: 700; color: var(--gold); line-height: 1; margin-bottom: 8px; }
+    .stat-val { font-size: 2rem; font-weight: 800; color: var(--gold); line-height: 1; margin-bottom: 8px; }
     .stat-label { font-size: 12px; color: var(--text-muted); }
 
     /* ── Tech details ── */
@@ -218,8 +221,8 @@
       gap: 16px; margin-top: 36px;
     }
     .tech-card {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 24px 28px;
+      background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px 28px;
     }
     .tech-card h3 { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 16px; }
     .tech-row {
@@ -229,15 +232,15 @@
     .tech-row:last-child { border-bottom: none; }
     .tech-key { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
     .tech-val { font-size: 12px; color: var(--text); font-family: 'Courier New', monospace; text-align: right; word-break: break-all; }
-    .verified { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #4ade80; }
+    .verified { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--success); }
 
     /* ── CTA ── */
     .cta-section {
       text-align: center; padding: 100px 24px;
-      background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(26,74,46,0.25) 0%, transparent 70%);
-      border-top: 1px solid var(--border-gold);
+      background: var(--ambient);
+      border-top: 1px solid var(--border);
     }
-    .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 700; margin-bottom: 16px; }
+    .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 800; margin-bottom: 16px; }
     .cta-section p { color: var(--text-muted); font-size: 16px; max-width: 480px; margin: 0 auto 36px; }
 
     /* ── Footer ── */
@@ -290,19 +293,19 @@
 
   <div class="token-row" style="margin-bottom:16px;">
     <div class="token-chip">
-      <div class="token-icon" style="background:rgba(247,147,26,0.15)">₿</div>
+      <div class="token-icon" style="background:#F7931A; color:#fff;">₿</div>
       <span class="token-name">wBTC</span>
     </div>
     <div class="token-chip">
-      <div class="token-icon" style="background:rgba(98,126,234,0.15)">Ξ</div>
+      <div class="token-icon" style="background:#627EEA; color:#fff;">Ξ</div>
       <span class="token-name">wETH</span>
     </div>
     <div class="token-chip">
-      <div class="token-icon" style="background:rgba(252,204,10,0.15)">◈</div>
+      <div class="token-icon" style="background:#FCFF52; color:var(--dark2);">C</div>
       <span class="token-name">CELO</span>
     </div>
     <div class="token-chip">
-      <div class="token-icon" style="background:rgba(255,215,0,0.15)">Au</div>
+      <div class="token-icon" style="background:var(--gold); color:var(--dark2);">🥇</div>
       <span class="token-name">XAUoT</span>
     </div>
   </div>
@@ -358,8 +361,8 @@
 
     <div class="arch-flow">
       <div class="arch-node">
-        <div class="n-title">MiniPay</div>
-        <div class="n-sub">User wallet</div>
+        <div class="n-title">Your Wallet</div>
+        <div class="n-sub">MiniPay, Trust Wallet, ...</div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-node">
@@ -402,8 +405,8 @@
       <div class="stat-label">Target tokens</div>
     </div>
     <div class="stat-card">
-      <div class="stat-val">85/85</div>
-      <div class="stat-label">Tests passing</div>
+      <div class="stat-val">63</div>
+      <div class="stat-label">Foundry unit tests</div>
     </div>
     <div class="stat-card">
       <div class="stat-val">Flexible</div>
@@ -474,7 +477,7 @@
       </div>
       <div class="tech-row">
         <span class="tech-key">Wallet</span>
-        <span class="tech-val">MiniPay</span>
+        <span class="tech-val">EIP-1193 injected (MiniPay, Trust Wallet, ...)</span>
       </div>
     </div>
     <div class="tech-card">
