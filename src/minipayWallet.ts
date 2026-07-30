@@ -22,7 +22,7 @@ import type { DcaPlanState, Interval } from "./types";
 
 function getMiniPayProvider() {
   if (typeof window === "undefined" || !window.ethereum) {
-    throw new Error("Kein Wallet-Provider gefunden. Öffne die App in MiniPay.");
+    throw new Error("Kein Wallet-Provider gefunden. Öffne die App im In-App-Browser von MiniPay oder Trust Wallet.");
   }
   return window.ethereum;
 }
