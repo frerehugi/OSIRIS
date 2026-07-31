@@ -161,16 +161,25 @@ async function main() {
 
   console.info(`\nErmittle Gaskosten für ${approveTxHashes.size} approve()-Transaktion(en) (parallel, 8 gleichzeitig)...`);
   const hashList = Array.from(approveTxHashes) as `0x${string}`[];
-  const perTxGas: bigint[] = await mapWithConcurrency(hashList, 8, async (hash) => {
-    const receipt = await withRetry(() => publicClient.getTransactionReceipt({ hash }));
-    const gasCost = receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n);
-    console.info(`  ${hash.slice(0, 10)}...: gasUsed=${receipt.gasUsed}, effectiveGasPrice=${receipt.effectiveGasPrice}, Kosten=${formatEther(gasCost)} CELO`);
-    return gasCost;
+  const perTxGasOrNull: (bigint | null)[] = await mapWithConcurrency(hashList, 8, async (hash) => {
+    try {
+      const receipt = await withRetry(() => publicClient.getTransactionReceipt({ hash }));
+      const gasCost = receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n);
+      console.info(`  ${hash.slice(0, 10)}...: gasUsed=${receipt.gasUsed}, effectiveGasPrice=${receipt.effectiveGasPrice}, Kosten=${formatEther(gasCost)} CELO`);
+      return gasCost;
+    } catch (error) {
+      // Einzelne fehlende Receipts (z.B. RPC-Indexierungslücke bei einem der
+      // Fallback-Provider) sollen den ganzen Lauf nicht abbrechen — überspringen
+      // und im Log vermerken, Rest der Stichprobe bleibt gültig.
+      console.warn(`  ${hash.slice(0, 10)}...: Receipt nicht gefunden, übersprungen (${error instanceof Error ? error.message : String(error)})`);
+      return null;
+    }
   });
+  const perTxGas = perTxGasOrNull.filter((g): g is bigint => g !== null);
   const totalApproveGasWei = perTxGas.reduce((sum, g) => sum + g, 0n);
   const avgApproveGasWei = totalApproveGasWei / BigInt(perTxGas.length);
 
-  console.info(`\nDurchschnittliche approve()-Gaskosten: ${formatEther(avgApproveGasWei)} CELO (aus ${perTxGas.length} echten Tx)`);
+  console.info(`\nDurchschnittliche approve()-Gaskosten: ${formatEther(avgApproveGasWei)} CELO (aus ${perTxGas.length}/${hashList.length} echten Tx, Rest übersprungen)`);
 
   // ─── Modell: künftige Refuel-Zyklen ──────────────────────────────────────
   const avgExecuteStepGasWei = PRIOR_EXECUTE_STEP_GAS_COST_WEI / BigInt(PRIOR_EXECUTE_STEP_TX_COUNT);
