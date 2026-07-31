@@ -13,7 +13,7 @@
 
 import { createPublicClient, http, fallback, parseAbiItem, formatUnits, formatEther } from "viem";
 import { celo } from "viem/chains";
-import { INPUT_TOKENS } from "../src/config";
+import { FACTORY_ADDRESS, INPUT_TOKENS } from "../src/config";
 
 const TEST_WALLET = "0xea40040538bde54cdfc97e1f0cd90da2aab0c453" as const;
 
@@ -60,20 +60,21 @@ async function withRetry<T>(fn: () => Promise<T>, isNonRetryable?: (e: unknown) 
   throw lastError;
 }
 
-// Findet per Binärsuche den ersten Block, in dem die Wallet bereits eine
-// Nonce > 0 hat (also mindestens eine Transaktion gesendet hat) — spart uns
-// das Scannen der kompletten Chain-Historie (>70 Mio. Blöcke) für die
-// Approval-Logs weiter unten.
-async function findFirstActivityBlock(address: `0x${string}`): Promise<bigint> {
+// Statt die komplette Tx-Historie der Test-Wallet zu suchen (per Nonce-
+// Binärsuche landete das bei Block 35.250.011 — die Wallet hatte offenbar
+// schon lange vor den OSIRIS-Tests andere, unabhängige Aktivität; ein Scan
+// ab dort hätte >38 Mio. Blöcke gebraucht und das 10-Minuten-Job-Limit
+// gesprengt): wir wissen, dass jede OSIRIS-relevante approve()-Tx dieser
+// Wallet erst NACH Deploy der aktiven Factory stattgefunden haben kann.
+// Gleiche Binärsuche wie in feeAnalysis.ts (dort < 5s für diesen Contract).
+async function findDeploymentBlock(address: `0x${string}`): Promise<bigint> {
   const latest = await publicClient.getBlockNumber();
-  const latestCount = await withRetry(() => publicClient.getTransactionCount({ address, blockNumber: latest }));
-  if (latestCount === 0) return latest; // Wallet noch nie aktiv
   let lo = 0n;
   let hi = latest;
   while (lo < hi) {
     const mid = (lo + hi) / 2n;
-    const count = await withRetry(() => publicClient.getTransactionCount({ address, blockNumber: mid }));
-    if (count > 0) {
+    const code = await withRetry(() => publicClient.getCode({ address, blockNumber: mid }));
+    if (code && code !== "0x") {
       hi = mid;
     } else {
       lo = mid + 1n;
@@ -115,6 +116,19 @@ async function getApprovalLogsChunked(
   return allLogs;
 }
 
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Aus dem vorherigen feeAnalysis.ts-Lauf (Block 72_414_977 bis 73_568_685):
 const PRIOR_EXECUTE_STEP_TX_COUNT = 58;
 const PRIOR_EXECUTE_STEP_GAS_COST_WEI = 10_390430000000000000n; // ~10.390430 CELO (aus vorigem Lauf, hier neu aus Gaskosten-Summe abgeleitet — siehe unten Neuberechnung
@@ -124,15 +138,15 @@ const REFUEL_THRESHOLD_USD = 5; // pro Token, siehe KEEPER_REFUEL_THRESHOLD Defa
 async function main() {
   console.info(`Test-Wallet: ${TEST_WALLET}`);
   const latestBlock = await publicClient.getBlockNumber();
-  console.info(`Suche ersten Aktivitätsblock der Test-Wallet...`);
-  const firstActivityBlock = await findFirstActivityBlock(TEST_WALLET);
-  console.info(`Erste Aktivität ab Block ${firstActivityBlock} (aktuell: ${latestBlock})\n`);
+  console.info(`Suche Deploy-Block der aktiven Factory (${FACTORY_ADDRESS}) als unteren Suchrand...`);
+  const searchFromBlock = await findDeploymentBlock(FACTORY_ADDRESS);
+  console.info(`Scanne ab Block ${searchFromBlock} (aktuell: ${latestBlock}, Spanne: ${latestBlock - searchFromBlock} Blöcke)\n`);
 
   const approveTxHashes = new Set<string>();
 
   for (const token of [INPUT_TOKENS.USDC, INPUT_TOKENS.USDT]) {
     console.info(`--- ${token.symbol} (${token.address}) ---`);
-    const logs = await getApprovalLogsChunked(token.address, TEST_WALLET, firstActivityBlock, latestBlock);
+    const logs = await getApprovalLogsChunked(token.address, TEST_WALLET, searchFromBlock, latestBlock);
     console.info(`  ${logs.length} Approval-Event(s) gefunden.`);
     for (const log of logs) {
       approveTxHashes.add(log.transactionHash);
@@ -145,16 +159,15 @@ async function main() {
     return;
   }
 
-  console.info(`\nErmittle Gaskosten für ${approveTxHashes.size} approve()-Transaktion(en)...`);
-  let totalApproveGasWei = 0n;
-  const perTxGas: bigint[] = [];
-  for (const hash of approveTxHashes) {
-    const receipt = await withRetry(() => publicClient.getTransactionReceipt({ hash: hash as `0x${string}` }));
+  console.info(`\nErmittle Gaskosten für ${approveTxHashes.size} approve()-Transaktion(en) (parallel, 8 gleichzeitig)...`);
+  const hashList = Array.from(approveTxHashes) as `0x${string}`[];
+  const perTxGas: bigint[] = await mapWithConcurrency(hashList, 8, async (hash) => {
+    const receipt = await withRetry(() => publicClient.getTransactionReceipt({ hash }));
     const gasCost = receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n);
-    totalApproveGasWei += gasCost;
-    perTxGas.push(gasCost);
     console.info(`  ${hash.slice(0, 10)}...: gasUsed=${receipt.gasUsed}, effectiveGasPrice=${receipt.effectiveGasPrice}, Kosten=${formatEther(gasCost)} CELO`);
-  }
+    return gasCost;
+  });
+  const totalApproveGasWei = perTxGas.reduce((sum, g) => sum + g, 0n);
   const avgApproveGasWei = totalApproveGasWei / BigInt(perTxGas.length);
 
   console.info(`\nDurchschnittliche approve()-Gaskosten: ${formatEther(avgApproveGasWei)} CELO (aus ${perTxGas.length} echten Tx)`);
