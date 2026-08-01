@@ -304,6 +304,32 @@ h2 {
 .slider-row input {
   width: 100%;
   accent-color: var(--gold);
+  --thumb-color: var(--gold);
+}
+
+/* accent-color allein reicht nicht überall — MiniPays In-App-Browser färbt
+   damit zwar die Track-Füllung, lässt den Thumb aber weiß. Deshalb den Thumb
+   zusätzlich explizit einfärben, Form (Kreis, gleiche Größe wie bisher der
+   native Thumb) bleibt unverändert. */
+.slider-row input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--thumb-color);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.slider-row input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--thumb-color);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .label-row {
