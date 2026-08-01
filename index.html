@@ -88,6 +88,25 @@
     @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
     .live-badge span { font-size: 12px; font-weight: 600; color: var(--success); letter-spacing: 0.06em; text-transform: uppercase; }
 
+    .browser-notice {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold-dim);
+      border: 1px solid var(--border-gold);
+      border-radius: 999px; padding: 8px 18px;
+      margin-bottom: 24px;
+      font-size: 13px; font-weight: 600; color: var(--gold-light);
+    }
+
+    .btn-link-small {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: transparent; color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 999px; padding: 9px 18px; font-size: 13px; font-weight: 600;
+      cursor: pointer; text-decoration: none;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .btn-link-small:hover { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--border-gold); }
+
     .hero h1 {
       font-size: clamp(3.5rem, 10vw, 6rem);
       font-weight: 800;
@@ -282,6 +301,7 @@
     <div class="live-dot"></div>
     <span>Live on Celo Mainnet</span>
   </div>
+  <div class="browser-notice">📲 Open this page in the in-app browser of MiniPay or Trust Wallet</div>
 
   <h1>OSIRIS</h1>
   <p class="hero-eyebrow">OSnabrück Investment and Risk Management System</p>
@@ -316,6 +336,7 @@
     <a href="https://github.com/frerehugi/OSIRIS" target="_blank" class="btn-outline">View on GitHub</a>
   </div>
   <p style="font-size:13px; color:var(--text-muted); opacity:0.75; margin-top:20px;">Works with MiniPay and Trust Wallet. WalletConnect-only wallets like Valora aren't supported yet.</p>
+  <a href="https://docs.minipay.xyz/getting-started/test-in-minipay.html" target="_blank" class="btn-link-small" style="margin-top:16px;">📘 How to unlock your in-App Browser in MiniPay (Enable Developer Mode)</a>
 </header>
 
 <!-- How it works -->
