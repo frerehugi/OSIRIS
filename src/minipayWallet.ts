@@ -22,7 +22,7 @@ import type { DcaPlanState, Interval } from "./types";
 
 function getMiniPayProvider() {
   if (typeof window === "undefined" || !window.ethereum) {
-    throw new Error("Kein Wallet-Provider gefunden. Öffne die App im In-App-Browser von MiniPay oder Trust Wallet.");
+    throw new Error("No wallet provider found. Open the app in the in-app browser of MiniPay or Trust Wallet.");
   }
   return window.ethereum;
 }
@@ -58,7 +58,7 @@ export async function connectWallet(): Promise<`0x${string}`> {
   // Dialog zu zeigen — das sah wie eine abgelehnte Verbindung aus, obwohl nie
   // gefragt wurde.
   const [address] = await walletClient.requestAddresses();
-  if (!address) throw new Error("Wallet-Verbindung abgelehnt oder fehlgeschlagen.");
+  if (!address) throw new Error("Wallet connection rejected or failed.");
   return address;
 }
 
@@ -149,7 +149,7 @@ function buildTargetArrays(percentages: Record<string, number>): {
   for (const [symbol, pct] of Object.entries(percentages)) {
     if (pct <= 0) continue;
     const token = TARGET_TOKENS[symbol as keyof typeof TARGET_TOKENS];
-    if (!token) throw new Error(`Unbekanntes Zieltoken: ${symbol}`);
+    if (!token) throw new Error(`Unknown target token: ${symbol}`);
 
     targetTokens.push(token.address);
     targetBps.push(Math.round(pct * 100)); // 1 % → 100 bps (uint16)
@@ -157,7 +157,7 @@ function buildTargetArrays(percentages: Record<string, number>): {
 
   const sum = targetBps.reduce((a, b) => a + b, 0);
   if (sum !== 10_000) {
-    throw new Error(`Allokation ergibt ${sum / 100} % statt 100 %.`);
+    throw new Error(`Allocation totals ${sum / 100}% instead of 100%.`);
   }
   return { targetTokens, targetBps };
 }
@@ -205,7 +205,7 @@ export async function submitDcaPlan(
   ownerAddress: `0x${string}`,
   onProgress?: (phase: SubmitDcaPlanPhase) => void,
 ): Promise<SubmitDcaPlanResult> {
-  if (!formData.interval) throw new Error("Intervall fehlt.");
+  if (!formData.interval) throw new Error("Interval is missing.");
 
   const inputToken     = INPUT_TOKENS[formData.inputToken];
   const totalAmountRaw = parseUnits(formData.totalAmount, inputToken.decimals);
@@ -213,8 +213,8 @@ export async function submitDcaPlan(
   const interval       = BigInt(INTERVAL_SECONDS[formData.interval]);
   const firstExecution = nextExecutionTimestamp(formData.interval, formData.executionTime);
 
-  if (totalAmountRaw <= 0n) throw new Error("Gesamtbetrag muss > 0 sein.");
-  if (duration <= 0)        throw new Error("Dauer muss > 0 sein.");
+  if (totalAmountRaw <= 0n) throw new Error("Total amount must be > 0.");
+  if (duration <= 0)        throw new Error("Duration must be > 0.");
 
   const { targetTokens, targetBps } = buildTargetArrays(formData.percentages);
 
@@ -246,11 +246,11 @@ export async function submitDcaPlan(
     });
     vaultAddress = vaultCreatedEvent?.args.vault;
   } catch (error) {
-    throw new Error(`Vault-Erstellung fehlgeschlagen: ${describeError(error)}`);
+    throw new Error(`Vault creation failed: ${describeError(error)}`);
   }
 
   if (!vaultAddress) {
-    throw new Error("Vault wurde erstellt, aber die Adresse konnte nicht aus dem VaultCreated-Event gelesen werden.");
+    throw new Error("Vault was created, but its address could not be read from the VaultCreated event.");
   }
 
   // ── Phase 2: USDC an den NEUEN Vault freigeben ────────────────────────────
@@ -266,7 +266,7 @@ export async function submitDcaPlan(
     });
     approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTx });
   } catch (error) {
-    throw new Error(`USDC-Freigabe fehlgeschlagen: ${describeError(error)}`);
+    throw new Error(`USDC approval failed: ${describeError(error)}`);
   }
 
   // ── Phase 3: Plan aufsetzen ────────────────────────────────────────────────
@@ -290,7 +290,7 @@ export async function submitDcaPlan(
     });
     setupPlanReceipt = await publicClient.waitForTransactionReceipt({ hash });
   } catch (error) {
-    throw new Error(`Plan-Einrichtung fehlgeschlagen: ${describeError(error)}`);
+    throw new Error(`Plan setup failed: ${describeError(error)}`);
   }
 
   return { vaultAddress, createVaultReceipt, approveReceipt, setupPlanReceipt };
@@ -315,7 +315,7 @@ export async function cancelDcaPlan(
     });
     return await publicClient.waitForTransactionReceipt({ hash });
   } catch (error) {
-    throw new Error(`Cancel fehlgeschlagen: ${describeError(error)}`);
+    throw new Error(`Cancel failed: ${describeError(error)}`);
   }
 }
 
