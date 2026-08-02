@@ -189,3 +189,46 @@ message, with the **explicit `https://` scheme** (bare domains like
 `https://osirisapp.xyz`). Send everything else as a separate follow-up
 message where the preview choice doesn't matter. Don't try to fight
 Telegram's algorithm inside one link-heavy message — split instead.
+
+## 8. GitHub Actions' `schedule:` cron is not precise enough for a time-sensitive job
+
+**Symptom:** an hourly `schedule: cron: "0 * * * *"` keeper job (needed
+because vaults only offer whole-hour start times) was measured drifting
+**2.6h–11.8h** between actual runs — GitHub explicitly does not guarantee
+scheduled workflows fire on time, especially at popular times like the top
+of the hour when every repo's cron piles up at once. This wasn't a fluke or
+misconfiguration; it's documented, expected GitHub Actions behavior under
+load.
+
+**Fix:** ported the keeper to a **Cloudflare Worker with a native Cron
+Trigger** (`keeper/worker.ts`, `keeper/wrangler.toml`) instead of trying to
+tune the GitHub Actions schedule. Made cheap because the keeper's core
+(`keeper/squidKeeper.ts`) was already platform-neutral (see
+`architecture.md`) — the Workers entry point is ~25 lines. Confirmed fixed
+via Cloudflare's own dashboard metrics: perfectly evenly-spaced hourly
+invocation bars, 0 errors, over a 24h window — visibly different from the
+erratic GitHub Actions pattern it replaced.
+
+**Running both in parallel during the cutover — verified safe, but not
+free:** for a few days both the old GitHub Actions cron and the new
+Cloudflare Worker ran simultaneously (deliberately, as a validation
+window) against the **same keeper wallet** (same `KEEPER_PRIVATE_KEY` on
+both). Two things worth knowing before doing this yourself:
+- **Fund safety:** confirmed safe by reading the contract, not by assuming.
+  `DcaVault.executeStep()` updates `currentStep`/`nextExecutionTimestamp`
+  *before* the external swap calls (checks-effects-interactions) and has
+  `nonReentrant`. Two near-simultaneous keeper transactions can't both
+  succeed — the blockchain sequences them, whichever lands first advances
+  the state, and the second one reads the now-updated state and reverts
+  (`TooEarly()`). No double-swap is possible even with two independent
+  keepers racing.
+- **Not free, though:** since both processes share one wallet, a genuine
+  race (both fetching the same nonce before either tx is mined) can cause
+  the loser to fail outright with a nonce error instead of a clean
+  contract-level revert — that cycle's execution is simply skipped (no
+  funds at risk, just a missed hourly run for that vault, self-resolving
+  next cycle). Worth accepting for a short, deliberate cutover window;
+  not something to leave running indefinitely. Once confirmed working,
+  disable the old schedule (here: removed GitHub Actions' `schedule:`
+  trigger, kept `workflow_dispatch` for manual/debug runs) rather than
+  leaving both active.

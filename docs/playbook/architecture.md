@@ -64,4 +64,7 @@ lever for tuning economics post-launch without a redeploy.
 `Env` object. `keeper/cli.ts` (Node/GitHub Actions) and `keeper/worker.ts`
 (Cloudflare Worker cron) each build that `Env` from their own runtime and
 call the same `runKeeperCycle()`. Worth doing this from day one if a keeper
-might ever need to run somewhere other than where it started.
+might ever need to run somewhere other than where it started — which
+happened here: GitHub Actions' `schedule:` trigger turned out to be
+unreliable enough (see `lessons-learned.md`) that the production keeper
+moved to the Cloudflare Worker entirely, reusing the exact same core logic.

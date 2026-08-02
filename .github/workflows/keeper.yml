@@ -1,11 +1,16 @@
 name: DCA Keeper
 
+# Cron-Trigger deaktiviert (2026-08-02): GitHub Actions' Schedule-Ausführung
+# driftete gemessen 2,6h-11,8h gegenüber dem konfigurierten stündlichen
+# Schedule (siehe Commit "Port keeper to run on Cloudflare Workers"). Der
+# Keeper läuft seither über einen Cloudflare Worker (keeper/worker.ts,
+# keeper/wrangler.toml) mit nativen, pünktlichen Cron Triggers — bestätigt
+# per Cloudflare-Dashboard-Metriken (exakt stündliche Invocations, 0 Fehler).
+# workflow_dispatch bleibt für manuelle/Debug-Läufe erhalten; die Schedule
+# absichtlich NICHT wieder aktivieren, ohne vorher den Cloudflare Worker zu
+# deaktivieren — sonst laufen wieder zwei Keeper parallel über dieselbe
+# Wallet (KEEPER_PRIVATE_KEY), siehe docs/playbook/lessons-learned.md.
 on:
-  schedule:
-    # Stündlich zur vollen Stunde — Vaults selbst können nur volle Stunden als
-    # Startzeit wählen (siehe src/App.tsx), diese Frequenz hält "±1 hour
-    # accuracy" ein.
-    - cron: "0 * * * *"
   workflow_dispatch: {}
 
 permissions:
