@@ -354,14 +354,18 @@ h2 {
   background: transparent; /* Firefox: Füllung kommt ebenfalls über den Inline-Gradient */
 }
 
-.slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }
-.slider-thumb-wBTC::-moz-range-thumb      { background: #F7931A; }
-.slider-thumb-wETH::-webkit-slider-thumb  { background: #627EEA; }
-.slider-thumb-wETH::-moz-range-thumb      { background: #627EEA; }
-.slider-thumb-CELO::-webkit-slider-thumb  { background: #FCFF52; }
-.slider-thumb-CELO::-moz-range-thumb      { background: #FCFF52; }
-.slider-thumb-XAUoT::-webkit-slider-thumb { background: #C9A84C; }
-.slider-thumb-XAUoT::-moz-range-thumb     { background: #C9A84C; }
+/* Höhere Spezifität als ".slider-row input::-webkit-slider-thumb" oben
+   nötig (dessen zusätzlicher "input"-Typselektor sonst immer gewinnt,
+   unabhängig von der Reihenfolge hier) — deshalb ".slider-row input.token"
+   statt nur ".token" als Selektor-Basis. */
+.slider-row input.slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }
+.slider-row input.slider-thumb-wBTC::-moz-range-thumb      { background: #F7931A; }
+.slider-row input.slider-thumb-wETH::-webkit-slider-thumb  { background: #627EEA; }
+.slider-row input.slider-thumb-wETH::-moz-range-thumb      { background: #627EEA; }
+.slider-row input.slider-thumb-CELO::-webkit-slider-thumb  { background: #FCFF52; }
+.slider-row input.slider-thumb-CELO::-moz-range-thumb      { background: #FCFF52; }
+.slider-row input.slider-thumb-XAUoT::-webkit-slider-thumb { background: #C9A84C; }
+.slider-row input.slider-thumb-XAUoT::-moz-range-thumb     { background: #C9A84C; }
 
 .label-row {
   display: flex;
