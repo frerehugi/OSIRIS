@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, type CSSProperties } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import {
   connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
@@ -1066,7 +1066,8 @@ export default function App() {
                 max="100"
                 value={formData.percentages[token]}
                 onChange={(event) => handleSliderChange(token, Number(event.target.value))}
-                style={{ accentColor: TOKEN_COLOR[token], '--thumb-color': TOKEN_COLOR[token] } as CSSProperties}
+                className={`slider-thumb-${token}`}
+                style={{ accentColor: TOKEN_COLOR[token] }}
               />
             </div>
           ))}

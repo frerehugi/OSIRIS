@@ -304,20 +304,23 @@ h2 {
 .slider-row input {
   width: 100%;
   accent-color: var(--gold);
-  --thumb-color: var(--gold);
 }
 
 /* accent-color allein reicht nicht überall — MiniPays In-App-Browser färbt
-   damit zwar die Track-Füllung, lässt den Thumb aber weiß. Deshalb den Thumb
-   zusätzlich explizit einfärben, Form (Kreis, gleiche Größe wie bisher der
-   native Thumb) bleibt unverändert. */
+   damit zwar die Track-Füllung, lässt den Thumb aber weiß. Ein Fix darüber,
+   den Thumb per CSS-Custom-Property (--thumb-color) einzufärben, hat dort
+   NICHT gegriffen — manche WebKit-Versionen in eingebetteten WebViews geben
+   Custom Properties bekanntermaßen nicht zuverlässig an Pseudo-Elemente wie
+   ::-webkit-slider-thumb weiter. Deshalb hier feste, pro Token einprogram-
+   mierte Klassen statt einer dynamischen Variable — Form (Kreis, Größe)
+   bleibt wie zuvor. */
 .slider-row input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--thumb-color);
+  background: var(--gold);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
@@ -327,10 +330,19 @@ h2 {
   height: 20px;
   border: 0;
   border-radius: 50%;
-  background: var(--thumb-color);
+  background: var(--gold);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
+
+.slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }
+.slider-thumb-wBTC::-moz-range-thumb      { background: #F7931A; }
+.slider-thumb-wETH::-webkit-slider-thumb  { background: #627EEA; }
+.slider-thumb-wETH::-moz-range-thumb      { background: #627EEA; }
+.slider-thumb-CELO::-webkit-slider-thumb  { background: #FCFF52; }
+.slider-thumb-CELO::-moz-range-thumb      { background: #FCFF52; }
+.slider-thumb-XAUoT::-webkit-slider-thumb { background: #C9A84C; }
+.slider-thumb-XAUoT::-moz-range-thumb     { background: #C9A84C; }
 
 .label-row {
   display: flex;
