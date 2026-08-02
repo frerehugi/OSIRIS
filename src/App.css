@@ -301,19 +301,31 @@ h2 {
   gap: 6px;
 }
 
+/* accent-color + ein nur teilweise (appearance:none NUR auf dem Thumb-
+   Pseudo-Element) zurückgesetzter Thumb hat in MiniPays In-App-Browser gar
+   nicht funktioniert — die Track-Füllung wurde zwar korrekt eingefärbt,
+   der Thumb blieb aber weiß, auch mit fest einprogrammierten (nicht mehr
+   dynamischen) Farben pro Token. Das deutet auf eine WebView, die
+   ::-webkit-slider-thumb-Styling generell ignoriert, solange der native
+   Rest des Inputs noch aktiv ist. Deshalb jetzt der komplette manuelle
+   Override: -webkit-appearance:none auf dem GANZEN Input (das ist die
+   deutlich länger/breiter unterstützte Grundfunktion, nicht die feinere
+   Thumb-Pseudo-Element-Einfärbung), Track-Füllung wird per Inline-Style
+   (linear-gradient, siehe App.tsx) nachgebaut, da accent-color dadurch
+   wegfällt. */
 .slider-row input {
   width: 100%;
-  accent-color: var(--gold);
+  height: 4px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12); /* Fallback, wird von App.tsx per Inline-Style überschrieben */
+  outline: none;
+  cursor: pointer;
+  margin: 8px 0;
 }
 
-/* accent-color allein reicht nicht überall — MiniPays In-App-Browser färbt
-   damit zwar die Track-Füllung, lässt den Thumb aber weiß. Ein Fix darüber,
-   den Thumb per CSS-Custom-Property (--thumb-color) einzufärben, hat dort
-   NICHT gegriffen — manche WebKit-Versionen in eingebetteten WebViews geben
-   Custom Properties bekanntermaßen nicht zuverlässig an Pseudo-Elemente wie
-   ::-webkit-slider-thumb weiter. Deshalb hier feste, pro Token einprogram-
-   mierte Klassen statt einer dynamischen Variable — Form (Kreis, Größe)
-   bleibt wie zuvor. */
 .slider-row input::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -323,6 +335,7 @@ h2 {
   background: var(--gold);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  margin-top: -8px; /* (20px Thumb - 4px Track) / 2, damit der Thumb mittig auf dem Track sitzt */
 }
 
 .slider-row input::-moz-range-thumb {
@@ -333,6 +346,12 @@ h2 {
   background: var(--gold);
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.slider-row input::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent; /* Firefox: Füllung kommt ebenfalls über den Inline-Gradient */
 }
 
 .slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }

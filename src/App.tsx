@@ -1067,7 +1067,9 @@ export default function App() {
                 value={formData.percentages[token]}
                 onChange={(event) => handleSliderChange(token, Number(event.target.value))}
                 className={`slider-thumb-${token}`}
-                style={{ accentColor: TOKEN_COLOR[token] }}
+                style={{
+                  background: `linear-gradient(to right, ${TOKEN_COLOR[token]} 0%, ${TOKEN_COLOR[token]} ${formData.percentages[token]}%, rgba(255,255,255,0.12) ${formData.percentages[token]}%, rgba(255,255,255,0.12) 100%)`,
+                }}
               />
             </div>
           ))}
