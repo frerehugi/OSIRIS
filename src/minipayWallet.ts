@@ -393,6 +393,7 @@ async function getSwapLogsChunked(
   vaultAddress: `0x${string}`,
   fromBlock: bigint,
   toBlock: bigint,
+  onBlocksScanned?: (count: bigint) => void,
 ) {
   const allLogs = [];
   let start = fromBlock;
@@ -411,6 +412,7 @@ async function getSwapLogsChunked(
       }), isBlockRangeError);
 
       allLogs.push(...logs);
+      onBlocksScanned?.(end - start + 1n);
       start = end + 1n;
       // Nach einem Erfolg vorsichtig wieder vergrößern (z.B. falls zuvor ein
       // strengerer Fallback-Knoten dran war, jetzt aber wieder forno
@@ -500,8 +502,15 @@ function savePurchasesCache(vaultAddress: `0x${string}`, cache: PurchasesCache):
   }
 }
 
-export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise<PurchaseEvent[]> {
-  if (vaultAddresses.length === 0) return [];
+// onProgress meldet 0..1 über den gesamten Ladevorgang: 0-0.9 für den
+// eth_getLogs-Scan (der dominante Kostenfaktor, siehe getSwapLogsChunked),
+// 0.9-1.0 fürs Nachladen der Block-Timestamps. Rein additiv/optional — ohne
+// Callback verhält sich die Funktion exakt wie zuvor.
+export async function getUserPurchases(
+  vaultAddresses: `0x${string}`[],
+  onProgress?: (fraction: number) => void,
+): Promise<PurchaseEvent[]> {
+  if (vaultAddresses.length === 0) { onProgress?.(1); return []; }
   const { publicClient } = getClients();
 
   const [deployBlock, latestBlock] = await Promise.all([
@@ -509,14 +518,34 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
     withRetry(() => publicClient.getBlockNumber()),
   ]);
 
-  const perVault = await runInBatches(vaultAddresses, RPC_BATCH_SIZE, async (vaultAddress) => {
+  // Scan-Umfang pro Vault vorab (synchron, aus dem Cache) ermitteln, damit
+  // der Fortschritt über alle Vaults hinweg aggregiert werden kann, statt
+  // pro Vault bei 0 % neu anzufangen (loadPurchasesCache ist reiner
+  // localStorage-Zugriff, kein RPC-Call, daher hier ohne await möglich).
+  const scanPlans = vaultAddresses.map((vaultAddress) => {
     const cached = loadPurchasesCache(vaultAddress);
     const cachedLastBlock = cached ? BigInt(cached.lastScannedBlock) : null;
     const scanFrom = cachedLastBlock !== null ? cachedLastBlock + 1n : deployBlock;
+    const blocksToScan = scanFrom <= latestBlock ? latestBlock - scanFrom + 1n : 0n;
+    return { vaultAddress, cached, scanFrom, blocksToScan };
+  });
+  const totalBlocksToScan = scanPlans.reduce((sum, p) => sum + p.blocksToScan, 0n);
+  let blocksScannedSoFar = 0n;
 
+  function reportScanProgress() {
+    if (!onProgress) return;
+    const fraction = totalBlocksToScan > 0n ? Number(blocksScannedSoFar) / Number(totalBlocksToScan) : 1;
+    onProgress(Math.min(fraction, 1) * 0.9);
+  }
+  reportScanProgress();
+
+  const perVault = await runInBatches(scanPlans, RPC_BATCH_SIZE, async ({ vaultAddress, cached, scanFrom }) => {
     const [newLogs, inputTokenSymbol] = await Promise.all([
       scanFrom <= latestBlock
-        ? getSwapLogsChunked(publicClient, vaultAddress, scanFrom, latestBlock)
+        ? getSwapLogsChunked(publicClient, vaultAddress, scanFrom, latestBlock, (count) => {
+            blocksScannedSoFar += count;
+            reportScanProgress();
+          })
         : Promise.resolve([]),
       cached
         ? Promise.resolve(cached.inputTokenSymbol)
@@ -547,6 +576,8 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
     return { vaultAddress, inputTokenSymbol, entries: merged };
   });
 
+  onProgress?.(0.9); // Scan-Phase fertig, egal ob es überhaupt etwas zu scannen gab
+
   // Block-Timestamps nachladen — nur für Events, die noch keinen haben (neu
   // gescannte). Ein getBlock() pro einzigartigem Block, nicht pro Event
   // (mehrere Swaps eines Schritts landen im selben Block). Gebatcht statt
@@ -558,8 +589,16 @@ export async function getUserPurchases(vaultAddresses: `0x${string}`[]): Promise
     }
   }
   const uniqueBlocks = [...blocksNeeded];
-  const blocks = await runInBatches(uniqueBlocks, RPC_BATCH_SIZE, (bn) => withRetry(() => publicClient.getBlock({ blockNumber: bn })));
+  let blocksResolved = 0;
+  const blocks = await runInBatches(uniqueBlocks, RPC_BATCH_SIZE, async (bn) => {
+    const block = await withRetry(() => publicClient.getBlock({ blockNumber: bn }));
+    blocksResolved += 1;
+    onProgress?.(uniqueBlocks.length > 0 ? 0.9 + (blocksResolved / uniqueBlocks.length) * 0.1 : 1);
+    return block;
+  });
   const timestampByBlock = new Map(uniqueBlocks.map((bn, i) => [bn.toString(), Number(blocks[i].timestamp)]));
+
+  onProgress?.(1);
 
   const result: PurchaseEvent[] = [];
   for (const { vaultAddress, inputTokenSymbol, entries } of perVault) {

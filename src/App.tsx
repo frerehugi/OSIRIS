@@ -446,6 +446,7 @@ export default function App() {
 
   const [purchases, setPurchases]       = useState<PurchaseEvent[] | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [purchasesProgress, setPurchasesProgress] = useState(0); // 0..1
   const [purchasesError, setPurchasesError]     = useState<string | null>(null);
   const [selectedToken, setSelectedToken]       = useState<TokenType | null>(null);
 
@@ -592,10 +593,11 @@ export default function App() {
     setSelectedToken(null);
     setView('purchases');
     setPurchasesError(null);
+    setPurchasesProgress(0);
     setPurchasesLoading(true);
     try {
       const vaultAddresses = existingVaults.map((v) => v.address);
-      const events = await getUserPurchases(vaultAddresses);
+      const events = await getUserPurchases(vaultAddresses, setPurchasesProgress);
       setPurchases(events);
     } catch (error) {
       console.error('Loading purchases failed', error);
@@ -896,7 +898,17 @@ export default function App() {
       <Card>
         <section className="stack">
           <h2>💰 My Purchases</h2>
-          {purchasesLoading && <p className="muted">⏳ Loading your purchase history...</p>}
+          {purchasesLoading && (
+            <div className="progress-block">
+              <div className="progress-label">
+                <span className="muted">⏳ Loading your purchase history...</span>
+                <b>{Math.round(purchasesProgress * 100)}%</b>
+              </div>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${Math.round(purchasesProgress * 100)}%` }} />
+              </div>
+            </div>
+          )}
           {purchasesError && <p className="error">{purchasesError}</p>}
           {!purchasesLoading && !purchasesError && purchases && (
             <>
