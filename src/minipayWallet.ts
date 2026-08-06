@@ -51,6 +51,28 @@ export function getClients() {
   return { walletClient, publicClient };
 }
 
+// Manche Wallets lassen requestAddresses()/getChainId() nach einem manuellen
+// "Disconnect" in der Wallet-UI selbst einfach unbegrenzt hängen (weder
+// Erfolg noch Fehler) — beobachtet nach Disconnect+Neuöffnen in MiniPay. Da
+// die App laut Vorgabe automatisch verbindet und OHNE manuellen Connect-
+// Button auskommen muss, würde das sonst zu einem für den Nutzer nicht mehr
+// verlassbaren, leeren Bildschirm führen. Timeout sorgt dafür, dass immer
+// spätestens nach CONNECT_TIMEOUT_MS ein Fehler (+ Retry-Möglichkeit in der
+// UI) auftaucht, egal was der Provider tatsächlich tut.
+const CONNECT_TIMEOUT_MS = 15_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(new Error(timeoutMessage), { name: "TimeoutError" }));
+    }, ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export async function connectWallet(): Promise<`0x${string}`> {
   const { walletClient } = getClients();
   // requestAddresses() -> eth_requestAccounts: löst den Connect-Dialog der
@@ -63,7 +85,11 @@ export async function connectWallet(): Promise<`0x${string}`> {
   // describeConnectionError() nach Code/Name auswerten, nicht nach Message-Text.
   let address: `0x${string}` | undefined;
   try {
-    [address] = await walletClient.requestAddresses();
+    [address] = await withTimeout(
+      walletClient.requestAddresses(),
+      CONNECT_TIMEOUT_MS,
+      "Connection timed out. Please try again."
+    );
   } catch (error) {
     throw new Error(describeConnectionError(error));
   }
@@ -74,7 +100,16 @@ export async function connectWallet(): Promise<`0x${string}`> {
   // nicht), die App darf es also nicht versuchen. Stattdessen nur erkennen und
   // klar kommunizieren, falls eine andere Wallet (z.B. MetaMask) auf einer
   // fremden Chain hängt.
-  const chainId = await walletClient.getChainId();
+  let chainId: number;
+  try {
+    chainId = await withTimeout(
+      walletClient.getChainId(),
+      CONNECT_TIMEOUT_MS,
+      "Connection timed out. Please try again."
+    );
+  } catch (error) {
+    throw new Error(describeConnectionError(error));
+  }
   if (chainId !== Number(CELO_CHAIN_ID)) {
     throw new Error(
       `Wrong network detected. Please switch to Celo (Chain ID ${CELO_CHAIN_ID}) in your wallet, then reopen the app.`
@@ -95,6 +130,11 @@ interface ProviderLikeError {
 
 function describeConnectionError(error: unknown): string {
   const providerError = error as ProviderLikeError;
+  // Eigener Timeout-Fehler (siehe withTimeout) — Message unverändert
+  // durchreichen statt auf die generische Fallback-Meldung zu mappen.
+  if (providerError?.name === "TimeoutError") {
+    return error instanceof Error ? error.message : "Connection timed out. Please try again.";
+  }
   if (providerError?.code === -32604 || providerError?.name === "UserRejectedRequestError") {
     return "Connection was cancelled.";
   }
