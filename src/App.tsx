@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatUnits } from 'viem';
 import {
   connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
-  runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
+  runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol, getAddCashDeeplink,
   type SubmitDcaPlanPhase, type PurchaseEvent,
 } from './minipayWallet';
 import { TARGET_TOKENS, INTERVAL_SECONDS } from './config';
@@ -56,7 +56,7 @@ interface VaultSummary {
   assets:           VaultAsset[];
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about';
+type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about' | 'terms' | 'privacy';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -373,7 +373,7 @@ function PlanCard({ vault, extra }: { vault: VaultSummary; extra?: ReactNode }) 
       <div className="plan-vault">
         <span className="vault-address">
           🔗{' '}
-          <a href={`https://celoscan.io/address/${vault.address}`} target="_blank" rel="noreferrer">
+          <a href={`https://celoscan.io/address/${vault.address}`} rel="noreferrer">
             {vault.address.slice(0, 6)}…{vault.address.slice(-4)} ↗
           </a>
         </span>
@@ -648,6 +648,17 @@ export default function App() {
     }
   };
 
+  // MiniPay-Vorgabe: Verbindung passiert automatisch beim Laden, nie über
+  // einen manuellen "Connect Wallet"-Button. Der Ref-Guard verhindert einen
+  // doppelten Connect-Dialog durch Reacts StrictMode-Doppelaufruf in Dev.
+  const autoConnectStarted = useRef(false);
+  useEffect(() => {
+    if (autoConnectStarted.current) return;
+    autoConnectStarted.current = true;
+    void handleConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const startNewPlan = () => {
     setSubmitError(null);
     setNewVaultAddress(null);
@@ -700,11 +711,15 @@ export default function App() {
           <img src="./banner.jpg" alt="OSIRIS" className="banner" />
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
-          <p className="muted">Connect your wallet to view your plans or start a new one.</p>
-          {vaultsError && <p className="error">{vaultsError}</p>}
-          <Button onClick={handleConnect} disabled={vaultsLoading}>
-            {vaultsLoading ? '⏳ Connecting...' : '👛 Connect Wallet'}
-          </Button>
+          {/* Verbindung passiert automatisch (siehe autoConnectStarted-Effekt oben) —
+              kein Connect-Button, keine "Connecting..."-Anzeige. Nur ein Fehler samt
+              Retry, falls die automatische Verbindung fehlschlägt. */}
+          {vaultsError && (
+            <>
+              <p className="error">{vaultsError}</p>
+              <Button onClick={handleConnect} disabled={vaultsLoading}>Try again</Button>
+            </>
+          )}
           <Button variant="secondary" onClick={() => setView('about')}>ℹ️ About OSIRIS</Button>
         </section>
       </Card>
@@ -745,7 +760,7 @@ export default function App() {
           <div className="summary">
             <p><strong>💰 Fees</strong></p>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              0.99% per execution, minimum $0.02 — whichever is higher. No hidden costs,
+              0.99% per execution, minimum $0.035 — whichever is higher. No hidden costs,
               no subscription.
             </p>
           </div>
@@ -759,7 +774,6 @@ export default function App() {
 
           <a
             href="https://celoscan.io/address/0xba148255d757912442A97f87c50DD2F65FBab7E0"
-            target="_blank"
             rel="noreferrer"
             className="muted"
             style={{ fontSize: '0.85rem' }}
@@ -767,7 +781,119 @@ export default function App() {
             View verified contract on Celoscan ↗
           </a>
 
+          <a href="https://osirisapp.xyz" rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
+            Learn more at osirisapp.xyz ↗
+          </a>
+
+          <a href="https://t.me/osirisapp" rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
+            Support &amp; updates on Telegram ↗
+          </a>
+
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('terms')}>Terms</Button>
+            <Button variant="secondary" onClick={() => setView('privacy')}>Privacy</Button>
+          </div>
+
           <Button variant="secondary" onClick={() => setView('connect')}>← Back</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Terms and Conditions ───────────────────────────────────────────
+
+  if (view === 'terms') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>📄 Terms and Conditions</h2>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>Last updated: August 2026</p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            OSIRIS is an independent, non-commercial passion project built by Schmitz &amp;
+            Hugenberg to explore and experiment with the Web3 ecosystem. It is not a
+            regulated financial product, and nothing in this app constitutes financial,
+            investment, tax, or legal advice.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>No warranty.</strong> OSIRIS, its smart contracts, its keeper
+            infrastructure, and this app are provided strictly "as is" and "as available",
+            without any warranty of any kind, express or implied — including, without
+            limitation, warranties of merchantability, fitness for a particular purpose,
+            non-infringement, availability, accuracy, or that the software is free of
+            errors, bugs, or vulnerabilities. Schmitz &amp; Hugenberg make no guarantee
+            that OSIRIS will function correctly, continuously, or at all.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>Use at your own risk.</strong> You use OSIRIS entirely at your own
+            risk and exclusively with your own funds. Smart contracts and blockchain
+            infrastructure can fail, be exploited, or behave unexpectedly; token prices
+            are volatile and can lose most or all of their value. You are solely
+            responsible for evaluating whether to use OSIRIS and for any funds you commit
+            to it. Never invest more than you can afford to lose entirely.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>No liability.</strong> To the fullest extent permitted by law, Schmitz
+            &amp; Hugenberg, its contributors, and anyone associated with OSIRIS accept no
+            liability whatsoever for any direct, indirect, incidental, or consequential
+            loss or damage — including loss of funds, tokens, or data — arising from your
+            use of, or inability to use, OSIRIS, whether caused by a smart contract bug,
+            a third-party service (including the Squid Router and any DEX it routes
+            through), network/RPC failures, wallet software, or any other cause.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>Non-custodial.</strong> OSIRIS never takes custody of your funds. Each
+            vault is your own smart contract; only you can cancel a plan and withdraw. This
+            does not eliminate smart-contract or market risk — see above.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>No support obligation.</strong> Support is offered on a best-effort
+            basis via Telegram (t.me/osirisapp) and is not guaranteed. These terms may
+            change at any time without prior notice; continued use of OSIRIS after a
+            change constitutes acceptance of the updated terms.
+          </p>
+          <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Privacy Policy ─────────────────────────────────────────────────
+
+  if (view === 'privacy') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>🔒 Privacy Policy</h2>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>Last updated: August 2026</p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            OSIRIS is a non-commercial passion project by Schmitz &amp; Hugenberg. This
+            app does not run its own backend server, does not use analytics or tracking
+            scripts, and does not ask for or store any personal information (name, email,
+            phone number, etc.) — MiniPay/Trust Wallet identify you to OSIRIS only by your
+            public wallet address.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>On-chain data.</strong> Your wallet address, transactions, and vault
+            activity are recorded on the public Celo blockchain by design — that is how
+            any blockchain works, and it is outside OSIRIS's control. Anyone can view this
+            public on-chain data (e.g. via Celoscan), independent of this app.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>Local storage.</strong> This app stores a small cache of already-seen
+            purchase history on your own device (browser/WebView local storage), purely to
+            speed up loading. It never leaves your device and is not accessible to us.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>Third parties.</strong> To function, OSIRIS talks directly from your
+            device to: public Celo RPC nodes (to read/write blockchain data) and the Squid
+            Router API (to find swap routes). These services may see your wallet address
+            and IP address as part of normal network requests; OSIRIS does not control
+            their own data handling — see their respective policies.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            Questions about this policy: t.me/osirisapp.
+          </p>
+          <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
         </section>
       </Card>
     );
@@ -879,7 +1005,6 @@ export default function App() {
                 </p>
                 <a
                   href={`https://celoscan.io/tx/${row.txHash}`}
-                  target="_blank"
                   rel="noreferrer"
                   style={{ fontSize: '0.8rem' }}
                 >
@@ -954,7 +1079,6 @@ export default function App() {
           </p>
           <a
             href={`https://celoscan.io/address/${newVaultAddress}`}
-            target="_blank"
             rel="noreferrer"
             className="muted"
           >
@@ -1187,7 +1311,17 @@ export default function App() {
           <p className="muted" style={{ fontSize: '0.8rem' }}>
             Confirming requires 3 wallet transactions: creating your vault, approving USDC, and starting the plan.
           </p>
-          {submitError && <p className="error">{submitError}</p>}
+          {submitError && (
+            <>
+              <p className="error">{submitError}</p>
+              {/* Häufigste Ursache für einen fehlgeschlagenen Approve/Transfer ist zu
+                  wenig Guthaben — MiniPay-Vorgabe: dafür den offiziellen Add-Cash-
+                  Deeplink anbieten statt einer eigenen Lösung. */}
+              <a href={getAddCashDeeplink()} rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
+                Need more funds? Add cash via MiniPay ↗
+              </a>
+            </>
+          )}
           <div className="button-row">
             <Button variant="danger" onClick={resetForm} disabled={isSubmitting}>✗ Decline</Button>
             <Button variant="success" onClick={handleContractDeployment} disabled={isSubmitting}>

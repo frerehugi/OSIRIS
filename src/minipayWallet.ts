@@ -15,6 +15,7 @@ import {
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
+  CELO_CHAIN_ID,
 } from "./config";
 import type { DcaPlanState, Interval } from "./types";
 
@@ -57,13 +58,64 @@ export async function connectWallet(): Promise<`0x${string}`> {
   // nie autorisiert wurde, still ein leeres Array liefern, OHNE irgendeinen
   // Dialog zu zeigen — das sah wie eine abgelehnte Verbindung aus, obwohl nie
   // gefragt wurde.
-  const [address] = await walletClient.requestAddresses();
-  if (!address) throw new Error("Wallet connection rejected or failed.");
+  // Eine echte Ablehnung durch die Wallet wirft üblicherweise (statt ein
+  // leeres Array zurückzugeben) — deshalb hier abfangen und über
+  // describeConnectionError() nach Code/Name auswerten, nicht nach Message-Text.
+  let address: `0x${string}` | undefined;
+  try {
+    [address] = await walletClient.requestAddresses();
+  } catch (error) {
+    throw new Error(describeConnectionError(error));
+  }
+  if (!address) throw new Error("Wallet connection failed.");
+
+  // MiniPay unterstützt ausschließlich Celo (Mainnet/Sepolia) — programmatisches
+  // Chain-Switching ist dort nicht möglich (wagmis useSwitchChain funktioniert
+  // nicht), die App darf es also nicht versuchen. Stattdessen nur erkennen und
+  // klar kommunizieren, falls eine andere Wallet (z.B. MetaMask) auf einer
+  // fremden Chain hängt.
+  const chainId = await walletClient.getChainId();
+  if (chainId !== Number(CELO_CHAIN_ID)) {
+    throw new Error(
+      `Wrong network detected. Please switch to Celo (Chain ID ${CELO_CHAIN_ID}) in your wallet, then reopen the app.`
+    );
+  }
+
   return address;
 }
 
+// Provider-Fehler nach Code/Name statt Message-Text unterscheiden — Wallets
+// ändern Fehlermeldungstexte gelegentlich, Codes/Namen sind stabiler.
+// Deckt sowohl viem-eigene Fehlernamen als auch rohe JSON-RPC-Fehlercodes ab
+// (MiniPay nutzt die Standard-Codes, -32604 = "Permission denied"/Ablehnung).
+interface ProviderLikeError {
+  code?: number;
+  name?: string;
+}
+
+function describeConnectionError(error: unknown): string {
+  const providerError = error as ProviderLikeError;
+  if (providerError?.code === -32604 || providerError?.name === "UserRejectedRequestError") {
+    return "Connection was cancelled.";
+  }
+  return "Wallet connection failed.";
+}
+
 function describeError(error: unknown): string {
+  const providerError = error as ProviderLikeError;
+  if (providerError?.code === -32604 || providerError?.name === "UserRejectedRequestError") {
+    return "Transaction was cancelled.";
+  }
   return error instanceof Error ? error.message : String(error);
+}
+
+// ─── MiniPay-Deeplinks ────────────────────────────────────────────────────────
+//
+// link.minipay.xyz ignoriert die App, falls MiniPay nicht installiert/eingeloggt
+// ist (führt dann zur Installation) — kein Fallback auf unserer Seite nötig.
+
+export function getAddCashDeeplink(tokens: readonly string[] = ["USDC", "USDT"]): string {
+  return `https://link.minipay.xyz/add_cash?tokens=${tokens.join(",")}`;
 }
 
 // ─── RPC-Zuverlässigkeit ──────────────────────────────────────────────────────
