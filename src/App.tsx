@@ -708,18 +708,30 @@ export default function App() {
     return (
       <Card>
         <section className="stack center">
-          <img src="./banner.jpg" alt="OSIRIS" className="banner" />
+          {/* Verbindung passiert automatisch (siehe autoConnectStarted-Effekt oben) —
+              kein sichtbarer "Connect Wallet"-Button. Das Banner selbst ist trotzdem
+              antippbar und löst denselben Connect-Versuch erneut aus: manche WebViews
+              blockieren eth_requestAccounts stillschweigend, wenn es nicht durch eine
+              echte Nutzer-Geste (Tap/Click) ausgelöst wurde, nicht durch einen
+              automatischen Aufruf beim Laden — ohne diesen Ausweg bliebe die Seite in
+              dem Fall dauerhaft hängen. Kein sichtbarer Hinweis nötig: Auf ein
+              scheinbar hängendes Bild zu tippen ist die natürliche Reaktion. */}
+          <img
+            src="./banner.jpg"
+            alt="OSIRIS"
+            className="banner"
+            role="button"
+            tabIndex={0}
+            aria-label="Reconnect"
+            style={{ cursor: 'pointer' }}
+            onClick={() => { if (!vaultsLoading) void handleConnect(); }}
+            onKeyDown={(event) => {
+              if ((event.key === 'Enter' || event.key === ' ') && !vaultsLoading) handleConnect();
+            }}
+          />
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
-          {/* Verbindung passiert automatisch (siehe autoConnectStarted-Effekt oben) —
-              kein Connect-Button, keine "Connecting..."-Anzeige. Nur ein Fehler samt
-              Retry, falls die automatische Verbindung fehlschlägt. */}
-          {vaultsError && (
-            <>
-              <p className="error">{vaultsError}</p>
-              <Button onClick={handleConnect} disabled={vaultsLoading}>Try again</Button>
-            </>
-          )}
+          {vaultsError && <p className="error">{vaultsError}</p>}
           <Button variant="secondary" onClick={() => setView('about')}>ℹ️ About OSIRIS</Button>
         </section>
       </Card>
