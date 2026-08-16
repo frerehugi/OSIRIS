@@ -538,7 +538,13 @@ export default function App() {
 
   // ── Wallet verbinden + eigene Vaults laden ────────────────────────────────
 
-  const loadVaults = async (address: `0x${string}`) => {
+  // Gibt den "natürlichen" Ziel-View zurück, statt ihn selbst zu setzen —
+  // loadVaults läuft asynchron im Hintergrund (RPC-Batches, ~2s), und ein
+  // Aufrufer wie handleConnect kann inzwischen längst nicht mehr an der
+  // Stelle sein, an der der Nutzer noch auf das Ergebnis wartet (z.B. wenn
+  // er zwischenzeitlich manuell zu "About" navigiert hat). Der Aufrufer
+  // entscheidet daher selbst, ob/wann der zurückgegebene View angewendet wird.
+  const loadVaults = async (address: `0x${string}`): Promise<'vaultList' | 'wizard'> => {
     setVaultsLoading(true);
     setVaultsError(null);
     try {
@@ -573,11 +579,11 @@ export default function App() {
       });
       setExistingVaults(summaries);
       const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
-      setView(visibleCount > 0 ? 'vaultList' : 'wizard');
+      return visibleCount > 0 ? 'vaultList' : 'wizard';
     } catch (error) {
       console.error('Loading existing vaults failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Could not load your vaults.');
-      setView('wizard'); // Nutzer trotzdem nicht blockieren
+      return 'wizard'; // Nutzer trotzdem nicht blockieren
     } finally {
       setVaultsLoading(false);
     }
@@ -627,7 +633,7 @@ export default function App() {
     try {
       await cancelDcaPlan(vaultAddress, walletAddress);
       recordCancelledAt(vaultAddress);
-      await loadVaults(walletAddress);
+      setView(await loadVaults(walletAddress));
     } catch (error) {
       console.error('Cancel failed', error);
       setCancelError(error instanceof Error ? error.message : 'Cancel failed. Please try again.');
@@ -641,7 +647,11 @@ export default function App() {
     try {
       const address = await connectWallet();
       setWalletAddress(address);
-      await loadVaults(address);
+      const nextView = await loadVaults(address);
+      // Nur übernehmen, wenn der Nutzer währenddessen nicht selbst schon
+      // woanders hin navigiert hat (z.B. zu "About") — sonst würde das hier
+      // die manuelle Navigation nach ein paar Sekunden Ladezeit überschreiben.
+      setView((prev) => (prev === 'connect' ? nextView : prev));
     } catch (error) {
       console.error('Wallet connection failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Wallet connection failed.');
@@ -673,7 +683,7 @@ export default function App() {
     setNewVaultAddress(null);
     setFormData(createInitialFormState());
     if (walletAddress) {
-      void loadVaults(walletAddress);
+      void loadVaults(walletAddress).then(setView);
     } else {
       setView('connect');
     }
