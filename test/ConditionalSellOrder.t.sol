@@ -295,8 +295,12 @@ contract ConditionalSellOrderTest is Test {
 
     function test_execute_revertsOnZeroBalance() public {
         _approve();
+        // Balance VOR dem prank auslesen: wbtc.balanceOf(owner) als Argument-
+        // Ausdruck wäre selbst ein Call und würde den geprankten msg.sender
+        // schon verbrauchen, bevor transfer() drankommt.
+        uint256 ownerBalance = wbtc.balanceOf(owner);
         vm.prank(owner);
-        wbtc.transfer(hacker, wbtc.balanceOf(owner)); // Bestand auf 0 leeren
+        wbtc.transfer(hacker, ownerBalance); // Bestand auf 0 leeren
         uint256 orderId = _createOrder(5000, 1);
         vm.prank(owner);
         vm.expectRevert(ConditionalSellOrder.NothingToSell.selector);
