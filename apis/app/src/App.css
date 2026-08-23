@@ -1,0 +1,228 @@
+/* Apis — App-Styling. Eigenständig von OSIRIS' App.css (andere Farbwelt,
+   andere Komponenten) — bewusst keine gemeinsame Basis, um Kopplung zu
+   vermeiden. Mobile-only laut MiniPay-Referenz Abschnitt 13: Viewport-Minimum
+   360×640px, Single-Column, keine horizontale Scrollbar, Touch-Targets
+   ≥44×44px, Text ≥16px. */
+
+:root {
+  --void:       #0a0b09;
+  --apis-bg:    #111710;
+  --apis-card:  #1a231b;
+  --apis-card-2: #212c22;
+  --apis-border: rgba(201, 162, 75, 0.22);
+  --gold:        #c9a24b;
+  --gold-bright: #e9cd84;
+  --ink:         #efe8d8;
+  --ink-dim:     #a6ab9c;
+  --ink-faint:   #6c7266;
+  --warn:        #d98a4f;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  min-width: 360px;
+}
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--apis-bg);
+}
+
+/* ── Landing ─────────────────────────────────────────────────────────── */
+
+.screen--landing {
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 30px;
+  text-align: center;
+}
+
+.landing-mark {
+  width: 96px;
+  height: 96px;
+  border-radius: 26px;
+  border: 1px solid var(--apis-border);
+  background: linear-gradient(160deg, var(--apis-card-2), var(--apis-card));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.landing-mark__glyph {
+  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+  font-weight: 700;
+  font-size: 40px;
+  color: var(--gold-bright);
+}
+
+.landing-word {
+  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+  margin: 0;
+}
+
+.landing-tagline {
+  font-size: 14px;
+  color: var(--ink-dim);
+  max-width: 22ch;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.landing-error {
+  font-size: 14px;
+  color: var(--warn);
+  max-width: 28ch;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.landing-foot {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin: 34px 0 0;
+}
+
+/* ── Home ────────────────────────────────────────────────────────────── */
+
+.home-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 20px 8px;
+}
+
+.home-head__mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  border: 1px solid var(--apis-border);
+  background: linear-gradient(160deg, var(--apis-card-2), var(--apis-card));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--gold-bright);
+}
+
+.home-head__word {
+  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 18px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--apis-border);
+  background: var(--apis-card);
+  text-align: left;
+}
+
+.menu-item__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.menu-item__title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.menu-item__sub {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.menu-item__chev {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: 20px;
+}
+
+/* ── Sub-Screens (About/Plans/Holdings/Create Code — Platzhalter) ──────── */
+
+.app-bar {
+  display: flex;
+  align-items: center;
+  padding: 18px 18px 10px;
+}
+
+.app-bar__back {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--apis-card);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.app-bar__title {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.app-bar__spacer {
+  width: 44px;
+}
+
+.coming-soon {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 30px;
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 16px;
+}

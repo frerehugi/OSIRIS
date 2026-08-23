@@ -1,0 +1,39 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useConnection } from 'wagmi';
+import Landing from './screens/Landing';
+import Home from './screens/Home';
+import ComingSoon from './screens/ComingSoon';
+
+/// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
+/// zu Landing, wo der Auto-Connect (bzw. der Tap-to-Reconnect) greift.
+function RequireConnection({ children }: { children: React.ReactNode }) {
+  const { isConnected } = useConnection();
+  if (!isConnected) return <Navigate to="/" replace />;
+  return children;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/home" element={<RequireConnection><Home /></RequireConnection>} />
+      <Route
+        path="/create-code"
+        element={<RequireConnection><ComingSoon title="Create New Code for Agent" /></RequireConnection>}
+      />
+      <Route
+        path="/plans"
+        element={<RequireConnection><ComingSoon title="My Plans" /></RequireConnection>}
+      />
+      <Route
+        path="/holdings"
+        element={<RequireConnection><ComingSoon title="My Holdings" /></RequireConnection>}
+      />
+      <Route
+        path="/about"
+        element={<RequireConnection><ComingSoon title="About Apis" /></RequireConnection>}
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
