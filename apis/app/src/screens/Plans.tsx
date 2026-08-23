@@ -6,6 +6,8 @@ import {
   getUserVaults, readPlanStatus, cancelDcaPlan, runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
 } from '../../../../src/minipayWallet';
 import { TARGET_TOKENS } from '../config';
+import { TOKEN_COLOR, type AnyTokenSymbol } from '../tokenVisuals';
+import TokenIcon from '../components/TokenIcon';
 
 /// My Plans liest dieselben, unveränderten OSIRIS-Vaults wie osirisapp.xyz
 /// selbst — Apis hat keine eigene Vault-Factory, sie nutzt ausschließlich
@@ -154,11 +156,24 @@ export default function Plans() {
                 </div>
 
                 {plan.assets.length > 0 && (
-                  <div className="plan-card__assets">
-                    {plan.assets.map((asset) => (
-                      <span key={asset.symbol} className="tag tag--buy">{(asset.bps / 100).toFixed(0)}% {asset.symbol}</span>
-                    ))}
-                  </div>
+                  <>
+                    <div className="plan-card__assets-bar">
+                      {plan.assets.map((asset) => (
+                        <span
+                          key={asset.symbol}
+                          style={{ width: `${asset.bps / 100}%`, background: TOKEN_COLOR[asset.symbol as AnyTokenSymbol] }}
+                        />
+                      ))}
+                    </div>
+                    <div className="plan-card__assets">
+                      {plan.assets.map((asset) => (
+                        <span key={asset.symbol} className="tag">
+                          <TokenIcon token={asset.symbol as AnyTokenSymbol} size={15} />
+                          {(asset.bps / 100).toFixed(0)}% {asset.symbol}
+                        </span>
+                      ))}
+                    </div>
+                  </>
                 )}
               </>
             )}

@@ -1,21 +1,27 @@
-/* Apis — App-Styling. Eigenständig von OSIRIS' App.css (andere Farbwelt,
-   andere Komponenten) — bewusst keine gemeinsame Basis, um Kopplung zu
-   vermeiden. Mobile-only laut MiniPay-Referenz Abschnitt 13: Viewport-Minimum
-   360×640px, Single-Column, keine horizontale Scrollbar, Touch-Targets
-   ≥44×44px, Text ≥16px. */
+/* Apis — App-Styling. Bewusst 1:1 an OSIRIS' echtes src/App.css angeglichen
+   (gleiche CSS-Variablen, gleiche Radial-Gradients, gleiche Pill-Buttons/
+   -Toggles, gleiche Token-Farben/-Icons, gleicher Slider-Override) — Apis
+   soll als Bruder von OSIRIS erkennbar sein, siehe Chat. Eigene Datei (kein
+   Import aus src/App.css) bleibt bestehen, weil apis/app ein komplett
+   isoliertes Package ist (siehe Gesamtplan §22) — nur die Werte sind jetzt
+   dieselben, nicht die Datei. Mobile-only laut MiniPay-Referenz Abschnitt 13:
+   Viewport-Minimum 360×640px, Single-Column, keine horizontale Scrollbar,
+   Touch-Targets ≥44×44px, Text ≥16px. */
 
 :root {
-  --void:       #0a0b09;
-  --apis-bg:    #111710;
-  --apis-card:  #1a231b;
-  --apis-card-2: #212c22;
-  --apis-border: rgba(201, 162, 75, 0.22);
-  --gold:        #c9a24b;
-  --gold-bright: #e9cd84;
-  --ink:         #efe8d8;
-  --ink-dim:     #a6ab9c;
-  --ink-faint:   #6c7266;
-  --warn:        #d98a4f;
+  --gold:        #C9A84C;
+  --gold-light:  #E8C96A;
+  --gold-dim:    rgba(201, 168, 76, 0.15);
+  --dark:        #05070c;
+  --dark2:       #0a1628;
+  --text:        rgba(255, 255, 255, 0.92);
+  --text-muted:  rgba(255, 255, 255, 0.5);
+  --text-faint:  rgba(255, 255, 255, 0.32);
+  --border:      rgba(255, 255, 255, 0.09);
+  --border-gold: rgba(201, 168, 76, 0.25);
+  --card:        rgba(255, 255, 255, 0.045);
+  --success:     #6ee7b7;
+  --danger:      #f87171;
   color-scheme: dark;
 }
 
@@ -28,9 +34,8 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: var(--void);
-  color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -46,7 +51,10 @@ button {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--apis-bg);
+  background:
+    radial-gradient(ellipse 90% 55% at 15% -5%, rgba(98, 126, 234, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 45% at 100% 15%, rgba(201, 168, 76, 0.14) 0%, transparent 55%),
+    var(--dark);
 }
 
 /* ── Landing ─────────────────────────────────────────────────────────── */
@@ -54,51 +62,46 @@ button {
 .screen--landing {
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 14px;
   padding: 24px 30px;
   text-align: center;
 }
 
-.landing-mark {
-  width: 96px;
-  height: 96px;
-  border-radius: 26px;
-  border: 1px solid var(--apis-border);
-  background: linear-gradient(160deg, var(--apis-card-2), var(--apis-card));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.landing-banner-btn {
+  background: none;
+  border: none;
   padding: 0;
+  display: block;
 }
 
-.landing-mark__glyph {
-  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
-  font-weight: 700;
-  font-size: 40px;
-  color: var(--gold-bright);
+/* Gleiche Behandlung wie OSIRIS' .banner (img { width:100%; border-radius:16px;
+   display:block }, siehe src/App.css/App.tsx) — hier zusätzlich mit einer
+   max-width, weil Apis' Banner-Bild (anders als OSIRIS' Karten-interne
+   Nutzung) direkt auf dem Screen sitzt statt in einer schmaleren .card. */
+.landing-banner {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  border-radius: 16px;
+  display: block;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 
-.landing-word {
-  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--gold-bright);
-  margin: 0;
+.landing-banner + h1 {
+  margin: 4px 0 0;
 }
 
 .landing-tagline {
   font-size: 14px;
-  color: var(--ink-dim);
-  max-width: 22ch;
+  color: var(--text-muted);
+  max-width: 24ch;
   line-height: 1.5;
   margin: 0;
 }
 
 .landing-error {
   font-size: 14px;
-  color: var(--warn);
+  color: var(--danger);
   max-width: 28ch;
   line-height: 1.5;
   margin: 0;
@@ -106,8 +109,8 @@ button {
 
 .landing-foot {
   font-size: 12px;
-  color: var(--ink-faint);
-  margin: 34px 0 0;
+  color: var(--text-faint);
+  margin: 30px 0 0;
 }
 
 /* ── Home ────────────────────────────────────────────────────────────── */
@@ -116,32 +119,25 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 30px 20px 8px;
+  gap: 8px;
+  padding: 26px 20px 8px;
 }
 
 .home-head__mark {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  border: 1px solid var(--apis-border);
-  background: linear-gradient(160deg, var(--apis-card-2), var(--apis-card));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
-  font-weight: 700;
-  font-size: 22px;
-  color: var(--gold-bright);
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: block;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
 }
 
+/* Wie OSIRIS' .eyebrow (siehe src/App.css). */
 .home-head__word {
-  font-family: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+  color: rgba(201, 168, 76, 0.65);
+  font-size: 0.75rem;
   font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--gold-bright);
 }
 
 .menu-list {
@@ -157,9 +153,10 @@ button {
   gap: 14px;
   min-height: 64px;
   padding: 16px;
-  border-radius: 16px;
-  border: 1px solid var(--apis-border);
-  background: var(--apis-card);
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  backdrop-filter: blur(20px);
   text-align: left;
 }
 
@@ -176,16 +173,16 @@ button {
 
 .menu-item__sub {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .menu-item__chev {
   margin-left: auto;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   font-size: 20px;
 }
 
-/* ── Sub-Screens (About/Plans/Holdings/Create Code — Platzhalter) ──────── */
+/* ── Sub-Screens ─────────────────────────────────────────────────────── */
 
 .app-bar {
   display: flex;
@@ -196,9 +193,9 @@ button {
 .app-bar__back {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: var(--apis-card);
-  border: none;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -216,24 +213,13 @@ button {
   width: 44px;
 }
 
-.coming-soon {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 30px;
-  text-align: center;
-  color: var(--ink-dim);
-  font-size: 16px;
-}
-
 /* ── My Holdings ─────────────────────────────────────────────────────── */
 
 .holdings-address {
   text-align: center;
   font-size: 13px;
-  color: var(--ink-faint);
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  color: var(--text-faint);
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
   margin: 0 0 8px;
 }
 
@@ -249,11 +235,24 @@ button {
   gap: 12px;
   min-height: 56px;
   padding: 14px 4px;
-  border-bottom: 1px solid var(--apis-border);
+  border-bottom: 1px solid var(--border);
 }
 
 .holding-row:last-child {
   border-bottom: none;
+}
+
+/* Gleiches Muster wie OSIRIS' TokenIcon()-Komponente (siehe src/App.tsx) —
+   farbiger Kreis, ein Symbol, kontrastgerechte Textfarbe. Farbe/Symbol/
+   Textfarbe kommen inline aus tokenVisuals.ts, hier nur die Form. */
+.token-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .holding-row__name {
@@ -270,24 +269,25 @@ button {
 
 .holding-row__full {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .holding-row__amount {
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
   font-size: 15px;
   font-weight: 600;
-  color: var(--gold-bright);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 .holding-row__sell {
   min-height: 44px;
   min-width: 44px;
   padding: 0 14px;
-  border-radius: 9px;
-  border: 1px solid var(--apis-border);
+  border-radius: 999px;
+  border: 1px solid var(--border-gold);
   background: transparent;
-  color: var(--gold-bright);
+  color: var(--gold-light);
   font-size: 12px;
   font-weight: 700;
 }
@@ -295,7 +295,7 @@ button {
 .holdings-note {
   margin: 20px 18px 24px;
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   line-height: 1.5;
 }
 
@@ -304,12 +304,12 @@ button {
 .createcode-sub {
   padding: 0 18px 6px;
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.55;
 }
 
 .createcode-sub b {
-  color: var(--gold-bright);
+  color: var(--gold-light);
   font-weight: 600;
 }
 
@@ -317,7 +317,7 @@ button {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   padding: 0 18px;
   margin: 20px 0 10px;
 }
@@ -331,14 +331,15 @@ button {
 .assistant {
   flex: 1;
   min-height: 60px;
-  border-radius: 13px;
+  border-radius: 16px;
   padding: 12px 8px;
   text-align: center;
-  background: var(--apis-card);
-  border: 1px solid transparent;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   font-size: 13px;
   font-weight: 600;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -347,9 +348,9 @@ button {
 }
 
 .assistant--active {
-  background: linear-gradient(160deg, var(--apis-card-2), var(--apis-card));
   border-color: var(--gold);
-  color: var(--gold-bright);
+  color: var(--gold-light);
+  box-shadow: 0 0 0 1px var(--border-gold) inset;
 }
 
 .assistant--disabled {
@@ -359,31 +360,36 @@ button {
 .assistant__note {
   font-weight: 400;
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
+/* Identisch zu OSIRIS' .pill-toggle (siehe src/App.css) — voll gerundete
+   Segmented-Control statt der zuvor eigenen, weniger runden Variante. */
 .segmented {
   margin: 0 18px;
   display: flex;
-  background: var(--apis-card);
-  border-radius: 11px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .segmented button {
   flex: 1;
   border: none;
   background: transparent;
-  color: var(--ink-faint);
+  color: var(--text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   min-height: 40px;
-  border-radius: 9px;
+  border-radius: 999px;
 }
 
 .segmented button.active {
-  background: var(--gold);
-  color: #1a1305;
+  color: var(--dark2);
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  box-shadow: 0 4px 14px rgba(201, 168, 76, 0.35);
 }
 
 .perm-list {
@@ -397,7 +403,7 @@ button {
 
 .perm {
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   padding-left: 22px;
   position: relative;
   min-height: 20px;
@@ -407,51 +413,57 @@ button {
   content: '✓';
   position: absolute;
   left: 0;
-  color: #6fbf8b;
+  color: var(--success);
   font-weight: 700;
 }
 
 .perm--no {
-  color: var(--ink-faint);
+  color: var(--text-faint);
   text-decoration: line-through;
 }
 
 .perm--no::before {
   content: '✗';
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .createcode-error {
   margin: 16px 18px 0;
   font-size: 13px;
-  color: var(--warn);
+  color: var(--danger);
   line-height: 1.5;
 }
 
+/* Identisch zu OSIRIS' .button + .button-primary (siehe src/App.css). */
 .btn-gold {
   display: block;
   width: calc(100% - 36px);
   margin: 22px 18px 0;
-  min-height: 50px;
-  padding: 14px;
-  border-radius: 12px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-radius: 999px;
   border: none;
-  background: linear-gradient(160deg, var(--gold-bright), var(--gold));
-  color: #221a08;
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--dark2);
   font-weight: 700;
+  letter-spacing: 0.02em;
   font-size: 15px;
 }
 
 .btn-gold:disabled {
-  opacity: 0.6;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
+/* Identisch zu OSIRIS' .code-card-artigen Elementen: .card/.summary-Glas-
+   Optik (rgba(255,255,255,0.045) + blur(20px) + var(--border)). */
 .code-card {
   margin: 18px 18px 24px;
   padding: 16px;
-  border-radius: 14px;
-  background: var(--apis-card);
-  border: 1px solid var(--apis-border);
+  border-radius: 16px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   text-align: center;
 }
 
@@ -459,14 +471,14 @@ button {
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .code-card__code {
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
   word-break: break-all;
-  color: var(--gold-bright);
+  color: var(--gold-light);
   margin: 10px 0;
   line-height: 1.5;
 }
@@ -474,18 +486,18 @@ button {
 .code-card__copy {
   min-height: 40px;
   padding: 0 20px;
-  border-radius: 10px;
-  border: 1px solid var(--apis-border);
-  background: transparent;
-  color: var(--ink);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .code-card__foot {
   margin-top: 10px;
   font-size: 11.5px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 /* ── About Apis ──────────────────────────────────────────────────────── */
@@ -499,7 +511,7 @@ button {
 
 .about-lede {
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.6;
   margin: 0;
 }
@@ -508,7 +520,7 @@ button {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--gold-bright);
+  color: var(--gold-light);
   margin: 0 0 10px;
 }
 
@@ -523,7 +535,7 @@ button {
 
 .about-list li {
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.55;
   padding-left: 18px;
   position: relative;
@@ -533,7 +545,7 @@ button {
   content: '—';
   position: absolute;
   left: 0;
-  color: var(--warn);
+  color: var(--gold);
 }
 
 .about-support {
@@ -542,9 +554,10 @@ button {
   gap: 12px;
   min-height: 56px;
   padding: 13px 14px;
-  border-radius: 13px;
-  background: var(--apis-card);
-  border: 1px solid var(--apis-border);
+  border-radius: 16px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
 }
 
 .about-support__icon {
@@ -568,20 +581,20 @@ button {
 
 .about-support__sub {
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .about-version {
   text-align: center;
   font-size: 11px;
-  color: var(--ink-faint);
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  color: var(--text-faint);
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .about-credit {
   text-align: center;
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   margin-top: -12px;
 }
 
@@ -590,7 +603,7 @@ button {
 .plans-note {
   padding: 0 18px;
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -601,19 +614,20 @@ button {
   padding: 4px 18px 24px;
 }
 
+/* Identisch zu OSIRIS' .plan (siehe src/App.css). */
 .plan-card {
-  padding: 15px;
-  border-radius: 16px;
-  background: var(--apis-card);
-  border: 1px solid var(--apis-border);
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .plan-card--active {
-  background: linear-gradient(165deg, var(--apis-card-2), var(--apis-card));
-  border-color: rgba(201, 162, 75, 0.45);
+  border-color: var(--border-gold);
 }
 
 .plan-card__top {
@@ -624,31 +638,45 @@ button {
 }
 
 .plan-card__address {
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
 }
 
+/* Identisch zu OSIRIS' .status-pill (siehe src/App.css). */
 .pill {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 4px 9px;
-  border-radius: 20px;
+  padding: 3px 10px;
+  border-radius: 999px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
-.pill--active    { background: rgba(111, 191, 139, 0.14); color: #6fbf8b; }
-.pill--pending   { background: rgba(255, 255, 255, 0.06); color: var(--ink-dim); }
-.pill--cancelled { background: rgba(255, 255, 255, 0.06); color: var(--ink-faint); }
-.pill--complete  { background: rgba(255, 255, 255, 0.06); color: var(--ink-faint); }
+.pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.pill--active    { color: var(--gold-light); background: var(--gold-dim); border: 1px solid var(--border-gold); }
+.pill--pending   { color: var(--gold-light); background: var(--gold-dim); border: 1px solid var(--border-gold); }
+.pill--cancelled { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); }
+.pill--complete  { color: var(--success); background: rgba(110, 231, 183, 0.12); border: 1px solid rgba(110, 231, 183, 0.3); }
 
 .plan-card__amount {
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--gold-bright);
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 .plan-card__progress {
@@ -656,22 +684,37 @@ button {
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: var(--ink-faint);
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .plan-card__progress-track {
   flex: 1;
   height: 5px;
-  border-radius: 3px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
 .plan-card__progress-fill {
   height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
+}
+
+/* Identisch zu OSIRIS' .assets-bar (siehe src/App.css). */
+.plan-card__assets-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  gap: 2px;
+}
+
+.plan-card__assets-bar span {
+  height: 100%;
+  border-radius: 999px;
 }
 
 .plan-card__assets {
@@ -681,17 +724,23 @@ button {
 }
 
 .tag {
-  font-size: 11px;
-  padding: 5px 9px;
-  border-radius: 8px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  color: rgba(255, 255, 255, 0.6);
 }
 
-.tag--buy { background: rgba(111, 191, 139, 0.14); color: #6fbf8b; }
+.tag .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
 
 .plan-card__confirm p {
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.5;
   margin: 0 0 10px;
 }
@@ -701,29 +750,31 @@ button {
   gap: 10px;
 }
 
+/* Identisch zu OSIRIS' .button-secondary / .button-danger. */
 .btn-ghost,
 .btn-danger {
   flex: 1;
   min-height: 44px;
-  border-radius: 11px;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 700;
-  border: 1px solid var(--apis-border);
+  border: 1px solid var(--border);
 }
 
 .btn-ghost {
-  background: transparent;
-  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .btn-danger {
-  background: rgba(217, 138, 79, 0.14);
-  color: var(--warn);
-  border-color: rgba(217, 138, 79, 0.35);
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.32);
 }
 
 .btn-danger:disabled {
-  opacity: 0.6;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* ── Sell Trigger ────────────────────────────────────────────────────── */
@@ -736,15 +787,17 @@ button {
 .sell-sub {
   padding: 8px 18px 0;
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
 }
 
+/* Identisch zu OSIRIS' .tile (siehe src/App.css). */
 .sell-card {
   margin: 0 18px;
-  padding: 14px;
-  border-radius: 14px;
-  background: var(--apis-card);
-  border: 1px solid var(--apis-border);
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -763,35 +816,85 @@ button {
 
 .sell-amount__value {
   font-size: 26px;
-  font-weight: 700;
-  color: var(--gold-bright);
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .sell-amount__of {
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
 }
 
+/* Identisch zu OSIRIS' .slider-row input — kompletter manueller Override
+   (siehe App.css-Kommentar dort zum MiniPay-WebView-Bug mit
+   ::-webkit-slider-thumb bei nur teilweise zurückgesetztem appearance).
+   Track-Füllung + Thumb-Farbe kommen wie bei OSIRIS aus der Token-Farbe
+   (inline Gradient + slider-thumb-<TOKEN>-Klasse, siehe SellTrigger.tsx). */
 .sell-slider {
   width: 100%;
-  height: 32px;
-  accent-color: var(--gold);
+  height: 4px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  margin: 8px 0;
 }
+
+.sell-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  margin-top: -8px;
+}
+
+.sell-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.sell-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.sell-slider.slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }
+.sell-slider.slider-thumb-wBTC::-moz-range-thumb      { background: #F7931A; }
+.sell-slider.slider-thumb-wETH::-webkit-slider-thumb  { background: #627EEA; }
+.sell-slider.slider-thumb-wETH::-moz-range-thumb      { background: #627EEA; }
+.sell-slider.slider-thumb-CELO::-webkit-slider-thumb  { background: #FCFF52; }
+.sell-slider.slider-thumb-CELO::-moz-range-thumb      { background: #FCFF52; }
+.sell-slider.slider-thumb-XAUoT::-webkit-slider-thumb { background: var(--gold); }
+.sell-slider.slider-thumb-XAUoT::-moz-range-thumb     { background: var(--gold); }
 
 .sell-select {
   width: 100%;
   min-height: 44px;
   background: transparent;
   border: none;
-  color: var(--ink);
+  color: var(--text);
   font-size: 15px;
   font-weight: 600;
 }
 
 .sell-select option {
-  background: var(--apis-card);
-  color: var(--ink);
+  background: var(--dark2);
+  color: var(--text);
 }
 
 .sell-price-row {
@@ -799,20 +902,19 @@ button {
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 0 4px;
-  border-radius: 10px;
-  background: var(--apis-card-2);
+  padding: 0 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
 }
 
 .sell-price-row span:first-child {
-  color: var(--ink-faint);
-  padding-left: 8px;
+  color: var(--text-faint);
 }
 
 .sell-price-row span:last-child {
-  color: var(--ink-faint);
+  color: var(--text-faint);
   font-size: 12px;
-  padding-right: 8px;
 }
 
 .sell-price-row input {
@@ -820,10 +922,10 @@ button {
   min-width: 0;
   background: transparent;
   border: none;
-  color: var(--ink);
+  color: var(--text);
   font-size: 16px;
   font-weight: 600;
-  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .sell-price-row input:focus {
@@ -836,18 +938,18 @@ button {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .fee-note {
   margin: 14px 18px 0;
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   line-height: 1.5;
 }
 
 .fee-note b {
-  color: var(--ink-dim);
+  color: var(--text-muted);
 }
 
 .sell-done {
@@ -868,8 +970,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(111, 191, 139, 0.14);
-  color: #6fbf8b;
+  background: rgba(110, 231, 183, 0.12);
+  color: var(--success);
   font-size: 26px;
   font-weight: 700;
   margin-bottom: 10px;
@@ -883,13 +985,13 @@ button {
 
 .sell-done__sub {
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-muted);
   line-height: 1.55;
   margin: 0 0 4px;
 }
 
 .sell-done__link {
-  color: var(--gold-bright);
+  color: var(--gold-light);
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 18px;

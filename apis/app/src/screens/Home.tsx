@@ -20,7 +20,7 @@ export default function Home() {
   return (
     <div className="screen screen--home">
       <div className="home-head">
-        <div className="home-head__mark">A</div>
+        <img src="/apis-icon-512.png" alt="Apis" className="home-head__mark" />
         <div className="home-head__word">Apis</div>
       </div>
 

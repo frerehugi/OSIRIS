@@ -4,10 +4,14 @@ import { useConnection } from 'wagmi';
 import { useAutoConnect } from '../wallet';
 
 /// Landing ist zugleich Einstiegs- UND Wiedereinstiegspunkt (siehe
-/// Gesamtplan §14 "Re-Entry"). Kein "Connect"-Button — das Apis-Logo selbst
+/// Gesamtplan §14 "Re-Entry"). Kein "Connect"-Button — das Apis-Bild selbst
 /// ist der Tap-Ziel für einen erneuten Verbindungsversuch, ein neutraler
 /// Marken-Tap statt eines expliziten Connect-Elements (MiniPay-Pflichtregel).
 /// Zeigt bewusst keinen "Connecting…"-Zwischenzustand, nur Fehler.
+///
+/// Bild + Überschrift darunter — exakt dieselbe Struktur wie OSIRIS' eigener
+/// Connect-View (<img className="banner"/><h1>OSIRIS</h1>, siehe src/App.tsx)
+/// — "Apis als Bruder von OSIRIS erkennbar", siehe Chat.
 export default function Landing() {
   const navigate = useNavigate();
   const { isConnected } = useConnection();
@@ -19,15 +23,10 @@ export default function Landing() {
 
   return (
     <div className="screen screen--landing">
-      <button
-        type="button"
-        className="landing-mark"
-        onClick={retry}
-        aria-label="Apis — tap to retry connecting"
-      >
-        <span className="landing-mark__glyph">A</span>
+      <button type="button" className="landing-banner-btn" onClick={retry} aria-label="Apis — tap to retry connecting">
+        <img src="/apis-banner.jpg" alt="Apis" className="landing-banner" />
       </button>
-      <h1 className="landing-word">Apis</h1>
+      <h1>Apis</h1>
       <p className="landing-tagline">Agentic Powered Investment System</p>
 
       {providerMissing && (

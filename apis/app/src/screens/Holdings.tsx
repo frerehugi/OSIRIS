@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { useConnection, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ERC20_ABI, INPUT_TOKENS, TARGET_TOKENS, type TokenInfo } from '../config';
+import TokenIcon from '../components/TokenIcon';
+import type { AnyTokenSymbol } from '../tokenVisuals';
 
 /// Reine Lese-Funktion, kein neuer Contract nötig (siehe Gesamtplan §23,
 /// Schritt "My Holdings"). Zeigt die sechs von OSIRIS/Squid unterstützten
@@ -68,6 +70,7 @@ export default function Holdings() {
           const raw = result?.status === 'success' ? (result.result as bigint) : null;
           return (
             <div key={token.symbol} className="holding-row">
+              <TokenIcon token={token.symbol as AnyTokenSymbol} size={30} />
               <div className="holding-row__name">
                 <span className="holding-row__symbol">{token.symbol}</span>
                 <span className="holding-row__full">{token.fullName}</span>

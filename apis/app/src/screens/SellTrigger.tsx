@@ -6,6 +6,8 @@ import {
   ERC20_ABI, TARGET_TOKENS, INPUT_TOKENS, CONDITIONAL_SELL_ORDER_ADDRESS, type TokenInfo,
 } from '../config';
 import { CONDITIONAL_SELL_ORDER_ABI } from '../conditionalSellOrderAbi';
+import { TOKEN_COLOR, type AnyTokenSymbol } from '../tokenVisuals';
+import TokenIcon from '../components/TokenIcon';
 
 /// Sell Trigger — legt eine ConditionalSellOrder an (siehe Gesamtplan §9/§15,
 /// contracts/ConditionalSellOrder.sol). Zwei On-Chain-Transaktionen, gleiches
@@ -164,7 +166,7 @@ export default function SellTrigger() {
             className={symbol === sellSymbol ? 'active' : undefined}
             onClick={() => setSellSymbol(symbol)}
           >
-            {symbol}
+            <TokenIcon token={symbol as AnyTokenSymbol} size={14} /> {symbol}
           </button>
         ))}
       </div>
@@ -179,12 +181,15 @@ export default function SellTrigger() {
           <div className="sell-amount__of">of your {sellSymbol}, once</div>
         </div>
         <input
-          className="sell-slider"
+          className={`sell-slider slider-thumb-${sellSymbol}`}
           type="range"
           min={1}
           max={100}
           value={percent}
           onChange={(e) => setPercent(Number(e.target.value))}
+          style={{
+            background: `linear-gradient(to right, ${TOKEN_COLOR[sellSymbol]} 0%, ${TOKEN_COLOR[sellSymbol]} ${percent}%, rgba(255,255,255,0.12) ${percent}%, rgba(255,255,255,0.12) 100%)`,
+          }}
         />
       </div>
 
