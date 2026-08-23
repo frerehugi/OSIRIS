@@ -5,6 +5,7 @@ import Home from './screens/Home';
 import Holdings from './screens/Holdings';
 import Plans from './screens/Plans';
 import CreateCode from './screens/CreateCode';
+import SellTrigger from './screens/SellTrigger';
 import About from './screens/About';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
@@ -31,6 +32,10 @@ export default function App() {
       <Route
         path="/holdings"
         element={<RequireConnection><Holdings /></RequireConnection>}
+      />
+      <Route
+        path="/sell-trigger"
+        element={<RequireConnection><SellTrigger /></RequireConnection>}
       />
       <Route
         path="/about"

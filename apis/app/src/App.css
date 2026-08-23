@@ -246,7 +246,6 @@ button {
 .holding-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 56px;
   padding: 14px 4px;
@@ -258,6 +257,7 @@ button {
 }
 
 .holding-row__name {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -278,6 +278,18 @@ button {
   font-size: 15px;
   font-weight: 600;
   color: var(--gold-bright);
+}
+
+.holding-row__sell {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid var(--apis-border);
+  background: transparent;
+  color: var(--gold-bright);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .holdings-note {
@@ -712,4 +724,178 @@ button {
 
 .btn-danger:disabled {
   opacity: 0.6;
+}
+
+/* ── Sell Trigger ────────────────────────────────────────────────────── */
+
+.segmented--4 button {
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.sell-sub {
+  padding: 8px 18px 0;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.sell-card {
+  margin: 0 18px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--apis-card);
+  border: 1px solid var(--apis-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sell-card--row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.sell-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sell-amount__value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--gold-bright);
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+}
+
+.sell-amount__of {
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.sell-slider {
+  width: 100%;
+  height: 32px;
+  accent-color: var(--gold);
+}
+
+.sell-select {
+  width: 100%;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sell-select option {
+  background: var(--apis-card);
+  color: var(--ink);
+}
+
+.sell-price-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--apis-card-2);
+}
+
+.sell-price-row span:first-child {
+  color: var(--ink-faint);
+  padding-left: 8px;
+}
+
+.sell-price-row span:last-child {
+  color: var(--ink-faint);
+  font-size: 12px;
+  padding-right: 8px;
+}
+
+.sell-price-row input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+}
+
+.sell-price-row input:focus {
+  outline: none;
+}
+
+.source-chip {
+  margin: 14px 18px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.fee-note {
+  margin: 14px 18px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+
+.fee-note b {
+  color: var(--ink-dim);
+}
+
+.sell-done {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 30px;
+  gap: 6px;
+}
+
+.sell-done__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(111, 191, 139, 0.14);
+  color: #6fbf8b;
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.sell-done__title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.sell-done__sub {
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+  margin: 0 0 4px;
+}
+
+.sell-done__link {
+  color: var(--gold-bright);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.sell-done .btn-gold {
+  width: 100%;
+  margin: 8px 0 0;
 }
