@@ -30,13 +30,21 @@ export interface PlanDraft {
   targets:     PlanTargetInput[];
 }
 
+// Take-Profit ("above") und Stop-Loss ("below") sind beide gültige, unabhängige
+// Sell-Order-Typen (siehe Chat) — deshalb hier als zwei optionale Preise statt
+// eines Entweder-oder-Felds, genau wie im Sell-Trigger-Screen
+// (apis/app/src/screens/SellTrigger.tsx). Mindestens einer der beiden muss
+// gesetzt sein; jeder gesetzte Preis wird zu einer eigenen createOrder()-
+// Order, beide teilen sich bps/maxExecutions (dieselbe Positionsgröße, nur
+// die Richtung entscheidet, welche zuerst greift — kein automatisches
+// One-Cancels-the-Other, siehe SellTrigger.tsx-Kommentar).
 export interface SellTriggerDraft {
-  sellToken:     keyof typeof TARGET_TOKENS;
-  targetToken:   keyof typeof TARGET_TOKENS | keyof typeof INPUT_TOKENS;
-  bps:           number;
-  direction:     'above' | 'below';
-  priceUsd:      number;
-  maxExecutions: number;
+  sellToken:      keyof typeof TARGET_TOKENS;
+  targetToken:    keyof typeof TARGET_TOKENS | keyof typeof INPUT_TOKENS;
+  bps:            number;
+  maxExecutions:  number;
+  takeProfitUsd?: number;
+  stopLossUsd?:   number;
 }
 
 export interface CompiledPlan {
@@ -51,7 +59,9 @@ export interface CompiledPlan {
     targetTokens:            `0x${string}`[];
     targetBps:                number[];
   };
-  sellOrder?: {
+  // Ein Eintrag pro gesetztem Take-Profit/Stop-Loss-Preis (1 oder 2), jeder
+  // eine eigenständige createOrder()-Transaktion — siehe SellTriggerDraft.
+  sellOrders?: {
     sellToken:     `0x${string}`;
     targetToken:   `0x${string}`;
     bps:           number;
@@ -70,7 +80,7 @@ export interface CompiledPlan {
       triggerAbove:  boolean;
       triggerPrice:  string;
     };
-  };
+  }[];
 }
 
 export interface InvalidPlan {
@@ -144,7 +154,7 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     }
   }
 
-  let compiledSellOrder: CompiledPlan['sellOrder'];
+  let compiledSellOrders: CompiledPlan['sellOrders'];
   if (sellTrigger) {
     const sellToken = resolveTargetToken(sellTrigger.sellToken);
     const sellTargetToken = resolveAnyToken(sellTrigger.targetToken);
@@ -159,25 +169,34 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     if (!Number.isInteger(sellTrigger.maxExecutions) || sellTrigger.maxExecutions <= 0) {
       errors.push('Sell trigger maxExecutions must be a positive whole number.');
     }
-    if (!(sellTrigger.priceUsd > 0)) {
-      errors.push('Sell trigger price must be greater than zero.');
+
+    const legs: { direction: 'above' | 'below'; priceUsd: number }[] = [];
+    if (sellTrigger.takeProfitUsd !== undefined) {
+      if (!(sellTrigger.takeProfitUsd > 0)) errors.push('Take-profit price must be greater than zero.');
+      else legs.push({ direction: 'above', priceUsd: sellTrigger.takeProfitUsd });
     }
-    if (sellToken && sellTargetToken && sellTrigger.priceUsd > 0) {
-      compiledSellOrder = {
+    if (sellTrigger.stopLossUsd !== undefined) {
+      if (!(sellTrigger.stopLossUsd > 0)) errors.push('Stop-loss price must be greater than zero.');
+      else legs.push({ direction: 'below', priceUsd: sellTrigger.stopLossUsd });
+    }
+    if (legs.length === 0) errors.push('Sell trigger needs at least a take-profit or a stop-loss price.');
+
+    if (sellToken && sellTargetToken && legs.length > 0) {
+      compiledSellOrders = legs.map((leg) => ({
         sellToken: sellToken.address,
         targetToken: sellTargetToken.address,
         bps: sellTrigger.bps,
         maxExecutions: sellTrigger.maxExecutions,
-        priceCondition: { direction: sellTrigger.direction, priceUsd: sellTrigger.priceUsd },
+        priceCondition: { direction: leg.direction, priceUsd: leg.priceUsd },
         createOrderArgs: {
           sellToken: sellToken.address,
           targetToken: sellTargetToken.address,
           bps: sellTrigger.bps,
           maxExecutions: sellTrigger.maxExecutions,
-          triggerAbove: sellTrigger.direction === 'above',
-          triggerPrice: parseUnits(sellTrigger.priceUsd.toString(), 8).toString(),
+          triggerAbove: leg.direction === 'above',
+          triggerPrice: parseUnits(leg.priceUsd.toString(), 8).toString(),
         },
-      };
+      }));
     }
   }
 
@@ -187,8 +206,10 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
 
   const buySummary = `Buy: ${draft.totalAmount} ${draft.inputToken} split across ${draft.duration} ${draft.interval} tranches into ` +
     resolvedTargets.map((t) => `${t.bps / 100}% ${draft.targets.find((d) => resolveTargetToken(d.token)?.address === t.address)?.token}`).join(', ');
-  const sellSummary = compiledSellOrder
-    ? ` Sell: ${sellTrigger!.bps / 100}% of held ${sellTrigger!.sellToken} for ${sellTrigger!.targetToken}, once, if price is ${sellTrigger!.direction} $${sellTrigger!.priceUsd}.`
+  const sellSummary = compiledSellOrders
+    ? ' ' + compiledSellOrders.map((order) =>
+        `Sell: ${sellTrigger!.bps / 100}% of held ${sellTrigger!.sellToken} for ${sellTrigger!.targetToken}, once, if price is ${order.priceCondition.direction} $${order.priceCondition.priceUsd} (${order.priceCondition.direction === 'above' ? 'take profit' : 'stop loss'}).`
+      ).join(' ')
     : '';
 
   return {
@@ -203,6 +224,6 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
       targetTokens: resolvedTargets.map((t) => t.address),
       targetBps: resolvedTargets.map((t) => t.bps),
     },
-    sellOrder: compiledSellOrder,
+    sellOrders: compiledSellOrders,
   };
 }

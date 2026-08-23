@@ -103,10 +103,13 @@ export function buildServer(): McpServer {
           sellToken:     targetTokenEnum,
           targetToken:   anyTokenEnum,
           bps:           z.number().int().min(1).max(10_000),
-          direction:     z.enum(['above', 'below']),
-          priceUsd:      z.number().positive(),
           maxExecutions: z.number().int().positive().default(1),
-        }).optional().describe('Optional conditional sell — evaluated off-chain by the Apis keeper, not by the OSIRIS contract.'),
+          takeProfitUsd: z.number().positive().optional().describe('Sell if the price goes above this — take profit.'),
+          stopLossUsd:   z.number().positive().optional().describe('Sell if the price goes below this — stop loss.'),
+        }).optional().describe(
+          'Optional conditional sell, evaluated off-chain by the Apis keeper, not by the OSIRIS contract. Set ' +
+          'takeProfitUsd and/or stopLossUsd — each becomes its own independent sell order (a bracket if both are set).',
+        ),
       },
     },
     async ({ grantCode, sellTrigger, ...draft }) => {
