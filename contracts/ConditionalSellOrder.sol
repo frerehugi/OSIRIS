@@ -11,9 +11,13 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 // DcaVault/DcaVaultFactory (die dadurch komplett unberührt bleiben). Bildet
 // eine einfache, bedingte Sell-Order für beliebig gehaltene Token ab:
 // "verkaufe bps% meines aktuellen Bestands an sellToken gegen targetToken,
-// höchstens maxExecutions mal". Die Preisbedingung selbst lebt off-chain im
-// Apis-Keeper (Soft-Lösung) — dieser Contract kennt nur "wann jemand mit
-// Keeper-Erlaubnis execute() aufruft", nicht "warum".
+// höchstens maxExecutions mal". Die Preisbedingung (triggerAbove/triggerPrice)
+// wird als informatives Metadatum auf der Order gespeichert, aber NICHT von
+// execute() durchgesetzt — dieser Contract vertraut weiterhin darauf, "wann"
+// ein freigegebener Keeper execute() aufruft, prüft aber nicht selbst "warum".
+// Der Zweck des On-Chain-Felds ist einzig, dem Apis-Keeper einen einzigen,
+// vertrauenswürdigen Ort zu geben, an dem er nachschlagen kann, welche
+// Bedingung eine Order beobachtet, statt eine separate Datenbank zu brauchen.
 //
 // Kein Clone-Pattern nötig (anders als DcaVault): Sell-Orders sind leichtgewichtig
 // genug, um als einfache Structs in einem einzigen, gemeinsam genutzten Contract

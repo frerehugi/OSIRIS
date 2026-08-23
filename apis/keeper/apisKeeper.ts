@@ -7,19 +7,23 @@
 // demselben, bewährten Muster wie squidKeeper.ts, ist aber eine eigenständige
 // Kopie — keine Änderung an keeper/squidKeeper.ts.
 //
-// Stand dieser Datei: enthält den Auto-Refuel-Mechanismus (Apis-Keeper-Wallet
-// hält aktuell 10 CELO Startguthaben, siehe Chat) — 1:1 nach OSIRIS-Vorbild,
-// aber verallgemeinert auf fünf mögliche Gebühren-Token statt zwei, weil
+// Enthält sowohl den Auto-Refuel-Mechanismus (Apis-Keeper-Wallet hält aktuell
+// 10 CELO Startguthaben, siehe Chat) — 1:1 nach OSIRIS-Vorbild, aber
+// verallgemeinert auf fünf mögliche Gebühren-Token statt zwei, weil
 // ConditionalSellOrder-Gebühren im jeweiligen sellToken anfallen (beliebig,
-// nicht nur Stablecoins). Der eigentliche Ausführungs-Zyklus (Preis-Checks
-// gegen die Provider-Registry + ConditionalSellOrder.execute()-Aufrufe) ist
-// noch nicht gebaut — siehe TODO am Dateiende.
+// nicht nur Stablecoins) — als auch den eigentlichen Ausführungs-Zyklus
+// (runApisKeeperCycle): liest alle offenen Orders, prüft ihre on-chain
+// gespeicherte Preisbedingung gegen Squids `/token-price`, ruft bei erfüllter
+// Bedingung execute() auf und refuelt am Ende. Läuft erst produktiv, sobald
+// CONDITIONAL_SELL_ORDER_ADDRESS gesetzt ist (Contract ist noch nicht
+// deployt, siehe script/DeploySellOrder.s.sol).
 
 import { createWalletClient, createPublicClient, http, fallback, parseUnits } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { ERC20_ABI } from "../../src/dcaVaultAbi";
 import { INPUT_TOKENS, TARGET_TOKENS } from "../../src/config";
+import { CONDITIONAL_SELL_ORDER_ABI, type SellOrderStruct } from "./conditionalSellOrderAbi";
 
 // ─── Konfiguration (plattformneutral) ─────────────────────────────────────────
 //
@@ -30,10 +34,14 @@ import { INPUT_TOKENS, TARGET_TOKENS } from "../../src/config";
 // als eigenes, unabhängig konfigurierbares Secret in diesem Worker hinterlegt).
 
 export interface ApisKeeperEnv {
-  APIS_KEEPER_PRIVATE_KEY:   string;
-  SQUID_INTEGRATOR_ID:       string;
-  APIS_REFUEL_THRESHOLD?:    string;
-  APIS_REFUEL_PCT_BPS?:      string;
+  APIS_KEEPER_PRIVATE_KEY:        string;
+  SQUID_INTEGRATOR_ID:            string;
+  APIS_REFUEL_THRESHOLD?:         string;
+  APIS_REFUEL_PCT_BPS?:           string;
+  // Noch nicht deployt (siehe script/DeploySellOrder.s.sol) — solange dieses
+  // Secret fehlt, überspringt runApisKeeperCycle() den Ausführungs-Zyklus
+  // komplett und macht nur den bereits fertigen Refuel-Schritt.
+  CONDITIONAL_SELL_ORDER_ADDRESS?: string;
 }
 
 function createApisKeeperContext(env: ApisKeeperEnv) {
@@ -61,8 +69,9 @@ function createApisKeeperContext(env: ApisKeeperEnv) {
 
   const refuelThreshold = parseUnits(env.APIS_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent, wie OSIRIS
   const refuelPercentBps = BigInt(env.APIS_REFUEL_PCT_BPS ?? "4000");      // 40 %, wie OSIRIS
+  const sellOrderAddress = env.CONDITIONAL_SELL_ORDER_ADDRESS as `0x${string}` | undefined;
 
-  return { account, walletClient, publicClient, integratorId, refuelThreshold, refuelPercentBps };
+  return { account, walletClient, publicClient, integratorId, refuelThreshold, refuelPercentBps, sellOrderAddress };
 }
 
 type ApisKeeperContext = ReturnType<typeof createApisKeeperContext>;
@@ -207,19 +216,166 @@ export async function refuelApisKeeperWallet(env: ApisKeeperEnv): Promise<void> 
   }
 }
 
-// ─── TODO: Ausführungs-Zyklus ─────────────────────────────────────────────────
+// ─── Preis holen (Squid `/token-price`) ───────────────────────────────────────
 //
-// Noch nicht gebaut, absichtlich nicht Teil dieses Commits:
-//   1. Alle offenen Orders lesen (nextOrderId iterieren, orders(id) abrufen,
-//      cancelled=false filtern) — triggerAbove/triggerPrice stehen jetzt
-//      direkt auf der Order (siehe contracts/ConditionalSellOrder.sol), also
-//      KEIN separates Backend/Datenbank mehr nötig, um "welche Order
-//      beobachtet welche Bedingung" zu wissen.
-//   2. Aktuellen Preis pro sellToken holen (Squid `/token-price`, siehe
-//      Gesamtplan §16) — pro Token gebündelt, nicht pro Order.
-//   3. Bei erfüllter Bedingung (Preis >= triggerPrice bei triggerAbove=true,
-//      sonst <=): ConditionalSellOrder.execute() aufrufen (Contract + ABI
-//      existieren, siehe contracts/ConditionalSellOrder.sol — TS-ABI dafür
-//      fehlt noch, analog zu src/dcaVaultAbi.ts anzulegen).
-//   4. refuelApisKeeperWallet() am Ende jedes Zyklus aufrufen, wie
-//      autoRefuelCelo() am Ende von runKeeperCycle() in squidKeeper.ts.
+// V1-Preisquelle, siehe Gesamtplan §16: pragmatisch einheitlich über alle
+// Zieltoken hinweg statt Mento SortedOracles/RedStone-Integration mit
+// pro-Token-Rate-Feed-IDs, die sich nicht ohne Live-Zugriff verifizieren
+// lassen. Gibt den USD-Preis als Zahl zurück (Squid liefert ihn bereits
+// dezimal, nicht als Fixed-Point-Integer).
+
+async function getTokenPriceUsd(integratorId: string, tokenAddress: `0x${string}`): Promise<number> {
+  const url = new URL("https://apiplus.squidrouter.com/v2/token-price");
+  url.searchParams.set("chainId", "42220");
+  url.searchParams.set("tokenAddress", tokenAddress);
+
+  const response = await fetch(url, { headers: { "x-integrator-id": integratorId } });
+  if (!response.ok) {
+    throw new Error(`Squid token-price fehlgeschlagen: ${response.status} ${await response.text()}`);
+  }
+  const data = await response.json() as { price: number };
+  return data.price;
+}
+
+// ─── Preisbedingung prüfen ─────────────────────────────────────────────────────
+//
+// triggerPrice ist 8-dezimal skaliert (wie Chainlink/Squid), siehe
+// ConditionalSellOrder.sol und apis/backend/src/planCompiler.ts.
+
+function isTriggerMet(order: SellOrderStruct, priceUsd: number): boolean {
+  const triggerPriceUsd = Number(order.triggerPrice) / 1e8;
+  return order.triggerAbove ? priceUsd >= triggerPriceUsd : priceUsd <= triggerPriceUsd;
+}
+
+const SLIPPAGE_BPS_BUFFER = 300; // wie squidKeeper.ts — 3 % Puffer auf Squids toAmountMin
+
+function applyBuffer(toAmountMin: string): bigint {
+  const raw = BigInt(toAmountMin);
+  return (raw * BigInt(10_000 - SLIPPAGE_BPS_BUFFER)) / 10_000n;
+}
+
+// ── Admin-Getter (feeBps/minFee) — eigener ABI-Ausschnitt ─────────────────────
+// Getrennt von CONDITIONAL_SELL_ORDER_ABI in conditionalSellOrderAbi.ts, um
+// diese Datei nicht mit Admin-only-Feldern aufzublähen, die außerhalb des
+// Gebühren-Mirrorings hier nicht gebraucht werden.
+const CONDITIONAL_SELL_ORDER_ABI_ADMIN = [
+  { type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint16" }] },
+  { type: "function", name: "minFee", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+] as const;
+
+// ─── Eine einzelne Order ausführen ─────────────────────────────────────────────
+//
+// Zieht dieselbe Gebühr-vorab-abschätzen-Logik wie OSIRIS' executeVaultStep()
+// nach (siehe squidKeeper.ts): Squid muss den NETTO-Betrag nach Gebührenabzug
+// zum Quotieren bekommen, sonst approved der Contract beim swap zu wenig und
+// der Router-Call scheitert. fromAddress ist der Contract selbst (er hält
+// sellToken zwischen Einzug und Swap, siehe execute() in
+// ConditionalSellOrder.sol), toAddress ist order.owner (dort wird der
+// Balance-Zuwachs gemessen).
+
+async function executeOrder(
+  ctx: ApisKeeperContext,
+  sellOrderAddress: `0x${string}`,
+  orderId: bigint,
+  order: SellOrderStruct,
+): Promise<`0x${string}`> {
+  const [feeBps, minFee] = await Promise.all([
+    ctx.publicClient.readContract({ address: sellOrderAddress, abi: CONDITIONAL_SELL_ORDER_ABI_ADMIN, functionName: "feeBps" }) as Promise<number>,
+    ctx.publicClient.readContract({ address: sellOrderAddress, abi: CONDITIONAL_SELL_ORDER_ABI_ADMIN, functionName: "minFee" }) as Promise<bigint>,
+  ]);
+
+  const balance = await ctx.publicClient.readContract({
+    address: order.sellToken, abi: ERC20_ABI, functionName: "balanceOf", args: [order.owner],
+  }) as bigint;
+
+  const grossAmount = (balance * BigInt(order.bps)) / 10_000n;
+  if (grossAmount === 0n) throw new Error(`Order ${orderId}: nichts zu verkaufen (Bestand 0).`);
+
+  let feeAmount = (grossAmount * BigInt(feeBps)) / 10_000n;
+  if (feeAmount < minFee) feeAmount = minFee;
+  const netAmount = grossAmount - feeAmount;
+
+  const route = await getSquidRoute(ctx.integratorId, {
+    fromToken:   order.sellToken,
+    toToken:     order.targetToken,
+    fromAmount:  netAmount.toString(),
+    fromAddress: sellOrderAddress,
+    toAddress:   order.owner,
+  });
+
+  const minAmountOut = applyBuffer(route.estimate.toAmountMin);
+
+  // Vor dem Broadcast simulieren — deckt z.B. SlippageExceeded oder eine seit
+  // dem Preis-Check inzwischen zurückgezogene Approval auf, ohne echtes Gas
+  // zu verbrennen (gleiches Muster wie executeVaultStep() in squidKeeper.ts).
+  const { request } = await ctx.publicClient.simulateContract({
+    account:      ctx.account,
+    address:      sellOrderAddress,
+    abi:          CONDITIONAL_SELL_ORDER_ABI,
+    functionName: "execute",
+    args:         [orderId, route.transactionRequest.target, minAmountOut, route.transactionRequest.data],
+  });
+
+  const hash = await ctx.walletClient.writeContract(request);
+  await ctx.publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+// ─── Ausführungs-Zyklus ─────────────────────────────────────────────────────────
+//
+// Sequenziell statt parallel: sowohl Squids Rate-Limit als auch die Nonce-
+// Verwaltung der Keeper-Wallet vertragen keine parallelen Broadcasts (gleiche
+// Begründung wie runKeeperCycle() in squidKeeper.ts). Eine fehlschlagende
+// Order (z.B. SlippageExceeded für einen einzelnen Nutzer) darf die anderen
+// nicht blockieren.
+
+export interface ApisKeeperCycleResult {
+  orderId: bigint;
+  txHash:  `0x${string}`;
+}
+
+export async function runApisKeeperCycle(env: ApisKeeperEnv): Promise<ApisKeeperCycleResult[]> {
+  const ctx = createApisKeeperContext(env);
+  const results: ApisKeeperCycleResult[] = [];
+
+  if (!ctx.sellOrderAddress) {
+    console.info("Apis-Keeper: CONDITIONAL_SELL_ORDER_ADDRESS nicht gesetzt (noch nicht deployt) — überspringe Ausführungs-Zyklus.");
+    await refuelApisKeeperWallet(env);
+    return results;
+  }
+
+  const nextOrderId = await ctx.publicClient.readContract({
+    address: ctx.sellOrderAddress, abi: CONDITIONAL_SELL_ORDER_ABI, functionName: "nextOrderId",
+  }) as bigint;
+
+  for (let orderId = 0n; orderId < nextOrderId; orderId++) {
+    try {
+      const order = await ctx.publicClient.readContract({
+        address: ctx.sellOrderAddress, abi: CONDITIONAL_SELL_ORDER_ABI, functionName: "getOrder", args: [orderId],
+      }) as SellOrderStruct;
+
+      if (order.cancelled) continue;
+
+      const authorized = await ctx.publicClient.readContract({
+        address: ctx.sellOrderAddress, abi: CONDITIONAL_SELL_ORDER_ABI, functionName: "isKeeperFor",
+        args: [order.owner, ctx.account.address],
+      }) as boolean;
+      if (!authorized) continue; // Owner hat diesen Keeper (noch) nicht per setKeeper() freigegeben
+
+      const priceUsd = await getTokenPriceUsd(ctx.integratorId, order.sellToken);
+      if (!isTriggerMet(order, priceUsd)) continue;
+
+      console.info(`Apis-Keeper: Order ${orderId} erfüllt Preisbedingung (Preis ${priceUsd}, Trigger ${order.triggerAbove ? ">=" : "<="} ${Number(order.triggerPrice) / 1e8}) — führe aus.`);
+      const txHash = await executeOrder(ctx, ctx.sellOrderAddress, orderId, order);
+      results.push({ orderId, txHash });
+      console.info(`Apis-Keeper: Order ${orderId} ausgeführt. Tx: ${txHash}`);
+    } catch (err) {
+      console.error(`Apis-Keeper: Fehler bei Order ${orderId}:`, err);
+    }
+
+    if (orderId + 1n < nextOrderId) await sleep(SQUID_REQUEST_SPACING_MS); // Rate-Limit-Abstand
+  }
+
+  await refuelApisKeeperWallet(env);
+  return results;
+}
