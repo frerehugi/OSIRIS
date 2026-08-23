@@ -3,6 +3,7 @@ import { useConnection } from 'wagmi';
 import Landing from './screens/Landing';
 import Home from './screens/Home';
 import Holdings from './screens/Holdings';
+import CreateCode from './screens/CreateCode';
 import ComingSoon from './screens/ComingSoon';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
@@ -20,7 +21,7 @@ export default function App() {
       <Route path="/home" element={<RequireConnection><Home /></RequireConnection>} />
       <Route
         path="/create-code"
-        element={<RequireConnection><ComingSoon title="Create New Code for Agent" /></RequireConnection>}
+        element={<RequireConnection><CreateCode /></RequireConnection>}
       />
       <Route
         path="/plans"
