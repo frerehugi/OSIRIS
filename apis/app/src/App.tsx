@@ -4,6 +4,7 @@ import Landing from './screens/Landing';
 import Home from './screens/Home';
 import Holdings from './screens/Holdings';
 import CreateCode from './screens/CreateCode';
+import About from './screens/About';
 import ComingSoon from './screens/ComingSoon';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
@@ -33,7 +34,7 @@ export default function App() {
       />
       <Route
         path="/about"
-        element={<RequireConnection><ComingSoon title="About Apis" /></RequireConnection>}
+        element={<RequireConnection><About /></RequireConnection>}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
