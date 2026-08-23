@@ -42,6 +42,12 @@ contract ConditionalSellOrder is ReentrancyGuard {
         uint32  maxExecutions;   // meist 1 ("einmalig")
         uint32  executedCount;
         bool    cancelled;
+        // Preisbedingung ist rein informativ, NICHT on-chain durchgesetzt — execute()
+        // prüft sie nicht (siehe Architektur-Kommentar oben). Sie dient dem Apis-Keeper
+        // als einziger Ort, an dem "welche Order beobachtet welche Bedingung" steht,
+        // damit dafür keine separate Datenbank nötig ist.
+        bool    triggerAbove;    // true: auslösen bei Preis >= triggerPrice, false: <=
+        uint256 triggerPrice;    // USD-Preis von sellToken, 8 Dezimalstellen (wie Chainlink/Squid)
     }
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -71,6 +77,7 @@ contract ConditionalSellOrder is ReentrancyGuard {
     error NotAdmin();
     error InvalidAddress();
     error InvalidBps();
+    error InvalidTriggerPrice();
     error SameToken();
     error OrderAlreadyCancelled();
     error RouterNotApproved();
@@ -83,7 +90,7 @@ contract ConditionalSellOrder is ReentrancyGuard {
 
     // ── Events ───────────────────────────────────────────────────────────────
 
-    event OrderCreated(uint256 indexed orderId, address indexed owner, address sellToken, address targetToken, uint16 bps, uint32 maxExecutions);
+    event OrderCreated(uint256 indexed orderId, address indexed owner, address sellToken, address targetToken, uint16 bps, uint32 maxExecutions, bool triggerAbove, uint256 triggerPrice);
     event OrderCancelled(uint256 indexed orderId);
     event OrderExecuted(uint256 indexed orderId, uint32 executionNumber, uint256 amountIn, uint256 amountOut);
     event FeeCharged(uint256 indexed orderId, uint256 feeAmount, address treasury);
@@ -163,12 +170,15 @@ contract ConditionalSellOrder is ReentrancyGuard {
         address sellToken,
         address targetToken,
         uint16  bps,
-        uint32  maxExecutions
+        uint32  maxExecutions,
+        bool    triggerAbove,
+        uint256 triggerPrice
     ) external returns (uint256 orderId) {
         if (sellToken == address(0) || targetToken == address(0)) revert InvalidAddress();
         if (sellToken == targetToken) revert SameToken();
         if (bps == 0 || bps > BPS_DENOMINATOR) revert InvalidBps();
         if (maxExecutions == 0) revert InvalidBps();
+        if (triggerPrice == 0) revert InvalidTriggerPrice();
 
         orderId = nextOrderId++;
         orders[orderId] = SellOrder({
@@ -178,10 +188,12 @@ contract ConditionalSellOrder is ReentrancyGuard {
             bps:           bps,
             maxExecutions: maxExecutions,
             executedCount: 0,
-            cancelled:     false
+            cancelled:     false,
+            triggerAbove:  triggerAbove,
+            triggerPrice:  triggerPrice
         });
 
-        emit OrderCreated(orderId, msg.sender, sellToken, targetToken, bps, maxExecutions);
+        emit OrderCreated(orderId, msg.sender, sellToken, targetToken, bps, maxExecutions, triggerAbove, triggerPrice);
     }
 
     // ── Order canceln ────────────────────────────────────────────────────────

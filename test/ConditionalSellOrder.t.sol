@@ -26,6 +26,7 @@ contract ConditionalSellOrderTest is Test {
     uint256 constant WBTC_BALANCE = 1e8; // 1 wBTC (8 Decimals)
     uint16  constant DEFAULT_FEE_BPS = 99;
     uint256 constant DEFAULT_MIN_FEE = 35_000;
+    uint256 constant DEFAULT_TRIGGER_PRICE = 50_000e8; // 50.000 USD, 8 Dezimalstellen
 
     function setUp() public {
         wbtc   = new MockERC20("Wrapped BTC", "wBTC", 8);
@@ -47,7 +48,7 @@ contract ConditionalSellOrderTest is Test {
 
     function _createOrder(uint16 bps, uint32 maxExecutions) internal returns (uint256 orderId) {
         vm.prank(owner);
-        orderId = sellOrder.createOrder(address(wbtc), address(usdc), bps, maxExecutions);
+        orderId = sellOrder.createOrder(address(wbtc), address(usdc), bps, maxExecutions, true, DEFAULT_TRIGGER_PRICE);
     }
 
     function _approve() internal {
@@ -68,6 +69,22 @@ contract ConditionalSellOrderTest is Test {
         assertEq(order.maxExecutions, 1);
         assertEq(order.executedCount, 0);
         assertFalse(order.cancelled);
+        assertTrue(order.triggerAbove);
+        assertEq(order.triggerPrice, DEFAULT_TRIGGER_PRICE);
+    }
+
+    function test_createOrder_storesTriggerBelow() public {
+        vm.prank(owner);
+        uint256 orderId = sellOrder.createOrder(address(wbtc), address(usdc), 5000, 1, false, 40_000e8);
+        ConditionalSellOrder.SellOrder memory order = sellOrder.getOrder(orderId);
+        assertFalse(order.triggerAbove);
+        assertEq(order.triggerPrice, 40_000e8);
+    }
+
+    function test_createOrder_revertsOnZeroTriggerPrice() public {
+        vm.prank(owner);
+        vm.expectRevert(ConditionalSellOrder.InvalidTriggerPrice.selector);
+        sellOrder.createOrder(address(wbtc), address(usdc), 5000, 1, true, 0);
     }
 
     function test_createOrder_incrementsOrderId() public {
@@ -79,25 +96,25 @@ contract ConditionalSellOrderTest is Test {
     function test_createOrder_revertsOnSameToken() public {
         vm.prank(owner);
         vm.expectRevert(ConditionalSellOrder.SameToken.selector);
-        sellOrder.createOrder(address(wbtc), address(wbtc), 5000, 1);
+        sellOrder.createOrder(address(wbtc), address(wbtc), 5000, 1, true, DEFAULT_TRIGGER_PRICE);
     }
 
     function test_createOrder_revertsOnZeroBps() public {
         vm.prank(owner);
         vm.expectRevert(ConditionalSellOrder.InvalidBps.selector);
-        sellOrder.createOrder(address(wbtc), address(usdc), 0, 1);
+        sellOrder.createOrder(address(wbtc), address(usdc), 0, 1, true, DEFAULT_TRIGGER_PRICE);
     }
 
     function test_createOrder_revertsOnBpsAboveMax() public {
         vm.prank(owner);
         vm.expectRevert(ConditionalSellOrder.InvalidBps.selector);
-        sellOrder.createOrder(address(wbtc), address(usdc), 10_001, 1);
+        sellOrder.createOrder(address(wbtc), address(usdc), 10_001, 1, true, DEFAULT_TRIGGER_PRICE);
     }
 
     function test_createOrder_revertsOnZeroMaxExecutions() public {
         vm.prank(owner);
         vm.expectRevert(ConditionalSellOrder.InvalidBps.selector);
-        sellOrder.createOrder(address(wbtc), address(usdc), 5000, 0);
+        sellOrder.createOrder(address(wbtc), address(usdc), 5000, 0, true, DEFAULT_TRIGGER_PRICE);
     }
 
     // ─── cancelOrder ─────────────────────────────────────────────────────────
@@ -185,7 +202,7 @@ contract ConditionalSellOrderTest is Test {
         vm.prank(otherOwner);
         wbtc.approve(address(sellOrder), type(uint256).max);
         vm.prank(otherOwner);
-        uint256 otherOrderId = sellOrder.createOrder(address(wbtc), address(usdc), 5000, 1);
+        uint256 otherOrderId = sellOrder.createOrder(address(wbtc), address(usdc), 5000, 1, true, DEFAULT_TRIGGER_PRICE);
 
         vm.prank(keeper);
         vm.expectRevert(ConditionalSellOrder.NotExecutor.selector);
