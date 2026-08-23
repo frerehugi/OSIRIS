@@ -15,23 +15,33 @@ import {ConditionalSellOrder} from "../contracts/ConditionalSellOrder.sol";
 ///     -vvvv
 ///
 /// Benötigte Umgebungsvariablen (.env):
-///   DEPLOYER_PRIVATE_KEY   — Private Key des Apis-Admin/Deployer-Wallets
-///                            (siehe Gesamtplan §20 — NICHT das OSIRIS-Deployer-Wallet)
+///   DEPLOYER_PRIVATE_KEY   — Private Key des Apis-Admin/Deployer-Wallets (APIS_ADMIN unten)
+///                            — NICHT das OSIRIS-Deployer-Wallet, siehe Gesamtplan §17/§20
 ///   CELOSCAN_API_KEY       — für automatische Verifikation (bereits vorhanden, wiederverwendet)
-///   APIS_ADMIN_ADDRESS     — Adresse des Apis-Admin-Wallets (setFee/setAdmin/setTreasury)
-///   APIS_TREASURY_ADDRESS  — Adresse der Apis-Keeper-Wallet (empfängt Gebühren, siehe §21)
 ///
-/// Bewusst KEINE hartkodierten Adressen für Admin/Treasury (anders als
-/// DeployFactory.s.sol) — die echten Apis-Wallet-Adressen existieren zum
-/// Zeitpunkt dieses Commits noch nicht (siehe Gesamtplan §20, vom Nutzer
-/// selbst zu erzeugen). Umgebungsvariablen verhindern, dass hier versehentlich
-/// eine Platzhalter-Adresse fest einprogrammiert und übersehen wird.
+/// APIS_TREASURY (Apis-Keeper-Wallet) und APIS_ADMIN (Apis-Admin/Deployer-Wallet)
+/// sind beide bekannt und unten als Konstanten hinterlegt, analog zu
+/// GLOBAL_KEEPER/ADMIN in DeployFactory.s.sol. Achtung: als gemischtgroße
+/// Adress-Literale prüft solc beim Kompilieren automatisch den EIP-55-Checksum —
+/// falls der Build deswegen fehlschlägt, Groß-/Kleinschreibung gegen die Quelle
+/// (Wallet-Export) verifizieren. Konnte in dieser Sandbox nicht kompiliert werden
+/// (siehe Chat), bitte vor dem Deploy lokal `forge build` prüfen.
 
 contract DeploySellOrder is Script {
 
     // Quelle: Squid /v2/sdk-info, chains[].squidContracts.squidRouter (chainId 42220) —
     // identisch zu DeployFactory.s.sol, bewusst dieselbe, bereits verifizierte Adresse.
     address constant SQUID_ROUTER_MAINNET = 0xce16F69375520ab01377ce7B88f5BA8C48F8D666;
+
+    // Apis-Keeper-Wallet — separat von OSIRIS' GLOBAL_KEEPER (siehe Gesamtplan §17:
+    // eigene Wallet zwingend wegen Nonce-Konflikt/Treasury-Kopplung/Blast-Radius).
+    // Empfängt die ConditionalSellOrder-Gebühren (siehe §21) und signiert die
+    // execute()-Aufrufe des Apis-Keepers.
+    address constant APIS_TREASURY = 0x1486f1859f0b2b16b525096205cCaE74a681b78c;
+
+    // Apis-Admin/Deployer-Wallet — separat von OSIRIS' ADMIN, hält setFee()/
+    // setAdmin()/setTreasury()-Rechte auf diesem Contract (siehe Gesamtplan §20).
+    address constant APIS_ADMIN = 0x780bD65804a64A03f8d6F0e9b9b1c6bC0cf4d6B9;
 
     function run() external {
         require(
@@ -40,8 +50,8 @@ contract DeploySellOrder is Script {
         );
 
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address admin       = vm.envAddress("APIS_ADMIN_ADDRESS");
-        address treasury    = vm.envAddress("APIS_TREASURY_ADDRESS");
+        address admin       = APIS_ADMIN;
+        address treasury    = APIS_TREASURY;
 
         console2.log("=== Apis ConditionalSellOrder Deploy ===");
         console2.log("Chain ID:      ", block.chainid);
