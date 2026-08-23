@@ -3,9 +3,9 @@ import { useConnection } from 'wagmi';
 import Landing from './screens/Landing';
 import Home from './screens/Home';
 import Holdings from './screens/Holdings';
+import Plans from './screens/Plans';
 import CreateCode from './screens/CreateCode';
 import About from './screens/About';
-import ComingSoon from './screens/ComingSoon';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
 /// zu Landing, wo der Auto-Connect (bzw. der Tap-to-Reconnect) greift.
@@ -26,7 +26,7 @@ export default function App() {
       />
       <Route
         path="/plans"
-        element={<RequireConnection><ComingSoon title="My Plans" /></RequireConnection>}
+        element={<RequireConnection><Plans /></RequireConnection>}
       />
       <Route
         path="/holdings"

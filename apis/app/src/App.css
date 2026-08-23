@@ -572,3 +572,144 @@ button {
   color: var(--ink-faint);
   margin-top: -12px;
 }
+
+/* ── My Plans ────────────────────────────────────────────────────────── */
+
+.plans-note {
+  padding: 0 18px;
+  font-size: 14px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 18px 24px;
+}
+
+.plan-card {
+  padding: 15px;
+  border-radius: 16px;
+  background: var(--apis-card);
+  border: 1px solid var(--apis-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-card--active {
+  background: linear-gradient(165deg, var(--apis-card-2), var(--apis-card));
+  border-color: rgba(201, 162, 75, 0.45);
+}
+
+.plan-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-card__address {
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.pill--active    { background: rgba(111, 191, 139, 0.14); color: #6fbf8b; }
+.pill--pending   { background: rgba(255, 255, 255, 0.06); color: var(--ink-dim); }
+.pill--cancelled { background: rgba(255, 255, 255, 0.06); color: var(--ink-faint); }
+.pill--complete  { background: rgba(255, 255, 255, 0.06); color: var(--ink-faint); }
+
+.plan-card__amount {
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.plan-card__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+}
+
+.plan-card__progress-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.plan-card__progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+}
+
+.plan-card__assets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 11px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.tag--buy { background: rgba(111, 191, 139, 0.14); color: #6fbf8b; }
+
+.plan-card__confirm p {
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.plan-card__confirm-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-ghost,
+.btn-danger {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--apis-border);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-dim);
+}
+
+.btn-danger {
+  background: rgba(217, 138, 79, 0.14);
+  color: var(--warn);
+  border-color: rgba(217, 138, 79, 0.35);
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+}
