@@ -14,6 +14,8 @@ export {
   type TokenInfo,
 } from '../../../src/config';
 
+export { ERC20_ABI } from '../../../src/dcaVaultAbi';
+
 // ConditionalSellOrder-Adresse — noch kein Mainnet-Deploy (siehe
 // script/DeploySellOrder.s.sol), Platzhalter bis dahin.
 export const CONDITIONAL_SELL_ORDER_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;

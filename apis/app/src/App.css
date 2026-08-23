@@ -226,3 +226,63 @@ button {
   color: var(--ink-dim);
   font-size: 16px;
 }
+
+/* ── My Holdings ─────────────────────────────────────────────────────── */
+
+.holdings-address {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  margin: 0 0 8px;
+}
+
+.holdings-list {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 18px 0;
+}
+
+.holding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--apis-border);
+}
+
+.holding-row:last-child {
+  border-bottom: none;
+}
+
+.holding-row__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.holding-row__symbol {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.holding-row__full {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.holding-row__amount {
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gold-bright);
+}
+
+.holdings-note {
+  margin: 20px 18px 24px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}

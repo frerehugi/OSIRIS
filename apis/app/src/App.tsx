@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useConnection } from 'wagmi';
 import Landing from './screens/Landing';
 import Home from './screens/Home';
+import Holdings from './screens/Holdings';
 import ComingSoon from './screens/ComingSoon';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
@@ -27,7 +28,7 @@ export default function App() {
       />
       <Route
         path="/holdings"
-        element={<RequireConnection><ComingSoon title="My Holdings" /></RequireConnection>}
+        element={<RequireConnection><Holdings /></RequireConnection>}
       />
       <Route
         path="/about"
