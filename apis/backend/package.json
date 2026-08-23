@@ -1,0 +1,22 @@
+{
+  "name": "apis-backend",
+  "version": "0.1.0",
+  "description": "Apis MCP server — Claude-facing tools for capabilities, balances, and plan proposals. Holds no keys, executes nothing.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "viem": "2.55.19",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260823.1",
+    "typescript": "7.0.2",
+    "wrangler": "4.114.0"
+  }
+}

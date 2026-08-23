@@ -1,0 +1,8 @@
+name = "apis-backend"
+main = "src/worker.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Kein Binding auf einen Fund-relevanten Key — dieser Worker hält keine
+# Wallet, keinen Private Key, nichts, was Custody bedeuten würde (siehe
+# Gesamtplan §1/§8). Reine Lese-/Verifikations-/Validierungslogik.
