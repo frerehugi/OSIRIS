@@ -210,16 +210,16 @@ export async function refuelApisKeeperWallet(env: ApisKeeperEnv): Promise<void> 
 // ─── TODO: Ausführungs-Zyklus ─────────────────────────────────────────────────
 //
 // Noch nicht gebaut, absichtlich nicht Teil dieses Commits:
-//   1. Preis-Check pro beobachtetem Token gegen die Provider-Registry
-//      (Mento SortedOracles / RedStone / Squid `/token-price`, siehe
+//   1. Alle offenen Orders lesen (nextOrderId iterieren, orders(id) abrufen,
+//      cancelled=false filtern) — triggerAbove/triggerPrice stehen jetzt
+//      direkt auf der Order (siehe contracts/ConditionalSellOrder.sol), also
+//      KEIN separates Backend/Datenbank mehr nötig, um "welche Order
+//      beobachtet welche Bedingung" zu wissen.
+//   2. Aktuellen Preis pro sellToken holen (Squid `/token-price`, siehe
 //      Gesamtplan §16) — pro Token gebündelt, nicht pro Order.
-//   2. Bei erfüllter Bedingung: ConditionalSellOrder.execute() aufrufen
-//      (Contract + ABI existieren, siehe contracts/ConditionalSellOrder.sol —
-//      TS-ABI dafür fehlt noch, analog zu src/dcaVaultAbi.ts anzulegen).
-//   3. refuelApisKeeperWallet() am Ende jedes Zyklus aufrufen, wie
+//   3. Bei erfüllter Bedingung (Preis >= triggerPrice bei triggerAbove=true,
+//      sonst <=): ConditionalSellOrder.execute() aufrufen (Contract + ABI
+//      existieren, siehe contracts/ConditionalSellOrder.sol — TS-ABI dafür
+//      fehlt noch, analog zu src/dcaVaultAbi.ts anzulegen).
+//   4. refuelApisKeeperWallet() am Ende jedes Zyklus aufrufen, wie
 //      autoRefuelCelo() am Ende von runKeeperCycle() in squidKeeper.ts.
-//
-// Braucht zusätzlich noch einen Ort, an dem "welche Order beobachtet welche
-// Bedingung" gespeichert wird (Apis-Backend/Datenbank) — das ist kein
-// On-Chain-Zustand (die Preisbedingung selbst lebt bewusst off-chain, siehe
-// Gesamtplan §15) und existiert als Konzept noch nicht als Code.

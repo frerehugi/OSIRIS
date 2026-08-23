@@ -57,6 +57,19 @@ export interface CompiledPlan {
     bps:           number;
     maxExecutions: number;
     priceCondition: { direction: 'above' | 'below'; priceUsd: number };
+    // Rohe createOrder()-Argumente für ConditionalSellOrder.sol (siehe
+    // contracts/ConditionalSellOrder.sol) — triggerAbove/triggerPrice sind
+    // dort informationelle On-Chain-Metadaten, kein enforced Constraint.
+    // triggerPrice ist priceUsd mit 8 Nachkommastellen (wie Chainlink/Squid),
+    // als String (JSON kennt kein bigint), analog setupPlanArgs.totalAmount.
+    createOrderArgs: {
+      sellToken:     `0x${string}`;
+      targetToken:   `0x${string}`;
+      bps:           number;
+      maxExecutions: number;
+      triggerAbove:  boolean;
+      triggerPrice:  string;
+    };
   };
 }
 
@@ -146,13 +159,24 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     if (!Number.isInteger(sellTrigger.maxExecutions) || sellTrigger.maxExecutions <= 0) {
       errors.push('Sell trigger maxExecutions must be a positive whole number.');
     }
-    if (sellToken && sellTargetToken) {
+    if (!(sellTrigger.priceUsd > 0)) {
+      errors.push('Sell trigger price must be greater than zero.');
+    }
+    if (sellToken && sellTargetToken && sellTrigger.priceUsd > 0) {
       compiledSellOrder = {
         sellToken: sellToken.address,
         targetToken: sellTargetToken.address,
         bps: sellTrigger.bps,
         maxExecutions: sellTrigger.maxExecutions,
         priceCondition: { direction: sellTrigger.direction, priceUsd: sellTrigger.priceUsd },
+        createOrderArgs: {
+          sellToken: sellToken.address,
+          targetToken: sellTargetToken.address,
+          bps: sellTrigger.bps,
+          maxExecutions: sellTrigger.maxExecutions,
+          triggerAbove: sellTrigger.direction === 'above',
+          triggerPrice: parseUnits(sellTrigger.priceUsd.toString(), 8).toString(),
+        },
       };
     }
   }
