@@ -292,6 +292,40 @@ button {
   font-weight: 700;
 }
 
+/* ── Trigger-Plan-Flow (Buy/Sell Coin-Select) ───────────────────────────── */
+
+.coin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  text-align: left;
+}
+
+.coin-row:last-child {
+  border-bottom: none;
+}
+
+.coin-row--selected {
+  background: var(--gold-dim);
+  border-radius: 12px;
+  border-bottom-color: transparent;
+}
+
+.coin-row__check {
+  margin-left: auto;
+  color: var(--gold-light);
+  font-weight: 700;
+  font-size: 16px;
+}
+
 .holdings-note {
   margin: 20px 18px 24px;
   font-size: 12px;

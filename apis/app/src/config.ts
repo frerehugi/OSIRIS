@@ -17,9 +17,11 @@ export {
 
 export { ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from '../../../src/dcaVaultAbi';
 
-// ConditionalSellOrder-Adresse — noch kein Mainnet-Deploy (siehe
-// script/DeploySellOrder.s.sol), Platzhalter bis dahin.
-export const CONDITIONAL_SELL_ORDER_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
+// TriggerVaultFactory-Adresse — noch kein Mainnet-Deploy (siehe
+// script/DeployTriggerVaultFactory.s.sol), Platzhalter bis dahin. Ersetzt
+// die frühere CONDITIONAL_SELL_ORDER_ADDRESS (siehe Chat: "eigener Vault
+// pro Plan" statt eines geteilten Contracts).
+export const TRIGGER_VAULT_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
 
 // Apis-Keeper-Wallet — für Anzeige-/Freigabezwecke in der UI (z.B. "Create
 // New Code for Agent"-Flow), keine Secrets. Siehe Gesamtplan §20.

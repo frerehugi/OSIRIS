@@ -82,7 +82,7 @@ export default function Holdings() {
                 <button
                   type="button"
                   className="holding-row__sell"
-                  onClick={() => navigate(`/sell-trigger?token=${token.symbol}`)}
+                  onClick={() => navigate(`/trigger-setup/sell?token=${token.symbol}`)}
                   aria-label={`Set a sell trigger for ${token.symbol}`}
                 >
                   Sell

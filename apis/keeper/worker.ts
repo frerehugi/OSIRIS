@@ -21,8 +21,8 @@ export default {
           if (results.length === 0) {
             console.info("Apis-Keeper: Done — nichts ausgeführt.");
           } else {
-            for (const { orderId, txHash } of results) {
-              console.info(`Apis-Keeper: Done — Order ${orderId} -> ${txHash}`);
+            for (const { vaultAddress, txHash } of results) {
+              console.info(`Apis-Keeper: Done — Vault ${vaultAddress} -> ${txHash}`);
             }
           }
         })
