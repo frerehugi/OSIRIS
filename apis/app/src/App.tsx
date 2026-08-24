@@ -5,6 +5,7 @@ import Home from './screens/Home';
 import Holdings from './screens/Holdings';
 import Plans from './screens/Plans';
 import CreateCode from './screens/CreateCode';
+import ConfirmPlan from './screens/ConfirmPlan';
 import SellTrigger from './screens/SellTrigger';
 import About from './screens/About';
 
@@ -28,6 +29,10 @@ export default function App() {
       <Route
         path="/plans"
         element={<RequireConnection><Plans /></RequireConnection>}
+      />
+      <Route
+        path="/confirm-plan"
+        element={<RequireConnection><ConfirmPlan /></RequireConnection>}
       />
       <Route
         path="/holdings"

@@ -7,8 +7,9 @@ interface MenuItem {
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { to: '/create-code', title: 'Create New Code for Agent', sub: 'Grant your AI temporary access' },
-  { to: '/plans',       title: 'My Plans',                  sub: 'Active plans & purchase history' },
+  { to: '/create-code',  title: 'Create New Code for Agent', sub: 'Grant your AI temporary access' },
+  { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a plan your AI assistant proposed' },
+  { to: '/plans',        title: 'My Plans',                  sub: 'Active plans & purchase history' },
   { to: '/holdings',    title: 'My Holdings',                sub: 'USDC · USDT · CELO · XAUoT · wBTC · wETH' },
   { to: '/sell-trigger', title: 'Sell Trigger',              sub: 'Sell automatically once a price is hit' },
   { to: '/about',       title: 'About Apis',                 sub: 'Terms, disclaimer & support' },

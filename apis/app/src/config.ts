@@ -11,10 +11,11 @@ export {
   SQUID_INTEGRATOR_ID,
   INPUT_TOKENS,
   TARGET_TOKENS,
+  FACTORY_ADDRESS,
   type TokenInfo,
 } from '../../../src/config';
 
-export { ERC20_ABI } from '../../../src/dcaVaultAbi';
+export { ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from '../../../src/dcaVaultAbi';
 
 // ConditionalSellOrder-Adresse — noch kein Mainnet-Deploy (siehe
 // script/DeploySellOrder.s.sol), Platzhalter bis dahin.
