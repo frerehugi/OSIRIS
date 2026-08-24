@@ -1,6 +1,6 @@
 // Capability-Schema — maschinenlesbare Beschreibung dessen, was OSIRIS/Squid
-// und Apis' eigener ConditionalSellOrder-Contract können (siehe Gesamtplan §8).
-// Rein statische Daten, reuse der bestehenden OSIRIS-Token-Konfiguration statt
+// und Apis' eigener TriggerVault-Contract können (siehe Gesamtplan §8). Rein
+// statische Daten, reuse der bestehenden OSIRIS-Token-Konfiguration statt
 // einer zweiten, potenziell abweichenden Kopie (gleiches Prinzip wie in
 // apis/app/src/config.ts).
 
@@ -30,11 +30,12 @@ export function buildCapabilities() {
       note: 'Fee is charged by the OSIRIS contract itself on every execution, independent of who calls it.',
     },
 
-    sellOrder: {
-      description: 'Conditional, keeper-executed sell order on Apis’s own ConditionalSellOrder contract. Works on any held token, not only ones bought via OSIRIS.',
+    triggerSellPlan: {
+      description: 'A single-price, keeper-executed take-profit sell, escrowed for real in its own Apis TriggerVault clone. Works on any held token, not only ones bought via OSIRIS.',
       feeBps: 99,
-      typicalMaxExecutions: 1,
-      note: 'Price conditions are evaluated off-chain by the Apis keeper (soft trigger) — the contract itself has no oracle.',
+      direction: 'take-profit only — sells once the price is at or above the trigger price.',
+      timeLimits: ['1d', '1w', '1m', 'none'],
+      note: 'The trigger price is evaluated off-chain by the Apis keeper (soft trigger) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.',
     },
 
     priceSources: [

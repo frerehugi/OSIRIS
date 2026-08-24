@@ -11,6 +11,12 @@ export const TRIGGER_VAULT_FACTORY_ABI = [
     outputs: [{ name: "vault", type: "address" }],
   },
   {
+    type: "function", name: "getVaults",
+    stateMutability: "view",
+    inputs: [{ name: "_owner", type: "address" }],
+    outputs: [{ name: "", type: "address[]" }],
+  },
+  {
     type: "event", name: "VaultCreated",
     inputs: [
       { name: "owner", type: "address", indexed: true },
@@ -33,5 +39,45 @@ export const TRIGGER_VAULT_ABI = [
       { name: "_expiresAt",    type: "uint256" },
     ],
     outputs: [],
+  },
+  {
+    type: "function", name: "heldToken",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "outputToken",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "amount",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "triggerAbove",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "triggerPrice",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "expiresAt",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "initialized",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "cancelled",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "executed",
+    stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function", name: "cancel",
+    stateMutability: "nonpayable", inputs: [], outputs: [],
   },
 ] as const;

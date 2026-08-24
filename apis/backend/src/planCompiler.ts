@@ -16,6 +16,13 @@ const INTERVAL_SECONDS: Record<string, number> = {
   weekly: 604_800,
 };
 
+// Wie TIME_LIMIT_SECONDS in apis/app/src/triggerPlanTypes.ts — eigene Kopie
+// statt Cross-Package-Import (siehe Gesamtplan §22, kein Sharing zwischen
+// apis/app/backend/keeper).
+const TIME_LIMIT_SECONDS: Record<string, number> = {
+  '1d': 86_400, '1w': 604_800, '1m': 2_592_000, none: 0,
+};
+
 export interface PlanTargetInput {
   token: keyof typeof TARGET_TOKENS;
   bps:   number;
@@ -30,21 +37,20 @@ export interface PlanDraft {
   targets:     PlanTargetInput[];
 }
 
-// Take-Profit ("above") und Stop-Loss ("below") sind beide gültige, unabhängige
-// Sell-Order-Typen (siehe Chat) — deshalb hier als zwei optionale Preise statt
-// eines Entweder-oder-Felds, genau wie im Sell-Trigger-Screen
-// (apis/app/src/screens/SellTrigger.tsx). Mindestens einer der beiden muss
-// gesetzt sein; jeder gesetzte Preis wird zu einer eigenen createOrder()-
-// Order, beide teilen sich bps/maxExecutions (dieselbe Positionsgröße, nur
-// die Richtung entscheidet, welche zuerst greift — kein automatisches
-// One-Cancels-the-Other, siehe SellTrigger.tsx-Kommentar).
+// Ein Sell-Trigger ist jetzt ein eigener TriggerVault-Plan (siehe
+// contracts/TriggerVault.sol, ersetzt das frühere ConditionalSellOrder-
+// Bracket aus takeProfitUsd/stopLossUsd) — echtes Escrow statt eines
+// Allowance-Pulls, deshalb ein FESTER `amount` statt eines bps-Anteils an
+// einem künftigen Bestand. Nur noch Take-Profit (Preis steigt auf/über
+// triggerPriceUsd) — Stop-Loss wurde mit dem Umstieg auf Einzel-Preis+
+// Zeitlimit gestrichen (siehe Chat: "Ersetzen — nur noch ein Preis +
+// Zeitlimit", spiegelt apis/app/src/screens/SellPlanDetails.tsx).
 export interface SellTriggerDraft {
-  sellToken:      keyof typeof TARGET_TOKENS;
-  targetToken:    keyof typeof TARGET_TOKENS | keyof typeof INPUT_TOKENS;
-  bps:            number;
-  maxExecutions:  number;
-  takeProfitUsd?: number;
-  stopLossUsd?:   number;
+  sellToken:       keyof typeof TARGET_TOKENS;
+  targetToken:     keyof typeof TARGET_TOKENS | keyof typeof INPUT_TOKENS;
+  amount:          string; // human units of sellToken, e.g. "0.05"
+  triggerPriceUsd: number; // sell once the price is at or above this
+  timeLimit?:      '1d' | '1w' | '1m' | 'none'; // default 'none' (unlimited)
 }
 
 export interface CompiledPlan {
@@ -59,28 +65,25 @@ export interface CompiledPlan {
     targetTokens:            `0x${string}`[];
     targetBps:                number[];
   };
-  // Ein Eintrag pro gesetztem Take-Profit/Stop-Loss-Preis (1 oder 2), jeder
-  // eine eigenständige createOrder()-Transaktion — siehe SellTriggerDraft.
-  sellOrders?: {
-    sellToken:     `0x${string}`;
-    targetToken:   `0x${string}`;
-    bps:           number;
-    maxExecutions: number;
-    priceCondition: { direction: 'above' | 'below'; priceUsd: number };
-    // Rohe createOrder()-Argumente für ConditionalSellOrder.sol (siehe
-    // contracts/ConditionalSellOrder.sol) — triggerAbove/triggerPrice sind
-    // dort informationelle On-Chain-Metadaten, kein enforced Constraint.
-    // triggerPrice ist priceUsd mit 8 Nachkommastellen (wie Chainlink/Squid),
-    // als String (JSON kennt kein bigint), analog setupPlanArgs.totalAmount.
-    createOrderArgs: {
-      sellToken:     `0x${string}`;
-      targetToken:   `0x${string}`;
-      bps:           number;
-      maxExecutions: number;
-      triggerAbove:  boolean;
-      triggerPrice:  string;
+  // Der optionale angehängte Sell-Trigger, kompiliert zu den exakten
+  // TriggerVault.setupPlan()-Argumenten (siehe contracts/TriggerVault.sol) —
+  // eine eigenständige 3-Transaktionen-Sequenz (createVault → approve →
+  // setupPlan), analog zum Buy-Plan oben, aber auf der TriggerVaultFactory
+  // statt der DcaVaultFactory. triggerPrice ist priceUsd mit 8
+  // Nachkommastellen (wie Chainlink/Squid), amount/triggerPrice als String
+  // (JSON kennt kein bigint), analog setupPlanArgs.totalAmount.
+  triggerSell?: {
+    priceUsd: number;
+    setupPlanArgs: {
+      heldToken:    `0x${string}`; // das zu verkaufende Token (sellToken)
+      outputToken:  `0x${string}`; // wofür verkauft wird (targetToken)
+      watchToken:   `0x${string}`; // == heldToken, der beobachtete Preis
+      amount:       string;
+      triggerAbove: true; // nur noch Take-Profit, siehe SellTriggerDraft
+      triggerPrice: string;
+      expiresAt:    number; // 0 = zeitlich unbegrenzt
     };
-  }[];
+  };
 }
 
 export interface InvalidPlan {
@@ -154,7 +157,7 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     }
   }
 
-  let compiledSellOrders: CompiledPlan['sellOrders'];
+  let compiledTriggerSell: CompiledPlan['triggerSell'];
   if (sellTrigger) {
     const sellToken = resolveTargetToken(sellTrigger.sellToken);
     const sellTargetToken = resolveAnyToken(sellTrigger.targetToken);
@@ -163,40 +166,36 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     if (sellToken && sellTargetToken && sellToken.address === sellTargetToken.address) {
       errors.push('Sell trigger token and target token must differ.');
     }
-    if (sellTrigger.bps <= 0 || sellTrigger.bps > BPS_DENOMINATOR) {
-      errors.push('Sell trigger bps must be between 1 and 10000.');
-    }
-    if (!Number.isInteger(sellTrigger.maxExecutions) || sellTrigger.maxExecutions <= 0) {
-      errors.push('Sell trigger maxExecutions must be a positive whole number.');
+    if (!(sellTrigger.triggerPriceUsd > 0)) errors.push('Sell trigger price must be greater than zero.');
+
+    let sellAmountRaw = 0n;
+    if (sellToken) {
+      try {
+        sellAmountRaw = parseUnits(sellTrigger.amount, sellToken.decimals);
+      } catch {
+        errors.push(`'${sellTrigger.amount}' is not a valid sell trigger amount.`);
+      }
+      if (sellAmountRaw <= 0n) errors.push('Sell trigger amount must be greater than zero.');
     }
 
-    const legs: { direction: 'above' | 'below'; priceUsd: number }[] = [];
-    if (sellTrigger.takeProfitUsd !== undefined) {
-      if (!(sellTrigger.takeProfitUsd > 0)) errors.push('Take-profit price must be greater than zero.');
-      else legs.push({ direction: 'above', priceUsd: sellTrigger.takeProfitUsd });
-    }
-    if (sellTrigger.stopLossUsd !== undefined) {
-      if (!(sellTrigger.stopLossUsd > 0)) errors.push('Stop-loss price must be greater than zero.');
-      else legs.push({ direction: 'below', priceUsd: sellTrigger.stopLossUsd });
-    }
-    if (legs.length === 0) errors.push('Sell trigger needs at least a take-profit or a stop-loss price.');
+    const timeLimit = sellTrigger.timeLimit ?? 'none';
+    if (!(timeLimit in TIME_LIMIT_SECONDS)) errors.push(`Unknown time limit '${timeLimit}'. Use 1d, 1w, 1m, or none.`);
 
-    if (sellToken && sellTargetToken && legs.length > 0) {
-      compiledSellOrders = legs.map((leg) => ({
-        sellToken: sellToken.address,
-        targetToken: sellTargetToken.address,
-        bps: sellTrigger.bps,
-        maxExecutions: sellTrigger.maxExecutions,
-        priceCondition: { direction: leg.direction, priceUsd: leg.priceUsd },
-        createOrderArgs: {
-          sellToken: sellToken.address,
-          targetToken: sellTargetToken.address,
-          bps: sellTrigger.bps,
-          maxExecutions: sellTrigger.maxExecutions,
-          triggerAbove: leg.direction === 'above',
-          triggerPrice: parseUnits(leg.priceUsd.toString(), 8).toString(),
+    if (sellToken && sellTargetToken && sellAmountRaw > 0n && sellTrigger.triggerPriceUsd > 0) {
+      const limitSeconds = TIME_LIMIT_SECONDS[timeLimit] ?? 0;
+      const expiresAt = limitSeconds === 0 ? 0 : Math.floor(Date.now() / 1000) + limitSeconds;
+      compiledTriggerSell = {
+        priceUsd: sellTrigger.triggerPriceUsd,
+        setupPlanArgs: {
+          heldToken: sellToken.address,
+          outputToken: sellTargetToken.address,
+          watchToken: sellToken.address,
+          amount: sellAmountRaw.toString(),
+          triggerAbove: true,
+          triggerPrice: parseUnits(sellTrigger.triggerPriceUsd.toString(), 8).toString(),
+          expiresAt,
         },
-      }));
+      };
     }
   }
 
@@ -206,10 +205,9 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
 
   const buySummary = `Buy: ${draft.totalAmount} ${draft.inputToken} split across ${draft.duration} ${draft.interval} tranches into ` +
     resolvedTargets.map((t) => `${t.bps / 100}% ${draft.targets.find((d) => resolveTargetToken(d.token)?.address === t.address)?.token}`).join(', ');
-  const sellSummary = compiledSellOrders
-    ? ' ' + compiledSellOrders.map((order) =>
-        `Sell: ${sellTrigger!.bps / 100}% of held ${sellTrigger!.sellToken} for ${sellTrigger!.targetToken}, once, if price is ${order.priceCondition.direction} $${order.priceCondition.priceUsd} (${order.priceCondition.direction === 'above' ? 'take profit' : 'stop loss'}).`
-      ).join(' ')
+  const sellSummary = compiledTriggerSell
+    ? ` Sell: ${sellTrigger!.amount} ${sellTrigger!.sellToken} for ${sellTrigger!.targetToken}, once, if price is at or above $${compiledTriggerSell.priceUsd} (take profit)` +
+      (compiledTriggerSell.setupPlanArgs.expiresAt === 0 ? '.' : ` — expires ${new Date(compiledTriggerSell.setupPlanArgs.expiresAt * 1000).toISOString()}.`)
     : '';
 
   return {
@@ -224,6 +222,6 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
       targetTokens: resolvedTargets.map((t) => t.address),
       targetBps: resolvedTargets.map((t) => t.bps),
     },
-    sellOrders: compiledSellOrders,
+    triggerSell: compiledTriggerSell,
   };
 }

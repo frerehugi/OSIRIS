@@ -100,15 +100,15 @@ export function buildServer(): McpServer {
         duration:    z.number().int().positive().describe('Number of tranches.'),
         targets:     z.array(z.object({ token: targetTokenEnum, bps: z.number().int().min(1).max(10_000) })),
         sellTrigger: z.object({
-          sellToken:     targetTokenEnum,
-          targetToken:   anyTokenEnum,
-          bps:           z.number().int().min(1).max(10_000),
-          maxExecutions: z.number().int().positive().default(1),
-          takeProfitUsd: z.number().positive().optional().describe('Sell if the price goes above this — take profit.'),
-          stopLossUsd:   z.number().positive().optional().describe('Sell if the price goes below this — stop loss.'),
+          sellToken:       targetTokenEnum.describe('The token to lock into the sell vault now.'),
+          targetToken:     anyTokenEnum.describe('What to sell it for once the trigger fires.'),
+          amount:          z.string().describe('Human-readable amount of sellToken to lock into the vault now, e.g. "0.05".'),
+          triggerPriceUsd: z.number().positive().describe('Sell once the price is at or above this (take-profit).'),
+          timeLimit:       z.enum(['1d', '1w', '1m', 'none']).default('none').describe('How long the plan stays open before it can no longer be executed. It can be cancelled any time regardless.'),
         }).optional().describe(
-          'Optional conditional sell, evaluated off-chain by the Apis keeper, not by the OSIRIS contract. Set ' +
-          'takeProfitUsd and/or stopLossUsd — each becomes its own independent sell order (a bracket if both are set).',
+          'Optional attached sell-trigger plan, created as its own TriggerVault right after the buy plan — locks ' +
+          "`amount` of sellToken into escrow immediately (only works for a token the user already holds), evaluated " +
+          'off-chain by the Apis keeper. Skipped automatically if the user does not currently hold enough sellToken.',
         ),
       },
     },

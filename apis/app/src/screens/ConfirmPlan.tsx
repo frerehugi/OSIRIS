@@ -4,8 +4,9 @@ import { useConnection, usePublicClient, useWriteContract } from 'wagmi';
 import { formatUnits, parseEventLogs } from 'viem';
 import {
   ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, FACTORY_ADDRESS,
-  TARGET_TOKENS, INPUT_TOKENS, type TokenInfo,
+  TARGET_TOKENS, INPUT_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
 } from '../config';
+import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
 import type { AnyTokenSymbol } from '../tokenVisuals';
 import TokenIcon from '../components/TokenIcon';
 
@@ -21,13 +22,13 @@ import TokenIcon from '../components/TokenIcon';
 /// (siehe CreateCode.tsx): kein Backend/State nötig, um ihn zu übertragen,
 /// nur base64url(JSON) von genau dem, was propose_plan zurückgibt.
 ///
-/// Nur der DCA-Kaufplan-Teil von propose_plan wird hier ausgeführt. Der
-/// ältere sellOrders-Anhang (ConditionalSellOrder-basiert) ist mit der
-/// TriggerVault-Umstellung (siehe TriggerPlanReview.tsx) entfallen — das
-/// Backend gibt sellOrders derzeit noch im alten Format aus, das hier
-/// bewusst ignoriert wird, bis planCompiler.ts auf TriggerVault umgestellt
-/// ist. Sell-Trigger werden bis dahin über "Set up new trigger plan" im
-/// Home-Menü separat eingerichtet.
+/// Der optionale triggerSell-Anhang läuft über TriggerVaultFactory/
+/// TriggerVault (siehe planCompiler.ts) — dieselbe 3-Transaktionen-Sequenz
+/// wie der Buy-Plan, nur NACH ihm und nur, wenn der User das sellToken
+/// JETZT SCHON in ausreichender Menge hält (echtes Escrow, kein bloßes
+/// Allowance-Pull-Modell — der Betrag muss beim Setup real vorhanden sein).
+/// Reicht der Bestand nicht, wird der Sell-Trigger übersprungen, mit
+/// Hinweis, ihn später über My Holdings → Sell nachzuholen.
 
 interface ProposedPlan {
   summary: string;
@@ -39,6 +40,18 @@ interface ProposedPlan {
     firstExecutionTimestamp: number;
     targetTokens:            `0x${string}`[];
     targetBps:               number[];
+  };
+  triggerSell?: {
+    priceUsd: number;
+    setupPlanArgs: {
+      heldToken:    `0x${string}`;
+      outputToken:  `0x${string}`;
+      watchToken:   `0x${string}`;
+      amount:       string;
+      triggerAbove: true;
+      triggerPrice: string;
+      expiresAt:    number;
+    };
   };
 }
 
@@ -59,7 +72,11 @@ function decodePlanCode(code: string): ProposedPlan {
 
 const INTERVAL_LABEL: Record<number, string> = { 3_600: 'hourly', 86_400: 'daily', 604_800: 'weekly' };
 
-type Phase = 'idle' | 'creating-vault' | 'approving-buy' | 'setting-up-plan' | 'done';
+type Phase =
+  | 'idle' | 'creating-vault' | 'approving-buy' | 'setting-up-plan'
+  | 'creating-sell-vault' | 'approving-sell' | 'setting-up-sell-plan' | 'done';
+
+type SellOutcome = { status: 'created'; vaultAddress: `0x${string}` } | { status: 'skipped-no-balance' };
 
 export default function ConfirmPlan() {
   const navigate = useNavigate();
@@ -74,6 +91,7 @@ export default function ConfirmPlan() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [vaultAddress, setVaultAddress] = useState<`0x${string}` | null>(null);
+  const [sellOutcome, setSellOutcome] = useState<SellOutcome | null>(null);
 
   const loadCode = () => {
     setParseError(null);
@@ -122,11 +140,53 @@ export default function ConfirmPlan() {
       });
       await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
 
+      // ── Angehängter Sell-Trigger (nur, wenn das sellToken JETZT SCHON in ausreichender Menge gehalten wird) ──
+      if (plan.triggerSell) {
+        const { heldToken, outputToken, watchToken, amount, triggerAbove, triggerPrice, expiresAt } = plan.triggerSell.setupPlanArgs;
+        const sellAmountRaw = BigInt(amount);
+        const currentBalance = await publicClient.readContract({
+          address: heldToken, abi: ERC20_ABI, functionName: 'balanceOf', args: [address],
+        }) as bigint;
+
+        if (currentBalance < sellAmountRaw) {
+          setSellOutcome({ status: 'skipped-no-balance' });
+        } else {
+          setPhase('creating-sell-vault');
+          const createSellVaultHash = await writeContractAsync({
+            address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'createVault',
+          });
+          const createSellVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createSellVaultHash });
+          const [sellVaultCreatedEvent] = parseEventLogs({ abi: TRIGGER_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createSellVaultReceipt.logs });
+          const newSellVaultAddress = sellVaultCreatedEvent?.args.vault;
+          if (!newSellVaultAddress) throw new Error('Sell vault was created, but its address could not be read from the event.');
+
+          setPhase('approving-sell');
+          const sellApproveHash = await writeContractAsync({
+            address: heldToken, abi: ERC20_ABI, functionName: 'approve', args: [newSellVaultAddress, sellAmountRaw],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: sellApproveHash });
+
+          setPhase('setting-up-sell-plan');
+          const setupSellPlanHash = await writeContractAsync({
+            address: newSellVaultAddress,
+            abi: TRIGGER_VAULT_ABI,
+            functionName: 'setupPlan',
+            args: [heldToken, outputToken, watchToken, sellAmountRaw, triggerAbove, BigInt(triggerPrice), BigInt(expiresAt)],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: setupSellPlanHash });
+
+          setSellOutcome({ status: 'created', vaultAddress: newSellVaultAddress });
+        }
+      }
+
       setPhase('done');
     } catch (err) {
       const label =
         phase === 'creating-vault' ? 'Creating the vault' :
-        phase === 'approving-buy' ? 'Approval' : 'Setting up the plan';
+        phase === 'approving-buy' ? 'Approval' :
+        phase === 'setting-up-plan' ? 'Setting up the plan' :
+        phase === 'creating-sell-vault' ? 'Creating the sell vault' :
+        phase === 'approving-sell' ? 'Sell approval' : 'Setting up the sell plan';
       setError(err instanceof Error ? `${label} failed: ${err.message}` : `${label} failed. Please try again.`);
       setPhase('idle');
     }
@@ -147,6 +207,16 @@ export default function ConfirmPlan() {
           <p className="sell-done__sub">
             {formatUnits(BigInt(plan.setupPlanArgs.totalAmount), inputTokenInfo.decimals)} {inputTokenInfo.symbol} will now buy across {plan.setupPlanArgs.duration} {INTERVAL_LABEL[plan.setupPlanArgs.interval] ?? ''} tranches.
           </p>
+          {plan.triggerSell && sellOutcome?.status === 'created' && (
+            <p className="sell-done__sub">
+              Sell trigger on {tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol} (at or above ${plan.triggerSell.priceUsd.toLocaleString()}) is active.
+            </p>
+          )}
+          {plan.triggerSell && sellOutcome?.status === 'skipped-no-balance' && (
+            <p className="sell-done__sub">
+              Sell trigger on {tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol} wasn't set up — you don't hold enough of it yet. Add it later from My Holdings → Sell.
+            </p>
+          )}
           {vaultAddress && (
             <a className="sell-done__link" href={`https://celoscan.io/address/${vaultAddress}`} rel="noreferrer">
               View vault ↗
@@ -228,6 +298,24 @@ export default function ConfirmPlan() {
             </div>
           </div>
 
+          {plan.triggerSell && (
+            <>
+              <div className="section-label">Sell</div>
+              <div className="sell-card">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <TokenIcon token={tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol as AnyTokenSymbol} size={16} />
+                    {formatUnits(BigInt(plan.triggerSell.setupPlanArgs.amount), tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).decimals)} {tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--success)' }}>
+                    at or above ${plan.triggerSell.priceUsd.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              <p className="sell-sub">Only created if you already hold enough of it — otherwise set up later from My Holdings.</p>
+            </>
+          )}
+
           <p className="fee-note">
             <b>Apis fee:</b> 0.99%, min. $0.035 per step — only charged when a step actually executes.
           </p>
@@ -241,6 +329,9 @@ export default function ConfirmPlan() {
             {phase === 'creating-vault' ? 'Confirm vault creation in MiniPay…'
               : phase === 'approving-buy' ? 'Confirm approval in MiniPay…'
               : phase === 'setting-up-plan' ? 'Confirm plan setup in MiniPay…'
+              : phase === 'creating-sell-vault' ? 'Confirm sell vault creation in MiniPay…'
+              : phase === 'approving-sell' ? 'Confirm sell approval in MiniPay…'
+              : phase === 'setting-up-sell-plan' ? 'Confirm sell plan setup in MiniPay…'
               : 'Confirm & Sign in MiniPay'}
           </button>
         </>
