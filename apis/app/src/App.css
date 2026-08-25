@@ -280,52 +280,6 @@ button {
   color: var(--text);
 }
 
-.holding-row__sell {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border-gold);
-  background: transparent;
-  color: var(--gold-light);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-/* ── Trigger-Plan-Flow (Buy/Sell Coin-Select) ───────────────────────────── */
-
-.coin-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 56px;
-  padding: 14px 4px;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  border-left: none;
-  border-right: none;
-  border-top: none;
-  text-align: left;
-}
-
-.coin-row:last-child {
-  border-bottom: none;
-}
-
-.coin-row--selected {
-  background: var(--gold-dim);
-  border-radius: 12px;
-  border-bottom-color: transparent;
-}
-
-.coin-row__check {
-  margin-left: auto;
-  color: var(--gold-light);
-  font-weight: 700;
-  font-size: 16px;
-}
-
 .holdings-note {
   margin: 20px 18px 24px;
   font-size: 12px;
@@ -813,11 +767,6 @@ button {
 
 /* ── Sell Trigger ────────────────────────────────────────────────────── */
 
-.segmented--4 button {
-  font-size: 12px;
-  padding: 0 2px;
-}
-
 .sell-sub {
   padding: 8px 18px 0;
   font-size: 13px;
@@ -835,144 +784,6 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-.sell-card--row {
-  flex-direction: row;
-  align-items: center;
-}
-
-.sell-amount {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.sell-amount__value {
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
-}
-
-.sell-amount__of {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-/* Identisch zu OSIRIS' .slider-row input — kompletter manueller Override
-   (siehe App.css-Kommentar dort zum MiniPay-WebView-Bug mit
-   ::-webkit-slider-thumb bei nur teilweise zurückgesetztem appearance).
-   Track-Füllung + Thumb-Farbe kommen wie bei OSIRIS aus der Token-Farbe
-   (inline Gradient + slider-thumb-<TOKEN>-Klasse, siehe SellTrigger.tsx). */
-.sell-slider {
-  width: 100%;
-  height: 4px;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  outline: none;
-  cursor: pointer;
-  margin: 8px 0;
-}
-
-.sell-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--gold);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  margin-top: -8px;
-}
-
-.sell-slider::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--gold);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-}
-
-.sell-slider::-moz-range-track {
-  height: 4px;
-  border-radius: 999px;
-  background: transparent;
-}
-
-.sell-slider.slider-thumb-wBTC::-webkit-slider-thumb  { background: #F7931A; }
-.sell-slider.slider-thumb-wBTC::-moz-range-thumb      { background: #F7931A; }
-.sell-slider.slider-thumb-wETH::-webkit-slider-thumb  { background: #627EEA; }
-.sell-slider.slider-thumb-wETH::-moz-range-thumb      { background: #627EEA; }
-.sell-slider.slider-thumb-CELO::-webkit-slider-thumb  { background: #FCFF52; }
-.sell-slider.slider-thumb-CELO::-moz-range-thumb      { background: #FCFF52; }
-.sell-slider.slider-thumb-XAUoT::-webkit-slider-thumb { background: var(--gold); }
-.sell-slider.slider-thumb-XAUoT::-moz-range-thumb     { background: var(--gold); }
-
-.sell-select {
-  width: 100%;
-  min-height: 44px;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.sell-select option {
-  background: var(--dark2);
-  color: var(--text);
-}
-
-.sell-price-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 8px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-}
-
-.sell-price-row span:first-child {
-  color: var(--text-faint);
-}
-
-.sell-price-row span:last-child {
-  color: var(--text-faint);
-  font-size: 12px;
-}
-
-.sell-price-row input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
-  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
-}
-
-.sell-price-row input:focus {
-  outline: none;
-}
-
-.source-chip {
-  margin: 14px 18px 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-faint);
 }
 
 .fee-note {

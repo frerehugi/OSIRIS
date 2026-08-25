@@ -31,15 +31,15 @@ export function buildCapabilities() {
     },
 
     triggerSellPlan: {
-      description: 'A single-price, keeper-executed take-profit sell, escrowed for real in its own Apis TriggerVault clone. Works on any held token, not only ones bought via OSIRIS.',
+      description: 'A single-price, keeper-executed take-profit sell, escrowed for real in its own OSIRIS TriggerVault clone. Works on any held token, not only ones bought via OSIRIS.',
       feeBps: 99,
       direction: 'take-profit only — sells once the price is at or above the trigger price.',
       timeLimits: ['1d', '1w', '1m', 'none'],
-      note: 'The trigger price is evaluated off-chain by the Apis keeper (soft trigger) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.',
+      note: "The trigger price is evaluated off-chain by OSIRIS' shared keeper (soft trigger, same one that executes DCA tranches) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.",
     },
 
     // Einzige tatsächlich verwendete Quelle — muss mit getTokenPriceUsd() in
-    // apis/keeper/apisKeeper.ts übereinstimmen. Mento SortedOracles/RedStone
+    // keeper/squidKeeper.ts übereinstimmen. Mento SortedOracles/RedStone
     // standen hier früher als weitere Optionen, wurden aber nie verdrahtet
     // (siehe Kommentar dort: pragmatische V1-Entscheidung, eine einheitliche
     // Quelle statt pro-Token-Feed-IDs ohne Live-Verifikation) — der Eintrag

@@ -6,12 +6,6 @@ import Holdings from './screens/Holdings';
 import Plans from './screens/Plans';
 import CreateCode from './screens/CreateCode';
 import ConfirmPlan from './screens/ConfirmPlan';
-import TriggerSetupHub from './screens/TriggerSetupHub';
-import BuyPlanCoinSelect from './screens/BuyPlanCoinSelect';
-import BuyPlanDetails from './screens/BuyPlanDetails';
-import SellPlanCoinSelect from './screens/SellPlanCoinSelect';
-import SellPlanDetails from './screens/SellPlanDetails';
-import TriggerPlanReview from './screens/TriggerPlanReview';
 import About from './screens/About';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
@@ -42,30 +36,6 @@ export default function App() {
       <Route
         path="/holdings"
         element={<RequireConnection><Holdings /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup"
-        element={<RequireConnection><TriggerSetupHub /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup/buy"
-        element={<RequireConnection><BuyPlanCoinSelect /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup/buy/details"
-        element={<RequireConnection><BuyPlanDetails /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup/sell"
-        element={<RequireConnection><SellPlanCoinSelect /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup/sell/details"
-        element={<RequireConnection><SellPlanDetails /></RequireConnection>}
-      />
-      <Route
-        path="/trigger-setup/review"
-        element={<RequireConnection><TriggerPlanReview /></RequireConnection>}
       />
       <Route
         path="/about"

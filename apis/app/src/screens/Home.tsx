@@ -11,7 +11,6 @@ const MENU_ITEMS: MenuItem[] = [
   { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a plan your AI assistant proposed' },
   { to: '/plans',        title: 'My Plans',                  sub: 'Active plans & purchase history' },
   { to: '/holdings',      title: 'My Holdings',               sub: 'USDC · USDT · CELO · XAUoT · wBTC · wETH' },
-  { to: '/trigger-setup', title: 'Set up new trigger plan',   sub: 'Buy or sell automatically once a price is hit' },
   { to: '/about',         title: 'About Apis',                sub: 'Terms, disclaimer & support' },
 ];
 

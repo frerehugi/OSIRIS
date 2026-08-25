@@ -16,16 +16,15 @@ import type { AnyTokenSymbol } from '../tokenVisuals';
 
 interface HoldingRow extends TokenInfo {
   fullName: string;
-  sellable: boolean; // nur TARGET_TOKENS sind gültige sellToken für ConditionalSellOrder
 }
 
 const HOLDINGS: HoldingRow[] = [
-  { ...INPUT_TOKENS.USDC,   fullName: 'USD Coin',        sellable: false },
-  { ...INPUT_TOKENS.USDT,   fullName: 'Tether USD',      sellable: false },
-  { ...TARGET_TOKENS.CELO,  fullName: 'Celo',            sellable: true },
-  { ...TARGET_TOKENS.XAUoT, fullName: 'Tether Gold',     sellable: true },
-  { ...TARGET_TOKENS.wBTC,  fullName: 'Wrapped Bitcoin', sellable: true },
-  { ...TARGET_TOKENS.wETH,  fullName: 'Wrapped Ether',   sellable: true },
+  { ...INPUT_TOKENS.USDC,   fullName: 'USD Coin' },
+  { ...INPUT_TOKENS.USDT,   fullName: 'Tether USD' },
+  { ...TARGET_TOKENS.CELO,  fullName: 'Celo' },
+  { ...TARGET_TOKENS.XAUoT, fullName: 'Tether Gold' },
+  { ...TARGET_TOKENS.wBTC,  fullName: 'Wrapped Bitcoin' },
+  { ...TARGET_TOKENS.wETH,  fullName: 'Wrapped Ether' },
 ];
 
 function formatAddress(address: string): string {
@@ -78,16 +77,6 @@ export default function Holdings() {
               <div className="holding-row__amount">
                 {isLoading ? '···' : raw !== null ? formatBalance(raw, token.decimals) : '—'}
               </div>
-              {token.sellable && (
-                <button
-                  type="button"
-                  className="holding-row__sell"
-                  onClick={() => navigate(`/trigger-setup/sell?token=${token.symbol}`)}
-                  aria-label={`Set a sell trigger for ${token.symbol}`}
-                >
-                  Sell
-                </button>
-              )}
             </div>
           );
         })}

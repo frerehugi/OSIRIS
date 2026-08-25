@@ -108,7 +108,7 @@ export function buildServer(): McpServer {
         }).optional().describe(
           'Optional attached sell-trigger plan, created as its own TriggerVault right after the buy plan — locks ' +
           "`amount` of sellToken into escrow immediately (only works for a token the user already holds), evaluated " +
-          'off-chain by the Apis keeper. Skipped automatically if the user does not currently hold enough sellToken.',
+          "off-chain by OSIRIS' shared keeper. Skipped automatically if the user does not currently hold enough sellToken.",
         ),
       },
     },

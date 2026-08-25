@@ -28,7 +28,8 @@ import TokenIcon from '../components/TokenIcon';
 /// JETZT SCHON in ausreichender Menge hält (echtes Escrow, kein bloßes
 /// Allowance-Pull-Modell — der Betrag muss beim Setup real vorhanden sein).
 /// Reicht der Bestand nicht, wird der Sell-Trigger übersprungen, mit
-/// Hinweis, ihn später über My Holdings → Sell nachzuholen.
+/// Hinweis, ihn später manuell in OSIRIS 1.1 nachzuholen (Apis selbst bietet
+/// keine manuelle Plan-Erstellung mehr an, siehe Architektur-Wechsel).
 
 interface ProposedPlan {
   summary: string;
@@ -214,7 +215,7 @@ export default function ConfirmPlan() {
           )}
           {plan.triggerSell && sellOutcome?.status === 'skipped-no-balance' && (
             <p className="sell-done__sub">
-              Sell trigger on {tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol} wasn't set up — you don't hold enough of it yet. Add it later from My Holdings → Sell.
+              Sell trigger on {tokenForAddress(plan.triggerSell.setupPlanArgs.heldToken).symbol} wasn't set up — you don't hold enough of it yet. Set it up manually in OSIRIS once you do.
             </p>
           )}
           {vaultAddress && (
@@ -317,7 +318,7 @@ export default function ConfirmPlan() {
           )}
 
           <p className="fee-note">
-            <b>Apis fee:</b> 0.99%, min. $0.035 per step — only charged when a step actually executes.
+            <b>Fee:</b> 0.99%, min. $0.035 per execution — charged by the OSIRIS contract itself, only when a step actually executes.
           </p>
           <p className="fee-note">
             Apis never holds your funds. You sign every step yourself in MiniPay.
