@@ -54,6 +54,13 @@ This makes the keeper self-funding without a separate treasury contract or
 manual top-ups — but see `fee-economics.md` for why the fee level itself
 still needs to be calibrated against real gas costs, not assumed.
 
+**Open scaling item (2026-08-08):** cron currently fires hourly
+(`0 * * * *` in `keeper/wrangler.toml`), so both vault-step execution and
+the refuel check only happen once per hour. As transaction volume grows,
+plan to reduce this to every 10 minutes (`*/10 * * * *`) so vaults execute
+closer to their due time and refuel triggers faster once balances climb —
+not urgent yet, but revisit once volume picks up.
+
 `setFee(uint16 _feeBps, uint256 _minFee)` is `onlyAdmin`, hard-capped at
 500 bps (5%) on the percentage but **uncapped on the floor** — a lightweight
 lever for tuning economics post-launch without a redeploy.
