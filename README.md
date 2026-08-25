@@ -13,25 +13,30 @@ A non-custodial DCA (Dollar-Cost Averaging) vault on Celo, accessible via MiniPa
 ```
 osiris/
 ├── contracts/
-│   ├── DcaVault.sol           # Vault logic — clone implementation (EIP-1167)
-│   └── DcaVaultFactory.sol    # Creates one vault clone per user
+│   ├── DcaVault.sol             # DCA vault logic — clone implementation (EIP-1167)
+│   ├── DcaVaultFactory.sol      # Creates one DCA vault clone per user
+│   ├── TriggerVault.sol         # Price-trigger vault — one-shot buy/sell (EIP-1167 clone, one per plan)
+│   └── TriggerVaultFactory.sol  # Creates one TriggerVault clone per plan
 ├── script/
-│   ├── DeployFactory.s.sol    # Deploys implementation + factory (Mainnet)
-│   └── DeployMocks.s.sol      # Mock wBTC/XAUoT ERC-20s (Sepolia only)
+│   ├── DeployFactory.s.sol             # Deploys DCA implementation + factory (Mainnet)
+│   ├── DeployTriggerVaultFactory.s.sol # Deploys TriggerVault implementation + factory (Mainnet)
+│   └── DeployMocks.s.sol               # Mock wBTC/XAUoT ERC-20s (Sepolia only)
 ├── test/
-│   ├── DcaVault.t.sol         # Vault unit tests
-│   ├── DcaVaultFactory.t.sol  # Factory unit tests
+│   ├── DcaVault.t.sol         # DCA vault unit tests
+│   ├── DcaVaultFactory.t.sol  # DCA factory unit tests
+│   ├── TriggerVault.t.sol     # Trigger vault unit tests
 │   └── mocks/                 # MockERC20, MockSquidRouter
 ├── keeper/
-│   └── squidKeeper.ts         # Automated multi-vault executor (Node.js)
+│   └── squidKeeper.ts         # Automated executor (Node.js) — DCA tranches + trigger plans, same wallet
 ├── .github/workflows/
-│   └── keeper.yml             # Runs the keeper every hour via GitHub Actions
+│   └── keeper.yml             # Manual/backup keeper run (production uses a Cloudflare Worker cron, see keeper/worker.ts)
 ├── src/
-│   ├── App.tsx                 # React frontend — connect, vault list, 6-step wizard
+│   ├── App.tsx                 # React frontend — connect, "Your Plans" (DCA + trigger), DCA wizard, trigger wizard
 │   ├── App.css                 # Dark/gold theme
 │   ├── config.ts                # Chain IDs, contract + token addresses
 │   ├── dcaVaultAbi.ts           # DcaVault + DcaVaultFactory ABIs
-│   ├── minipayWallet.ts         # MiniPay / viem wallet integration
+│   ├── triggerVaultAbi.ts       # TriggerVault + TriggerVaultFactory ABIs
+│   ├── minipayWallet.ts         # MiniPay / viem wallet integration (DCA + trigger plans)
 │   ├── types.ts                 # Shared TypeScript interfaces
 │   └── demo/                    # Standalone design mockups (not wired to the chain)
 ├── index.html                   # Landing page (gh-pages branch)
@@ -120,19 +125,35 @@ Deploys the `DcaVault` implementation and `DcaVaultFactory` (constructor args: i
 | DcaVault (implementation) | [`0x9d148530b0EE408EAA801D74D7eA968955F24d13`](https://celoscan.io/address/0x9d148530b0ee408eaa801d74d7ea968955f24d13#code) |
 | Squid Router | `0xce16F69375520ab01377ce7B88f5BA8C48F8D666` |
 
+### Trigger Plans
+
+Alongside the recurring DCA vault, OSIRIS 1.1 adds a second, independent vault type for one-shot, price-triggered buys and sells: `TriggerVaultFactory.createVault()` clones `TriggerVault` (same EIP-1167 pattern as DCA) for exactly one plan — buy a target token once its price drops to a chosen level, or sell a holding once it rises to one. `triggerAbove`/`triggerPrice` are stored on-chain but checked off-chain by the keeper (no price oracle); `expiresAt` (optional) and `cancel()` (always available, any time) are enforced on-chain. Deploy with:
+
+```bash
+forge script script/DeployTriggerVaultFactory.s.sol \
+  --rpc-url celo_mainnet \
+  --broadcast \
+  --verify \
+  -vvvv
+```
+
+Not yet deployed — `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is still the pre-deploy placeholder, and both the frontend and keeper treat that as "feature not live yet" rather than failing.
+
 ### Testing
 
 ```bash
 forge test -vvv
 ```
 
-41 tests across two suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`), covering setup validation, execution, slippage/router/failure guards, cancellation, and factory clone creation.
+105 tests across three suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`, `TriggerVault.t.sol` — the latter covers both `TriggerVault` and `TriggerVaultFactory`), covering setup validation, execution, slippage/router/failure guards, cancellation, expiry, and factory clone creation.
 
 ---
 
 ## Keeper Service
 
 The keeper reads `DcaVaultFactory.getAllVaults()` plus any legacy vault deployed before the factory existed, batches `canExecute()` reads (groups of 10, to be gentle on the RPC provider), and for every vault that's due: fetches a real, executable route per target token from Squid (`quoteOnly: false`), simulates `executeStep(...)`, then broadcasts it.
+
+The same cycle also handles trigger plans, using the same wallet — no separate process or secrets: it reads all `TriggerVaultFactory` vaults, filters by `canExecute()` (on-chain: initialized/not cancelled/not executed/not expired), fetches the watched token's price from Squid's `/token-price`, and executes any vault whose stored `triggerAbove`/`triggerPrice` condition is met. This part of the cycle is a no-op until `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is set to a real deployment.
 
 ```bash
 # keeper/.env (never commit!)
