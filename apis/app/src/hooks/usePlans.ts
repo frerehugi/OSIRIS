@@ -4,7 +4,9 @@ import { formatUnits } from 'viem';
 import {
   getUserVaults, readPlanStatus, cancelDcaPlan, runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
 } from '../../../../src/minipayWallet';
-import { INPUT_TOKENS, TARGET_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo } from '../config';
+import {
+  ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
+} from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
 
 /// Gemeinsame Datenschicht für alle 4 "My Plans"-Unterordner (Active/
@@ -250,9 +252,61 @@ export function usePlans() {
     }
   };
 
+  // ── "Finish & close" für verwaiste, nie initialisierte DCA-Vaults ──────────
+  //
+  // Ein pending-Vault (initialized === false) kann NICHT über cancelPlan()
+  // beendet werden — der Contract verlangt initialized === true (siehe
+  // DcaVault.sol: cancelPlan() revertet mit NotInitialized()). Gleichzeitig
+  // ist inputToken/targetTokens für einen pending-Vault unbekannt (wird erst
+  // von setupPlan() selbst gesetzt), die ursprünglich geplanten Werte lassen
+  // sich also nicht rekonstruieren. Lösung: setupPlan() mit einem trivialen
+  // Platzhalter (0.01 USDC, 1 Schritt, 100% CELO) nachholen, danach sofort
+  // cancelPlan() — das gibt den vollen Betrag zurück (keine Fee außerhalb von
+  // executeStep()) und überführt den Vault sauber von 'pending' zu
+  // 'cancelled'. Kostet nur Gas (approve + setupPlan + cancelPlan).
+  const FINISH_PLACEHOLDER_AMOUNT = 10_000n; // 0.01 USDC (6 Dezimalstellen)
+
+  const [finishConfirmingAddress, setFinishConfirmingAddress] = useState<`0x${string}` | null>(null);
+  const [finishingAddress, setFinishingAddress] = useState<`0x${string}` | null>(null);
+  const [finishError, setFinishError] = useState<string | null>(null);
+
+  const finishPendingPlan = async (vaultAddress: `0x${string}`) => {
+    if (!publicClient) return;
+    setFinishConfirmingAddress(null);
+    setFinishingAddress(vaultAddress);
+    setFinishError(null);
+    try {
+      const approveHash = await writeContractAsync({
+        address: INPUT_TOKENS.USDC.address, abi: ERC20_ABI, functionName: 'approve',
+        args: [vaultAddress, FINISH_PLACEHOLDER_AMOUNT],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      const setupHash = await writeContractAsync({
+        address: vaultAddress, abi: DCA_VAULT_ABI, functionName: 'setupPlan',
+        args: [
+          INPUT_TOKENS.USDC.address, FINISH_PLACEHOLDER_AMOUNT, 1, 1n,
+          BigInt(Math.floor(Date.now() / 1000) + 60), [TARGET_TOKENS.CELO.address], [10_000],
+        ],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: setupHash });
+
+      const cancelHash = await writeContractAsync({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: 'cancelPlan' });
+      await publicClient.waitForTransactionReceipt({ hash: cancelHash });
+
+      await load();
+    } catch (err) {
+      setFinishError(err instanceof Error ? err.message : 'Could not finish this plan. Please try again.');
+    } finally {
+      setFinishingAddress(null);
+    }
+  };
+
   return {
     plans, plansLoading: loading, plansError: error,
     confirmingAddress, setConfirmingAddress, cancellingAddress, cancelError, confirmCancel,
+
+    finishConfirmingAddress, setFinishConfirmingAddress, finishingAddress, finishError, finishPendingPlan,
 
     triggerPlans, triggerPlansLoading: vaultListLoading || triggerDetailsLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,

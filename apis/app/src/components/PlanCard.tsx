@@ -9,15 +9,23 @@ import TokenIcon from './TokenIcon';
 /// 'active', taucht also auf den anderen beiden Screens nie auf.
 
 interface PlanCardProps {
-  plan:               PlanSummary;
-  confirming:         boolean;
-  cancelling:         boolean;
-  onRequestCancel:    () => void;
-  onCancelCancel:     () => void;
-  onConfirmCancel:    () => void;
+  plan:                PlanSummary;
+  confirming:          boolean;
+  cancelling:          boolean;
+  onRequestCancel:     () => void;
+  onCancelCancel:      () => void;
+  onConfirmCancel:     () => void;
+  finishConfirming?:   boolean;
+  finishing?:          boolean;
+  onRequestFinish?:    () => void;
+  onCancelFinish?:     () => void;
+  onConfirmFinish?:    () => void;
 }
 
-export default function PlanCard({ plan, confirming, cancelling, onRequestCancel, onCancelCancel, onConfirmCancel }: PlanCardProps) {
+export default function PlanCard({
+  plan, confirming, cancelling, onRequestCancel, onCancelCancel, onConfirmCancel,
+  finishConfirming, finishing, onRequestFinish, onCancelFinish, onConfirmFinish,
+}: PlanCardProps) {
   return (
     <div className={`plan-card plan-card--${plan.status}`}>
       <div className="plan-card__top">
@@ -78,6 +86,28 @@ export default function PlanCard({ plan, confirming, cancelling, onRequestCancel
         ) : (
           <button type="button" className="btn-danger" onClick={onRequestCancel}>
             Cancel plan
+          </button>
+        )
+      )}
+
+      {plan.status === 'pending' && onRequestFinish && (
+        finishConfirming ? (
+          <div className="plan-card__confirm">
+            <p>
+              This setup never completed — it never received any funds. Finishing it does a tiny placeholder
+              setup and cancels it right away, moving it to Cancelled Plans. Nothing is spent (fully refunded),
+              only network gas applies.
+            </p>
+            <div className="plan-card__confirm-actions">
+              <button type="button" className="btn-ghost" onClick={onCancelFinish}>Not now</button>
+              <button type="button" className="btn-danger" onClick={onConfirmFinish} disabled={finishing}>
+                {finishing ? 'Finishing…' : 'Yes, finish & close'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="btn-danger" onClick={onRequestFinish}>
+            Finish & close
           </button>
         )
       )}

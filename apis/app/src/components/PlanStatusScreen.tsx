@@ -21,6 +21,7 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
   const {
     plans, plansLoading, plansError,
     confirmingAddress, setConfirmingAddress, cancellingAddress, cancelError, confirmCancel,
+    finishConfirmingAddress, setFinishConfirmingAddress, finishingAddress, finishError, finishPendingPlan,
     triggerPlans, triggerPlansLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,
   } = usePlans();
@@ -42,6 +43,7 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
       {plansLoading && <p className="plans-note">Loading your plans…</p>}
       {plansError && <p className="createcode-error">{plansError}</p>}
       {cancelError && <p className="createcode-error">{cancelError}</p>}
+      {finishError && <p className="createcode-error">{finishError}</p>}
       {!plansLoading && !plansError && dcaFiltered?.length === 0 && (
         <p className="plans-note">{emptyDca}</p>
       )}
@@ -55,6 +57,11 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
             onRequestCancel={() => setConfirmingAddress(plan.address)}
             onCancelCancel={() => setConfirmingAddress(null)}
             onConfirmCancel={() => confirmCancel(plan.address)}
+            finishConfirming={finishConfirmingAddress === plan.address}
+            finishing={finishingAddress === plan.address}
+            onRequestFinish={() => setFinishConfirmingAddress(plan.address)}
+            onCancelFinish={() => setFinishConfirmingAddress(null)}
+            onConfirmFinish={() => finishPendingPlan(plan.address)}
           />
         ))}
       </div>
