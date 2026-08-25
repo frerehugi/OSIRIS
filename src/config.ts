@@ -30,9 +30,10 @@ export const OLD_FACTORY_ADDRESS            = "0x28f5E38C41F2cDB6D436972df5F3F42
 export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477E43b87fd" as `0x${string}`;
 
 // TriggerVaultFactory — Price-Trigger-Erweiterung neben DcaVaultFactory
-// (siehe script/DeployTriggerVaultFactory.s.sol). Platzhalter bis zum
-// tatsächlichen Mainnet-Deploy.
-export const TRIGGER_VAULT_FACTORY_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+// (siehe script/DeployTriggerVaultFactory.s.sol). Deployt + auf Celoscan
+// verifiziert am 25.08.2026 (TriggerVault-Implementation:
+// 0x10FC1B7BF6d2c8e429f40C7536c35303D1CdF3D9).
+export const TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
