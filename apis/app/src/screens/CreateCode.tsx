@@ -33,6 +33,13 @@ const ACCESS_GRANT_TYPES = {
   ],
 } as const;
 
+const ASSISTANTS = [
+  { id: 'chatgpt', label: 'ChatGPT' },
+  { id: 'claude',  label: 'Claude'  },
+  { id: 'gemini',  label: 'Gemini'  },
+] as const;
+type AssistantId = (typeof ASSISTANTS)[number]['id'];
+
 function randomNonce(): bigint {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -52,10 +59,13 @@ export default function CreateCode() {
   const { address } = useConnection();
   const { signTypedDataAsync, isPending } = useSignTypedData();
 
+  const [assistant, setAssistant] = useState<AssistantId>('chatgpt');
   const [durationIndex, setDurationIndex] = useState(1); // Default 5d
   const [grantCode, setGrantCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const assistantLabel = ASSISTANTS.find((a) => a.id === assistant)!.label;
 
   const generateCode = async () => {
     if (!address) return;
@@ -68,7 +78,7 @@ export default function CreateCode() {
 
     const message = {
       owner:     address,
-      agent:     'chatgpt',
+      agent:     assistant,
       scope:     'read+propose',
       expiresAt,
       nonce,
@@ -115,18 +125,16 @@ export default function CreateCode() {
 
       <div className="section-label">Choose assistant</div>
       <div className="assistant-row">
-        <div className="assistant assistant--active">
-          ChatGPT
-          <span className="assistant__note">this example</span>
-        </div>
-        <div className="assistant assistant--disabled">
-          Claude
-          <span className="assistant__note">coming soon</span>
-        </div>
-        <div className="assistant assistant--disabled">
-          Gemini
-          <span className="assistant__note">coming soon</span>
-        </div>
+        {ASSISTANTS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className={a.id === assistant ? 'assistant assistant--active' : 'assistant'}
+            onClick={() => setAssistant(a.id)}
+          >
+            {a.label}
+          </button>
+        ))}
       </div>
 
       <div className="section-label">Access window</div>
@@ -143,7 +151,7 @@ export default function CreateCode() {
         ))}
       </div>
 
-      <div className="section-label">What ChatGPT can do</div>
+      <div className="section-label">What {assistantLabel} can do</div>
       <ul className="perm-list">
         <li className="perm perm--ok">View wallet balances</li>
         <li className="perm perm--ok">View OSIRIS plan options</li>
@@ -165,7 +173,7 @@ export default function CreateCode() {
             {copied ? 'Copied' : 'Copy'}
           </button>
           <div className="code-card__foot">
-            Expires in {DURATIONS[durationIndex].label} · paste into ChatGPT
+            Expires in {DURATIONS[durationIndex].label} · paste into {assistantLabel}
           </div>
         </div>
       )}

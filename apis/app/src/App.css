@@ -341,16 +341,6 @@ button {
   box-shadow: 0 0 0 1px var(--border-gold) inset;
 }
 
-.assistant--disabled {
-  opacity: 0.55;
-}
-
-.assistant__note {
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-
 /* Identisch zu OSIRIS' .pill-toggle (siehe src/App.css) — voll gerundete
    Segmented-Control statt der zuvor eigenen, weniger runden Variante. */
 .segmented {
