@@ -1,17 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { createPublicClient, http, fallback, formatUnits } from 'viem';
-import { celo } from 'viem/chains';
+import { formatUnits } from 'viem';
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import { compilePlan, type PlanDraft, type SellTriggerDraft } from './planCompiler';
+import { getPlansForOwner } from './plans';
+import { publicClient } from './client';
 import { ERC20_ABI } from '../../../src/dcaVaultAbi';
 import { INPUT_TOKENS, TARGET_TOKENS } from '../../../src/config';
-
-// Gleiche RPC-Fallback-Strategie wie OSIRIS' und Apis' Keeper — bewusst
-// wiederverwendetes Muster, kein neuer Anbieter.
-const RPC_URLS = ['https://forno.celo.org', 'https://rpc.ankr.com/celo'];
-const publicClient = createPublicClient({ chain: celo, transport: fallback(RPC_URLS.map((url) => http(url))) });
 
 const BALANCE_TOKENS = [
   INPUT_TOKENS.USDC,
@@ -77,6 +73,35 @@ export function buildServer(): McpServer {
       );
 
       return { content: [{ type: 'text', text: JSON.stringify({ owner: grant.owner, balances: results }, null, 2) }] };
+    },
+  );
+
+  // ── get_plans ──────────────────────────────────────────────────────────
+  server.registerTool(
+    'get_plans',
+    {
+      title: 'Get the grant owner\'s plans',
+      description:
+        "Reads the grant owner's existing DCA and trigger (buy/sell) plans and their current status " +
+        "(pending, active, cancelled, complete/executed, expired) directly from the OSIRIS contracts. " +
+        "Does not include past purchase/execution history — only current plan status. " +
+        "Requires a grant code with 'read' access, created in the Apis app.",
+      inputSchema: { grantCode: z.string().describe('The code the user generated in Apis ("Create New Code for Agent").') },
+    },
+    async ({ grantCode }) => {
+      let grant;
+      try {
+        grant = await verifyGrant(grantCode, 'read');
+      } catch (err) {
+        return { content: [{ type: 'text', text: errorMessage(err) }], isError: true };
+      }
+
+      try {
+        const result = await getPlansForOwner(publicClient, grant.owner);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch {
+        return { content: [{ type: 'text', text: 'Could not read plans right now. Please try again.' }], isError: true };
+      }
     },
   );
 
