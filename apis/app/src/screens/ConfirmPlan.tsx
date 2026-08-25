@@ -113,7 +113,26 @@ export default function ConfirmPlan() {
     const { inputToken, totalAmount, duration, interval, firstExecutionTimestamp, targetTokens, targetBps } = plan.setupPlanArgs;
     const totalAmountRaw = BigInt(totalAmount);
 
+    // propose_plan compiles firstExecutionTimestamp as "now + 60s" at the
+    // moment the AI proposes the plan — but real submission happens later
+    // (chat round-trip, app switch, an approve tx to wait for), so by the
+    // time setupPlan() actually lands on-chain that timestamp can already be
+    // in the past, and the contract reverts with InvalidTimestamp(). Reclamp
+    // to "now + 60s" here, right before submission, instead of trusting the
+    // AI-proposed value blindly.
+    const submitFirstExecutionTimestamp = Math.max(
+      firstExecutionTimestamp,
+      Math.floor(Date.now() / 1000) + 60,
+    );
+
+    // React state updates (setPhase) are batched/async — reading `phase`
+    // itself inside the catch block below would see the value from when
+    // handleConfirm() was invoked (always 'idle'), not the phase active when
+    // the error actually occurred. Track it separately, outside React state.
+    let currentPhase: Phase = 'creating-vault';
+
     try {
+      currentPhase = 'creating-vault';
       setPhase('creating-vault');
       const createVaultHash = await writeContractAsync({
         address: FACTORY_ADDRESS,
@@ -126,18 +145,20 @@ export default function ConfirmPlan() {
       if (!newVaultAddress) throw new Error('Vault was created, but its address could not be read from the event.');
       setVaultAddress(newVaultAddress);
 
+      currentPhase = 'approving-buy';
       setPhase('approving-buy');
       const approveHash = await writeContractAsync({
         address: inputToken, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, totalAmountRaw],
       });
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
+      currentPhase = 'setting-up-plan';
       setPhase('setting-up-plan');
       const setupPlanHash = await writeContractAsync({
         address: newVaultAddress,
         abi: DCA_VAULT_ABI,
         functionName: 'setupPlan',
-        args: [inputToken, totalAmountRaw, duration, BigInt(interval), BigInt(firstExecutionTimestamp), targetTokens, targetBps],
+        args: [inputToken, totalAmountRaw, duration, BigInt(interval), BigInt(submitFirstExecutionTimestamp), targetTokens, targetBps],
       });
       await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
 
@@ -152,6 +173,7 @@ export default function ConfirmPlan() {
         if (currentBalance < sellAmountRaw) {
           setSellOutcome({ status: 'skipped-no-balance' });
         } else {
+          currentPhase = 'creating-sell-vault';
           setPhase('creating-sell-vault');
           const createSellVaultHash = await writeContractAsync({
             address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'createVault',
@@ -161,12 +183,14 @@ export default function ConfirmPlan() {
           const newSellVaultAddress = sellVaultCreatedEvent?.args.vault;
           if (!newSellVaultAddress) throw new Error('Sell vault was created, but its address could not be read from the event.');
 
+          currentPhase = 'approving-sell';
           setPhase('approving-sell');
           const sellApproveHash = await writeContractAsync({
             address: heldToken, abi: ERC20_ABI, functionName: 'approve', args: [newSellVaultAddress, sellAmountRaw],
           });
           await publicClient.waitForTransactionReceipt({ hash: sellApproveHash });
 
+          currentPhase = 'setting-up-sell-plan';
           setPhase('setting-up-sell-plan');
           const setupSellPlanHash = await writeContractAsync({
             address: newSellVaultAddress,
@@ -183,11 +207,11 @@ export default function ConfirmPlan() {
       setPhase('done');
     } catch (err) {
       const label =
-        phase === 'creating-vault' ? 'Creating the vault' :
-        phase === 'approving-buy' ? 'Approval' :
-        phase === 'setting-up-plan' ? 'Setting up the plan' :
-        phase === 'creating-sell-vault' ? 'Creating the sell vault' :
-        phase === 'approving-sell' ? 'Sell approval' : 'Setting up the sell plan';
+        currentPhase === 'creating-vault' ? 'Creating the vault' :
+        currentPhase === 'approving-buy' ? 'Approval' :
+        currentPhase === 'setting-up-plan' ? 'Setting up the plan' :
+        currentPhase === 'creating-sell-vault' ? 'Creating the sell vault' :
+        currentPhase === 'approving-sell' ? 'Sell approval' : 'Setting up the sell plan';
       setError(err instanceof Error ? `${label} failed: ${err.message}` : `${label} failed. Please try again.`);
       setPhase('idle');
     }
