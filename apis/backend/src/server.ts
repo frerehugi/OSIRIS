@@ -1,22 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { formatUnits } from 'viem';
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import { compilePlan, type PlanDraft, type SellTriggerDraft } from './planCompiler';
 import { getPlansForOwner } from './plans';
+import { getBalancesForOwner } from './balances';
 import { publicClient } from './client';
-import { ERC20_ABI } from '../../../src/dcaVaultAbi';
-import { INPUT_TOKENS, TARGET_TOKENS } from '../../../src/config';
-
-const BALANCE_TOKENS = [
-  INPUT_TOKENS.USDC,
-  INPUT_TOKENS.USDT,
-  TARGET_TOKENS.CELO,
-  TARGET_TOKENS.XAUoT,
-  TARGET_TOKENS.wBTC,
-  TARGET_TOKENS.wETH,
-] as const;
 
 function errorMessage(err: unknown): string {
   return err instanceof GrantError ? err.message : 'Could not verify the access grant.';
@@ -59,20 +48,8 @@ export function buildServer(): McpServer {
         return { content: [{ type: 'text', text: errorMessage(err) }], isError: true };
       }
 
-      const results = await Promise.all(
-        BALANCE_TOKENS.map(async (token) => {
-          try {
-            const raw = await publicClient.readContract({
-              address: token.address, abi: ERC20_ABI, functionName: 'balanceOf', args: [grant.owner],
-            }) as bigint;
-            return { symbol: token.symbol, balance: formatUnits(raw, token.decimals) };
-          } catch {
-            return { symbol: token.symbol, balance: null, error: 'Could not read this balance right now.' };
-          }
-        }),
-      );
-
-      return { content: [{ type: 'text', text: JSON.stringify({ owner: grant.owner, balances: results }, null, 2) }] };
+      const result = await getBalancesForOwner(publicClient, grant.owner);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );
 
@@ -116,7 +93,9 @@ export function buildServer(): McpServer {
       description:
         'Validates a DCA buy plan (and an optional conditional sell trigger) against the real OSIRIS contract ' +
         "constraints and compiles it into the exact parameters the Apis app needs. Does NOT execute anything — " +
-        "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access.",
+        "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
+        'On success, base64url-encode the JSON result (as a single line, no extra fields) and give that string to the ' +
+        'user as a "plan code" to paste into the Apis app\'s Confirm Plan screen.',
       inputSchema: {
         grantCode:   z.string().describe('The code the user generated in Apis.'),
         inputToken:  z.enum(['USDC', 'USDT']),
