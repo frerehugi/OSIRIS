@@ -4,6 +4,10 @@ import Landing from './screens/Landing';
 import Home from './screens/Home';
 import Holdings from './screens/Holdings';
 import Plans from './screens/Plans';
+import ActivePlans from './screens/ActivePlans';
+import CompletedPlans from './screens/CompletedPlans';
+import CancelledPlans from './screens/CancelledPlans';
+import Purchases from './screens/Purchases';
 import CreateCode from './screens/CreateCode';
 import ConfirmPlan from './screens/ConfirmPlan';
 import About from './screens/About';
@@ -28,6 +32,22 @@ export default function App() {
       <Route
         path="/plans"
         element={<RequireConnection><Plans /></RequireConnection>}
+      />
+      <Route
+        path="/plans/active"
+        element={<RequireConnection><ActivePlans /></RequireConnection>}
+      />
+      <Route
+        path="/plans/completed"
+        element={<RequireConnection><CompletedPlans /></RequireConnection>}
+      />
+      <Route
+        path="/plans/cancelled"
+        element={<RequireConnection><CancelledPlans /></RequireConnection>}
+      />
+      <Route
+        path="/plans/purchases"
+        element={<RequireConnection><Purchases /></RequireConnection>}
       />
       <Route
         path="/confirm-plan"
