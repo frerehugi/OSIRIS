@@ -9,15 +9,17 @@ import {
 } from "viem";
 import { celo } from "viem/chains";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "./dcaVaultAbi";
+import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from "./triggerVaultAbi";
 import {
   FACTORY_ADDRESS,
   OLD_FACTORY_ADDRESS,
+  TRIGGER_VAULT_FACTORY_ADDRESS,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
   CELO_CHAIN_ID,
 } from "./config";
-import type { DcaPlanState, Interval } from "./types";
+import { TIME_LIMIT_SECONDS, type DcaPlanState, type Interval, type TriggerPlanState } from "./types";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -758,4 +760,196 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
   return { initialized, cancelled, currentStep, totalSteps,
            nextExecutionTimestamp: nextExecTs, remainingBalance, trancheAmount: trancheAmt,
            interval, inputToken: inputTokenAddress, totalDeposited, targetConfigs };
+}
+
+// ─── Trigger-Vaults eines Nutzers lesen ────────────────────────────────────────
+
+export async function getUserTriggerVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
+  const { publicClient } = getClients();
+  return await withRetry(() => publicClient.readContract({
+    address: TRIGGER_VAULT_FACTORY_ADDRESS,
+    abi:     TRIGGER_VAULT_FACTORY_ABI,
+    functionName: "getVaults",
+    args: [ownerAddress],
+  })) as `0x${string}`[];
+}
+
+// ─── Trigger-Plan submitten ─────────────────────────────────────────────────────
+//
+// Läuft über die Factory statt über einen fest hinterlegten Vault — 3 separate
+// Transaktionen, aus demselben Grund wie submitDcaPlan() (siehe dort):
+//   1. factory.createVault()             → neue Vault-Adresse
+//   2. token.approve(vaultAddress, ...)  → Freigabe für den NEUEN Vault
+//   3. vault.setupPlan(...)              → Plan aufsetzen (zieht das Held-Token)
+//
+// Buy-Plan (heldToken=Stablecoin, outputToken=Zieltoken) und Sell-Plan
+// (heldToken=Zieltoken, outputToken=Stablecoin) sind derselbe Ablauf, nur mit
+// vertauschten Token — siehe TriggerVault.sol. "Buy" löst als Dip-Kauf aus
+// (Preis fällt AUF/UNTER den Trigger, triggerAbove=false), "Sell" als
+// Take-Profit (Preis steigt AUF/ÜBER den Trigger, triggerAbove=true).
+//
+// Erwartet bereits validierte Eingaben (siehe parseStrictDecimal-Validierung
+// in App.tsx, analog zu validateAmount/validateDuration für den DCA-Wizard) —
+// diese Funktion parst nur noch, validiert nicht mehr.
+
+export interface SubmitTriggerPlanResult {
+  vaultAddress:       `0x${string}`;
+  createVaultReceipt: Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+  approveReceipt:     Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+  setupPlanReceipt:   Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>;
+}
+
+export type SubmitTriggerPlanPhase = 'creating-vault' | 'approving' | 'setting-up-plan';
+
+export async function submitTriggerPlan(
+  draft: TriggerPlanState,
+  ownerAddress: `0x${string}`,
+  onProgress?: (phase: SubmitTriggerPlanPhase) => void,
+): Promise<SubmitTriggerPlanResult> {
+  const isBuy       = draft.direction === 'buy';
+  const cryptoToken = TARGET_TOKENS[draft.cryptoSymbol];
+  const stableToken = INPUT_TOKENS[draft.stableSymbol];
+
+  const heldToken    = isBuy ? stableToken : cryptoToken;
+  const outputToken  = isBuy ? cryptoToken : stableToken;
+  const watchToken   = cryptoToken;
+  const triggerAbove = !isBuy;
+
+  const amountRaw       = parseUnits(draft.amountHuman, heldToken.decimals);
+  const triggerPriceRaw = parseUnits(draft.priceUsd, 8); // 8 Dezimalstellen wie Chainlink/Squid
+  const limitSeconds    = TIME_LIMIT_SECONDS[draft.timeLimit];
+  const expiresAt       = limitSeconds === 0 ? 0n : BigInt(Math.floor(Date.now() / 1000) + limitSeconds);
+
+  if (amountRaw <= 0n) throw new Error("Amount must be > 0.");
+  if (triggerPriceRaw <= 0n) throw new Error("Trigger price must be > 0.");
+
+  const { walletClient, publicClient } = getClients();
+
+  // ── Phase 1: Vault über die Factory erstellen ─────────────────────────────
+  onProgress?.('creating-vault');
+  let createVaultReceipt;
+  let vaultAddress: `0x${string}` | undefined;
+  try {
+    const hash = await walletClient.writeContract({
+      account: ownerAddress,
+      address: TRIGGER_VAULT_FACTORY_ADDRESS,
+      abi:     TRIGGER_VAULT_FACTORY_ABI,
+      functionName: "createVault",
+    });
+    createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    // Adresse direkt aus dem VaultCreated-Event dieser Transaktion lesen —
+    // gleicher Grund wie in submitDcaPlan() (RPC-Load-Balancer-Replikations-Lag).
+    const [vaultCreatedEvent] = parseEventLogs({
+      abi: TRIGGER_VAULT_FACTORY_ABI,
+      eventName: "VaultCreated",
+      logs: createVaultReceipt.logs,
+    });
+    vaultAddress = vaultCreatedEvent?.args.vault;
+  } catch (error) {
+    throw new Error(`Vault creation failed: ${describeError(error)}`);
+  }
+
+  if (!vaultAddress) {
+    throw new Error("Vault was created, but its address could not be read from the VaultCreated event.");
+  }
+
+  // ── Phase 2: Held-Token an den NEUEN Vault freigeben ──────────────────────
+  onProgress?.('approving');
+  let approveReceipt;
+  try {
+    const approveTx = await walletClient.writeContract({
+      account: ownerAddress,
+      address: heldToken.address,
+      abi:     ERC20_ABI,
+      functionName: "approve",
+      args: [vaultAddress, amountRaw],
+    });
+    approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTx });
+  } catch (error) {
+    throw new Error(`${heldToken.symbol} approval failed: ${describeError(error)}`);
+  }
+
+  // ── Phase 3: Plan aufsetzen ────────────────────────────────────────────────
+  onProgress?.('setting-up-plan');
+  let setupPlanReceipt;
+  try {
+    const hash = await walletClient.writeContract({
+      account:  ownerAddress,
+      address:  vaultAddress,
+      abi:      TRIGGER_VAULT_ABI,
+      functionName: "setupPlan",
+      args: [
+        heldToken.address,   // _heldToken
+        outputToken.address, // _outputToken
+        watchToken.address,  // _watchToken
+        amountRaw,           // _amount
+        triggerAbove,        // _triggerAbove
+        triggerPriceRaw,     // _triggerPrice
+        expiresAt,           // _expiresAt
+      ],
+    });
+    setupPlanReceipt = await publicClient.waitForTransactionReceipt({ hash });
+  } catch (error) {
+    throw new Error(`Plan setup failed: ${describeError(error)}`);
+  }
+
+  return { vaultAddress, createVaultReceipt, approveReceipt, setupPlanReceipt };
+}
+
+// ─── Trigger-Plan canceln ───────────────────────────────────────────────────────
+//
+// Nur der Owner darf canceln (onlyOwner in TriggerVault.cancel()). Gibt den
+// vollen verwahrten Restbestand automatisch an den Owner zurück — jederzeit
+// möglich, unabhängig von expiresAt.
+
+export async function cancelTriggerPlan(
+  vaultAddress: `0x${string}`,
+  ownerAddress: `0x${string}`,
+): Promise<Awaited<ReturnType<ReturnType<typeof getClients>["publicClient"]["waitForTransactionReceipt"]>>> {
+  const { walletClient, publicClient } = getClients();
+  try {
+    const hash = await walletClient.writeContract({
+      account: ownerAddress,
+      address: vaultAddress,
+      abi:     TRIGGER_VAULT_ABI,
+      functionName: "cancel",
+    });
+    return await publicClient.waitForTransactionReceipt({ hash });
+  } catch (error) {
+    throw new Error(`Cancel failed: ${describeError(error)}`);
+  }
+}
+
+// ─── Trigger-Vault-Status lesen ──────────────────────────────────────────────────
+
+type TriggerVaultStatusField =
+  | "heldToken" | "outputToken" | "watchToken" | "amount"
+  | "triggerAbove" | "triggerPrice" | "expiresAt"
+  | "initialized" | "cancelled" | "executed";
+
+export async function readTriggerVaultStatus(contractAddress: `0x${string}`) {
+  const { publicClient } = getClients();
+  const read = <F extends TriggerVaultStatusField>(functionName: F) => withRetry(() => publicClient.readContract({
+    address: contractAddress, abi: TRIGGER_VAULT_ABI, functionName,
+  }));
+  const [
+    heldToken, outputToken, watchToken, amount,
+    triggerAbove, triggerPrice, expiresAt,
+    initialized, cancelled, executed,
+  ] = await Promise.all([
+    read("heldToken"),
+    read("outputToken"),
+    read("watchToken"),
+    read("amount"),
+    read("triggerAbove"),
+    read("triggerPrice"),
+    read("expiresAt"),
+    read("initialized"),
+    read("cancelled"),
+    read("executed"),
+  ]);
+  return { heldToken, outputToken, watchToken, amount,
+           triggerAbove, triggerPrice, expiresAt,
+           initialized, cancelled, executed };
 }

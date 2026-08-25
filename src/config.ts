@@ -29,6 +29,11 @@ export const FACTORY_ADDRESS               = "0xba148255d757912442A97f87c50DD2F6
 export const OLD_FACTORY_ADDRESS            = "0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411" as `0x${string}`;
 export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477E43b87fd" as `0x${string}`;
 
+// TriggerVaultFactory — Price-Trigger-Erweiterung neben DcaVaultFactory
+// (siehe script/DeployTriggerVaultFactory.s.sol). Platzhalter bis zum
+// tatsächlichen Mainnet-Deploy.
+export const TRIGGER_VAULT_FACTORY_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
   symbol:   string;

@@ -27,3 +27,25 @@ export interface DcaPlanState {
   executionDay:  Weekday;
   timezone:      string;
 }
+
+// ─── Trigger-Plan (Price-Trigger-Erweiterung, siehe TriggerVault.sol) ──────────
+
+export type TriggerDirection = 'buy' | 'sell';
+export type TimeLimit = '1d' | '1w' | '1m' | 'none';
+
+export const TIME_LIMIT_SECONDS: Record<TimeLimit, number> = {
+  '1d': 86_400, '1w': 604_800, '1m': 2_592_000, none: 0,
+};
+
+export const TIME_LIMIT_LABEL: Record<TimeLimit, string> = {
+  '1d': '1 day', '1w': '1 week', '1m': '1 month', none: 'No limit',
+};
+
+export interface TriggerPlanState {
+  direction:    TriggerDirection;
+  cryptoSymbol: TokenType;
+  stableSymbol: InputToken;
+  priceUsd:     string;
+  amountHuman:  string; // Buy: USDC/USDT-Betrag; Sell: Krypto-Menge (aus dem Schieberegler)
+  timeLimit:    TimeLimit;
+}
