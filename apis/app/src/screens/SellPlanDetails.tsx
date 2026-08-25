@@ -14,6 +14,16 @@ function formatBalance(raw: bigint, decimals: number): string {
   return Number(formatUnits(raw, decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 });
 }
 
+/// Strikt statt `.replace(/,/g, '')`: siehe BuyPlanDetails.tsx — ein
+/// Dezimalkomma ("0,08") würde sonst lautlos zu einem Faktor-100-Fehler
+/// im On-Chain-Trigger-Preis. Lieber ablehnen als falsch interpretieren.
+function parsePositiveDecimal(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return parsed > 0 ? parsed : null;
+}
+
 /// Schritt 2 des Sell-Plan-Flows — Betrag per Schieberegler (Anteil des
 /// Bestands), Preis, Laufzeit (siehe Chat). "Sell" löst als Take-Profit aus
 /// (Preis steigt AUF/ÜBER den eingegebenen Wert) — Gegenstück zu
@@ -50,8 +60,8 @@ export default function SellPlanDetails() {
   const sellAmountHuman = sellAmountRaw !== null ? formatUnits(sellAmountRaw, token.decimals) : '0';
 
   const handleOk = () => {
-    const priceNum = Number(priceInput.replace(/,/g, ''));
-    if (!(priceNum > 0)) { setError('Enter a valid sell price.'); return; }
+    const priceNum = parsePositiveDecimal(priceInput);
+    if (priceNum === null) { setError('Enter a valid sell price — use a period for decimals, e.g. 75000.50.'); return; }
     if (!balanceRaw || balanceRaw === 0n) { setError(`You have no ${cryptoSymbol} to sell.`); return; }
     if (!sellAmountRaw || sellAmountRaw === 0n) { setError('Amount is too small.'); return; }
 

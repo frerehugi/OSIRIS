@@ -6,6 +6,20 @@ import { TIME_LIMIT_LABEL } from '../triggerPlanTypes';
 
 const TIME_LIMITS: TimeLimit[] = ['1d', '1w', '1m', 'none'];
 
+/// Strikt statt `.replace(/,/g, '')`: Ein Komma als Tausendertrennzeichen zu
+/// entfernen klingt harmlos, verschluckt aber genauso ein Dezimalkomma
+/// (deutsche/europäische Eingabe wie "0,08") — "0,08" würde so lautlos zu
+/// "008" = 8, nicht 0.08. Bei einem On-Chain-Trigger-Preis ist das ein
+/// stiller Faktor-100-Fehler statt eines Tippfehlers. Lieber ablehnen als
+/// falsch interpretieren — spiegelt OSIRIS' eigenes parseStrictDecimal()
+/// (siehe src/App.tsx), das denselben Grund hat.
+function parsePositiveDecimal(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return parsed > 0 ? parsed : null;
+}
+
 /// Schritt 2 des Buy-Plan-Flows — Preis, Betrag, Laufzeit (siehe Chat).
 /// "Buy" löst hier bewusst als Dip-Kauf aus (Preis fällt AUF/UNTER den
 /// eingegebenen Wert) — das gängige Verständnis eines manuellen Kauf-
@@ -28,10 +42,10 @@ export default function BuyPlanDetails() {
   }
 
   const handleOk = () => {
-    const priceNum = Number(priceInput.replace(/,/g, ''));
-    const amountNum = Number(amountInput.replace(/,/g, ''));
-    if (!(priceNum > 0)) { setError('Enter a valid trigger price.'); return; }
-    if (!(amountNum > 0)) { setError('Enter a valid amount.'); return; }
+    const priceNum = parsePositiveDecimal(priceInput);
+    const amountNum = parsePositiveDecimal(amountInput);
+    if (priceNum === null) { setError('Enter a valid trigger price — use a period for decimals, e.g. 65000.50.'); return; }
+    if (amountNum === null) { setError('Enter a valid amount — use a period for decimals, e.g. 100.50.'); return; }
 
     const draft: TriggerPlanDraft = {
       direction: 'buy', cryptoSymbol, stableSymbol, priceUsd: priceNum, amountHuman: amountInput, timeLimit,
