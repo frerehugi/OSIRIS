@@ -3,17 +3,21 @@ import { formatUnits } from 'viem';
 import {
   connectWallet, submitDcaPlan, cancelDcaPlan, getUserVaults, readPlanStatus, getUserPurchases,
   runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol, getAddCashDeeplink,
-  type SubmitDcaPlanPhase, type PurchaseEvent,
+  getUserTriggerVaults, submitTriggerPlan, cancelTriggerPlan, readTriggerVaultStatus, getTargetTokenBalance,
+  type SubmitDcaPlanPhase, type PurchaseEvent, type SubmitTriggerPlanPhase,
 } from './minipayWallet';
-import { TARGET_TOKENS, INTERVAL_SECONDS } from './config';
+import { TARGET_TOKENS, INPUT_TOKENS as INPUT_TOKEN_INFO, INTERVAL_SECONDS } from './config';
 import {
   TOKENS,
   WEEKDAYS,
+  TIME_LIMIT_LABEL,
   type TokenType,
   type Weekday,
   type InputToken,
   type DcaPlanState,
   type Interval,
+  type TriggerPlanState,
+  type TriggerDirection,
 } from './types';
 
 // ─── Konstanten ───────────────────────────────────────────────────────────────
@@ -56,13 +60,41 @@ interface VaultSummary {
   assets:           VaultAsset[];
 }
 
-type View = 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about' | 'terms' | 'privacy';
+// ─── Trigger-Plan-Zusammenfassung ("Your Plans", siehe TriggerVault.sol) ───────
+
+type TriggerVaultStatus = 'pending' | 'active' | 'expired' | 'cancelled' | 'executed';
+
+interface TriggerVaultSummary {
+  address:         `0x${string}`;
+  status:          TriggerVaultStatus;
+  direction:       TriggerDirection;
+  cryptoSymbol:    TokenType;  // immer die Krypto-Seite (== watchToken)
+  stableSymbol:    InputToken; // immer die Stablecoin-Seite
+  amountRaw:       bigint;     // Menge des heldToken (Buy: Stablecoin, Sell: Kryptotoken)
+  heldDecimals:    number;
+  triggerPriceUsd: number;
+  expiresAt:       number; // 0 = zeitlich unbegrenzt
+}
+
+type View =
+  | 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about' | 'terms' | 'privacy'
+  | 'newPlanChoice' | 'triggerDirection' | 'triggerCoin' | 'triggerDetailsBuy' | 'triggerDetailsSell'
+  | 'triggerSummary' | 'triggerSuccess';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
   'approving':        '⏳ Approving USDC...',
   'setting-up-plan':  '⏳ Setting up plan...',
 };
+
+// Anders als SUBMIT_PHASE_LABEL keine feste Record-Map: welches Token
+// freigegeben wird, hängt bei Trigger-Plänen von der Richtung ab
+// (heldToken = Stablecoin bei Buy, Zieltoken bei Sell).
+function triggerSubmitPhaseLabel(phase: SubmitTriggerPlanPhase, heldSymbol: string): string {
+  if (phase === 'creating-vault') return '⏳ Creating vault...';
+  if (phase === 'approving') return `⏳ Approving ${heldSymbol}...`;
+  return '⏳ Setting up plan...';
+}
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 
@@ -76,6 +108,10 @@ const createInitialFormState = (): DcaPlanState => ({
   executionTime: '12:00',
   executionDay:  'Monday',
   timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+});
+
+const createInitialTriggerDraft = (): TriggerPlanState => ({
+  direction: 'buy', cryptoSymbol: 'wBTC', stableSymbol: 'USDC', priceUsd: '', amountHuman: '', timeLimit: 'none',
 });
 
 function parseStrictDecimal(value: string): number | null {
@@ -276,6 +312,59 @@ function formatInputAmount(raw: bigint): string {
 // beschränkt sich deshalb bewusst auf volle Stunden.
 const EXECUTION_HOURS = Array.from({ length: 24 }, (_, hour) => `${hour.toString().padStart(2, '0')}:00`);
 
+// ─── Trigger-Plan-Hilfsfunktionen ──────────────────────────────────────────────
+
+// Reverse-Lookup Stablecoin-Adresse -> Symbol, Pendant zu TARGET_TOKEN_BY_ADDRESS
+// oben (welches die 4 Zieltoken abdeckt) — zusammen lässt sich damit jede
+// heldToken/outputToken-Adresse eines TriggerVaults einem UI-Symbol zuordnen.
+const STABLE_TOKEN_BY_ADDRESS: Record<string, InputToken> = Object.fromEntries(
+  INPUT_TOKENS.map((symbol) => [INPUT_TOKEN_INFO[symbol].address.toLowerCase(), symbol]),
+) as Record<string, InputToken>;
+
+function computeTriggerStatus(
+  initialized: boolean, cancelled: boolean, executed: boolean, expiresAt: number,
+): TriggerVaultStatus {
+  if (!initialized) return 'pending';
+  if (cancelled) return 'cancelled';
+  if (executed) return 'executed';
+  if (expiresAt !== 0 && Date.now() / 1000 > expiresAt) return 'expired';
+  return 'active';
+}
+
+const TRIGGER_STATUS_PILL_LABEL: Record<TriggerVaultStatus, string> = {
+  pending:   'Setup incomplete',
+  active:    'Active',
+  expired:   'Expired',
+  cancelled: 'Cancelled',
+  executed:  'Complete',
+};
+
+// Wiederverwendung der vorhandenen pending/active/cancelled/complete-Klassen
+// (siehe App.css) statt eigener CSS für 'expired'/'executed' — 'expired'
+// sieht wie 'cancelled' aus (beide "muss der User selbst noch cancel()en"),
+// 'executed' wie 'complete'.
+function triggerStatusClass(status: TriggerVaultStatus): VaultStatus {
+  if (status === 'executed') return 'complete';
+  if (status === 'expired') return 'cancelled';
+  return status;
+}
+
+function formatExpiry(expiresAt: number): string {
+  if (expiresAt === 0) return 'No time limit';
+  const diffMs = expiresAt * 1000 - Date.now();
+  if (diffMs <= 0) return `Expired ${new Date(expiresAt * 1000).toLocaleDateString()}`;
+  const days = Math.ceil(diffMs / 86_400_000);
+  return days <= 1 ? 'Expires today' : `Expires in ${days} days`;
+}
+
+// Landing-Entscheidung nach Connect/Cancel: Ein Nutzer mit AUSSCHLIESSLICH
+// Trigger-Plänen (keinen DCA-Plänen) soll genauso auf "Your Plans" landen wie
+// jemand mit DCA-Plänen — nicht blind in den DCA-Wizard gedrängt werden.
+function hasVisiblePlans(dcaVaults: VaultSummary[], triggerVaults: TriggerVaultSummary[]): boolean {
+  return dcaVaults.some((v) => v.status === 'active' || v.status === 'pending')
+      || triggerVaults.some((v) => v.status === 'active' || v.status === 'pending');
+}
+
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
 
 function Card({ children }: { children: ReactNode }) {
@@ -432,6 +521,48 @@ function PlanCard({ vault, extra }: { vault: VaultSummary; extra?: ReactNode }) 
   );
 }
 
+// Pendant zu PlanCard für Trigger-Pläne — gleiche Karten-Optik (Vault-Adresse,
+// Status-Pill), aber statt Progress-Bar/Assets-Legende eine Preisbedingung als
+// Klartext (kein "Fortschritt" bei einem einmaligen Trigger).
+function TriggerPlanCard({ vault, extra }: { vault: TriggerVaultSummary; extra?: ReactNode }) {
+  const isBuy = vault.direction === 'buy';
+  const status = triggerStatusClass(vault.status);
+  const amountText = isBuy
+    ? `${formatUnits(vault.amountRaw, vault.heldDecimals)} ${vault.stableSymbol}`
+    : `${formatTokenAmount(vault.amountRaw, vault.cryptoSymbol)} ${TOKEN_LABELS[vault.cryptoSymbol]}`;
+
+  return (
+    <div className={`plan plan-${status}`}>
+      <div className="plan-vault">
+        <span className="vault-address">
+          🔗{' '}
+          <a href={`https://celoscan.io/address/${vault.address}`} rel="noreferrer">
+            {vault.address.slice(0, 6)}…{vault.address.slice(-4)} ↗
+          </a>
+        </span>
+        <span className={`status-pill status-${status}`}>{TRIGGER_STATUS_PILL_LABEL[vault.status]}</span>
+      </div>
+
+      <div className="plan-meta">
+        <div className="title-row">
+          <TokenIcon token={vault.cryptoSymbol} size={20} />
+          <strong>{isBuy ? 'Buy' : 'Sell'} {TOKEN_LABELS[vault.cryptoSymbol]}</strong>
+        </div>
+        <span className="mode-tag">⚡ {isBuy ? 'Buy Trigger' : 'Sell Trigger'}</span>
+      </div>
+
+      <div className="status info">
+        {isBuy
+          ? <>Buy <strong>{amountText}</strong> worth of {TOKEN_LABELS[vault.cryptoSymbol]} once price drops to <strong>${vault.triggerPriceUsd.toLocaleString()}</strong> or below.</>
+          : <>Sell <strong>{amountText}</strong> once price rises to <strong>${vault.triggerPriceUsd.toLocaleString()}</strong> or above.</>}
+      </div>
+      <span className="muted" style={{ fontSize: '0.76rem' }}>{formatExpiry(vault.expiresAt)} · cancel any time</span>
+
+      {extra}
+    </div>
+  );
+}
+
 // ─── Haupt-App ────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -456,6 +587,30 @@ export default function App() {
   const [submitPhase, setSubmitPhase] = useState<SubmitDcaPlanPhase | null>(null);
   const [newVaultAddress, setNewVaultAddress] = useState<`0x${string}` | null>(null);
 
+  // ── Trigger-Plan: gespeicherte Pläne ("Your Plans") ─────────────────────────
+  const [triggerVaults, setTriggerVaults]           = useState<TriggerVaultSummary[]>([]);
+  const [triggerCancellingAddress, setTriggerCancellingAddress] = useState<`0x${string}` | null>(null);
+  const [triggerConfirmingAddress, setTriggerConfirmingAddress] = useState<`0x${string}` | null>(null);
+  const [triggerCancelError, setTriggerCancelError] = useState<string | null>(null);
+
+  // ── Trigger-Plan: neuer Plan (Wizard) ────────────────────────────────────────
+  const [triggerDirectionChoice, setTriggerDirectionChoice] = useState<TriggerDirection | null>(null);
+  const [triggerCoinChoice, setTriggerCoinChoice]     = useState<TokenType | null>(null);
+  const [triggerDraft, setTriggerDraft]               = useState<TriggerPlanState>(createInitialTriggerDraft());
+  const [sellBalances, setSellBalances]               = useState<Partial<Record<TokenType, bigint>>>({});
+  const [sellBalancesLoading, setSellBalancesLoading] = useState(false);
+  const [sellPercent, setSellPercent]                 = useState(50);
+  const [triggerDetailsError, setTriggerDetailsError] = useState<string | null>(null);
+  const [triggerSubmitError, setTriggerSubmitError]   = useState<string | null>(null);
+  const [isTriggerSubmitting, setIsTriggerSubmitting] = useState(false);
+  const [triggerSubmitPhase, setTriggerSubmitPhase]   = useState<SubmitTriggerPlanPhase | null>(null);
+  const [newTriggerVaultAddress, setNewTriggerVaultAddress] = useState<`0x${string}` | null>(null);
+
+  const updateTriggerField = <K extends keyof TriggerPlanState>(field: K, value: TriggerPlanState[K]) => {
+    setTriggerDetailsError(null);
+    setTriggerDraft((previous) => ({ ...previous, [field]: value }));
+  };
+
   const updateField = <K extends keyof DcaPlanState>(field: K, value: DcaPlanState[K]) => {
     setSubmitError(null);
     setFormData((previous) => ({ ...previous, [field]: value }));
@@ -477,6 +632,14 @@ export default function App() {
       .filter((v) => v.status === 'complete' || v.status === 'cancelled')
       .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
     [existingVaults],
+  );
+
+  // Trigger-Pläne haben (anders als DCA) noch keine History-Ansicht — einmal
+  // gecancelt/ausgeführt verschwinden sie einfach aus "Your Plans" (weiterhin
+  // einsehbar über den Celoscan-Link, den die Karte schon zeigte).
+  const visibleTriggerPlans = useMemo(
+    () => triggerVaults.filter((v) => v.status === 'active' || v.status === 'pending'),
+    [triggerVaults],
   );
 
   // "My Purchases": alle DcaSwapExecuted-Events, nach Zieltoken gruppiert.
@@ -538,13 +701,15 @@ export default function App() {
 
   // ── Wallet verbinden + eigene Vaults laden ────────────────────────────────
 
-  // Gibt den "natürlichen" Ziel-View zurück, statt ihn selbst zu setzen —
-  // loadVaults läuft asynchron im Hintergrund (RPC-Batches, ~2s), und ein
-  // Aufrufer wie handleConnect kann inzwischen längst nicht mehr an der
-  // Stelle sein, an der der Nutzer noch auf das Ergebnis wartet (z.B. wenn
-  // er zwischenzeitlich manuell zu "About" navigiert hat). Der Aufrufer
-  // entscheidet daher selbst, ob/wann der zurückgegebene View angewendet wird.
-  const loadVaults = async (address: `0x${string}`): Promise<'vaultList' | 'wizard'> => {
+  // Gibt die geladenen Vaults zurück, statt selbst über den Ziel-View zu
+  // entscheiden — loadVaults läuft asynchron im Hintergrund (RPC-Batches,
+  // ~2s), und ein Aufrufer wie handleConnect kann inzwischen längst nicht
+  // mehr an der Stelle sein, an der der Nutzer noch auf das Ergebnis wartet
+  // (z.B. wenn er zwischenzeitlich manuell zu "About" navigiert hat). Der
+  // Aufrufer entscheidet daher selbst, ob/wann und zu welchem View er anhand
+  // der Rückgabe (kombiniert mit loadTriggerVaults(), siehe hasVisiblePlans)
+  // navigiert.
+  const loadVaults = async (address: `0x${string}`): Promise<VaultSummary[]> => {
     setVaultsLoading(true);
     setVaultsError(null);
     try {
@@ -578,14 +743,52 @@ export default function App() {
         };
       });
       setExistingVaults(summaries);
-      const visibleCount = summaries.filter((s) => s.status === 'active' || s.status === 'pending').length;
-      return visibleCount > 0 ? 'vaultList' : 'wizard';
+      return summaries;
     } catch (error) {
       console.error('Loading existing vaults failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Could not load your vaults.');
-      return 'wizard'; // Nutzer trotzdem nicht blockieren
+      return []; // Nutzer trotzdem nicht blockieren
     } finally {
       setVaultsLoading(false);
+    }
+  };
+
+  // Pendant zu loadVaults für Trigger-Pläne — gleiches Batching-Motiv (je 10
+  // Reads via readTriggerVaultStatus pro Vault).
+  const loadTriggerVaults = async (address: `0x${string}`): Promise<TriggerVaultSummary[]> => {
+    try {
+      const vaultAddresses = await getUserTriggerVaults(address);
+      const summaries = await runInBatches(vaultAddresses, RPC_BATCH_SIZE, async (vaultAddress): Promise<TriggerVaultSummary | null> => {
+        const status = await readTriggerVaultStatus(vaultAddress);
+        const triggerStatus = computeTriggerStatus(status.initialized, status.cancelled, status.executed, Number(status.expiresAt));
+        // heldToken bestimmt Richtung + Menge: Buy hält den Stablecoin, Sell
+        // hält das Zieltoken (siehe TriggerVault-Architekturkommentar).
+        const heldIsCrypto = TARGET_TOKEN_BY_ADDRESS[status.heldToken.toLowerCase()] !== undefined;
+        const cryptoSymbol = heldIsCrypto
+          ? TARGET_TOKEN_BY_ADDRESS[status.heldToken.toLowerCase()]
+          : TARGET_TOKEN_BY_ADDRESS[status.outputToken.toLowerCase()];
+        const stableSymbol = heldIsCrypto
+          ? STABLE_TOKEN_BY_ADDRESS[status.outputToken.toLowerCase()]
+          : STABLE_TOKEN_BY_ADDRESS[status.heldToken.toLowerCase()];
+        if (!cryptoSymbol || !stableSymbol) return null; // unbekannte Token-Paarung, überspringen
+        return {
+          address:         vaultAddress,
+          status:          triggerStatus,
+          direction:       heldIsCrypto ? 'sell' : 'buy',
+          cryptoSymbol,
+          stableSymbol,
+          amountRaw:       status.amount,
+          heldDecimals:    heldIsCrypto ? TARGET_TOKENS[cryptoSymbol].decimals : INPUT_TOKEN_INFO[stableSymbol].decimals,
+          triggerPriceUsd: Number(status.triggerPrice) / 1e8,
+          expiresAt:       Number(status.expiresAt),
+        };
+      });
+      const filtered = summaries.filter((s): s is TriggerVaultSummary => s !== null);
+      setTriggerVaults(filtered);
+      return filtered;
+    } catch (error) {
+      console.error('Loading trigger vaults failed', error);
+      return [];
     }
   };
 
@@ -633,7 +836,8 @@ export default function App() {
     try {
       await cancelDcaPlan(vaultAddress, walletAddress);
       recordCancelledAt(vaultAddress);
-      setView(await loadVaults(walletAddress));
+      const summaries = await loadVaults(walletAddress);
+      setView(hasVisiblePlans(summaries, triggerVaults) ? 'vaultList' : 'newPlanChoice');
     } catch (error) {
       console.error('Cancel failed', error);
       setCancelError(error instanceof Error ? error.message : 'Cancel failed. Please try again.');
@@ -647,7 +851,8 @@ export default function App() {
     try {
       const address = await connectWallet();
       setWalletAddress(address);
-      const nextView = await loadVaults(address);
+      const [dcaSummaries, triggerSummaries] = await Promise.all([loadVaults(address), loadTriggerVaults(address)]);
+      const nextView = hasVisiblePlans(dcaSummaries, triggerSummaries) ? 'vaultList' : 'newPlanChoice';
       // Nur übernehmen, wenn der Nutzer währenddessen nicht selbst schon
       // woanders hin navigiert hat (z.B. zu "About") — sonst würde das hier
       // die manuelle Navigation nach ein paar Sekunden Ladezeit überschreiben.
@@ -683,9 +888,169 @@ export default function App() {
     setNewVaultAddress(null);
     setFormData(createInitialFormState());
     if (walletAddress) {
-      void loadVaults(walletAddress).then(setView);
+      void loadVaults(walletAddress).then((summaries) => {
+        setView(hasVisiblePlans(summaries, triggerVaults) ? 'vaultList' : 'newPlanChoice');
+      });
     } else {
       setView('connect');
+    }
+  };
+
+  // ── Trigger-Plan: Wizard-Navigation ──────────────────────────────────────
+
+  const openNewPlanChoice = () => setView('newPlanChoice');
+
+  const startNewTriggerPlan = () => {
+    setTriggerSubmitError(null);
+    setNewTriggerVaultAddress(null);
+    setTriggerDirectionChoice(null);
+    setTriggerCoinChoice(null);
+    setSellPercent(50);
+    setTriggerDraft(createInitialTriggerDraft());
+    setView('triggerDirection');
+  };
+
+  const chooseTriggerDirection = (direction: TriggerDirection) => {
+    setTriggerDirectionChoice(direction);
+    updateTriggerField('direction', direction);
+  };
+
+  // Guthaben nur für den Sell-Zweig geladen (Buy braucht keine Zieltoken-
+  // Bilanz) — dieselbe on-chain balanceOf()-Quelle wie getTargetTokenBalance
+  // in minipayWallet.ts, bewusst nicht aus den My-Purchases-Events (siehe dort).
+  const loadSellBalances = async () => {
+    if (!walletAddress) return;
+    setSellBalancesLoading(true);
+    try {
+      const entries = await Promise.all(
+        TOKENS.map(async (token) => [token, await getTargetTokenBalance(TARGET_TOKENS[token].address, walletAddress)] as const),
+      );
+      setSellBalances(Object.fromEntries(entries));
+    } catch (error) {
+      console.error('Loading sell balances failed', error);
+    } finally {
+      setSellBalancesLoading(false);
+    }
+  };
+
+  const confirmTriggerDirection = () => {
+    if (!triggerDirectionChoice) return;
+    setTriggerCoinChoice(null);
+    if (triggerDirectionChoice === 'sell') void loadSellBalances();
+    setView('triggerCoin');
+  };
+
+  const chooseTriggerCoin = (token: TokenType) => {
+    setTriggerCoinChoice(token);
+    updateTriggerField('cryptoSymbol', token);
+  };
+
+  const confirmTriggerCoin = () => {
+    if (!triggerCoinChoice || !triggerDirectionChoice) return;
+    setTriggerDraft((previous) => ({
+      ...previous,
+      cryptoSymbol: triggerCoinChoice,
+      stableSymbol: triggerDirectionChoice === 'buy' ? 'USDC' : 'USDT',
+      priceUsd:     '',
+      amountHuman:  '',
+    }));
+    setTriggerDetailsError(null);
+    if (triggerDirectionChoice === 'sell') {
+      setSellPercent(50);
+      setView('triggerDetailsSell');
+    } else {
+      setView('triggerDetailsBuy');
+    }
+  };
+
+  const sellBalanceRaw = triggerCoinChoice ? sellBalances[triggerCoinChoice] ?? 0n : 0n;
+  const sellBalanceHuman = triggerCoinChoice ? Number(formatUnits(sellBalanceRaw, TARGET_TOKENS[triggerCoinChoice].decimals)) : 0;
+  const sellAmountHuman = (sellBalanceHuman * sellPercent) / 100;
+
+  const handleSellPercentChange = (percent: number) => {
+    const safePercent = Math.max(1, Math.min(100, percent));
+    setSellPercent(safePercent);
+    const amount = (sellBalanceHuman * safePercent) / 100;
+    // Wie viele Nachkommastellen sinnvoll sind, hängt vom Zieltoken ab (siehe
+    // TOKEN_DISPLAY_DECIMALS) — On-Chain-Präzision (bis zu 18 Dezimalstellen)
+    // würde nur zu für Menschen unlesbaren Beträgen führen.
+    const decimals = triggerCoinChoice ? TOKEN_DISPLAY_DECIMALS[triggerCoinChoice] : 6;
+    updateTriggerField('amountHuman', amount.toFixed(decimals));
+  };
+
+  const submitTriggerBuyDetails = () => {
+    const priceValidation = validateAmount(triggerDraft.priceUsd);
+    if (!priceValidation.valid) { setTriggerDetailsError(priceValidation.message ?? 'Enter a valid trigger price.'); return; }
+    const amountValidationResult = validateAmount(triggerDraft.amountHuman);
+    if (!amountValidationResult.valid) { setTriggerDetailsError(amountValidationResult.message ?? 'Enter a valid amount.'); return; }
+    setTriggerDetailsError(null);
+    setView('triggerSummary');
+  };
+
+  const submitTriggerSellDetails = () => {
+    const priceValidation = validateAmount(triggerDraft.priceUsd);
+    if (!priceValidation.valid) { setTriggerDetailsError(priceValidation.message ?? 'Enter a valid sell price.'); return; }
+    if (sellAmountHuman <= 0) { setTriggerDetailsError('Your balance for this coin is 0.'); return; }
+    setTriggerDetailsError(null);
+    setView('triggerSummary');
+  };
+
+  const handleTriggerSubmit = async () => {
+    setIsTriggerSubmitting(true);
+    setTriggerSubmitError(null);
+    try {
+      const ownerAddress = walletAddress ?? await connectWallet();
+      if (!walletAddress) setWalletAddress(ownerAddress);
+
+      const result = await submitTriggerPlan(triggerDraft, ownerAddress, setTriggerSubmitPhase);
+      setNewTriggerVaultAddress(result.vaultAddress);
+      setView('triggerSuccess');
+    } catch (error) {
+      console.error('Trigger plan submission failed', error);
+      setTriggerSubmitError(error instanceof Error ? error.message : 'The wallet action failed. Please try again.');
+    } finally {
+      setIsTriggerSubmitting(false);
+      setTriggerSubmitPhase(null);
+    }
+  };
+
+  const resetTriggerForm = () => {
+    setTriggerSubmitError(null);
+    setIsTriggerSubmitting(false);
+    setTriggerSubmitPhase(null);
+    setNewTriggerVaultAddress(null);
+    setTriggerDraft(createInitialTriggerDraft());
+    if (walletAddress) {
+      void loadTriggerVaults(walletAddress).then((summaries) => {
+        setView(hasVisiblePlans(existingVaults, summaries) ? 'vaultList' : 'newPlanChoice');
+      });
+    } else {
+      setView('connect');
+    }
+  };
+
+  // ── Trigger-Plan: Cancel (gleiches Zwei-Klick-Muster wie DCA, siehe oben) ──
+
+  const requestTriggerCancel = (vaultAddress: `0x${string}`) => {
+    setTriggerCancelError(null);
+    setTriggerConfirmingAddress(vaultAddress);
+  };
+
+  const abortTriggerCancel = () => setTriggerConfirmingAddress(null);
+
+  const confirmTriggerCancel = async (vaultAddress: `0x${string}`) => {
+    if (!walletAddress) return;
+    setTriggerConfirmingAddress(null);
+    setTriggerCancellingAddress(vaultAddress);
+    setTriggerCancelError(null);
+    try {
+      await cancelTriggerPlan(vaultAddress, walletAddress);
+      await loadTriggerVaults(walletAddress);
+    } catch (error) {
+      console.error('Trigger cancel failed', error);
+      setTriggerCancelError(error instanceof Error ? error.message : 'Cancel failed. Please try again.');
+    } finally {
+      setTriggerCancellingAddress(null);
     }
   };
 
@@ -928,7 +1293,10 @@ export default function App() {
       <Card>
         <section className="stack">
           <TokenTicker />
-          <h2>📂 Your Plans</h2>
+          <div className="view-header">
+            <h2>📂 Your Plans</h2>
+            <button className="view-header__info" type="button" aria-label="About OSIRIS" onClick={() => setView('about')}>ℹ️</button>
+          </div>
           <div className="plan-list">
             {visiblePlans.map((v) => (
               <PlanCard
@@ -959,13 +1327,43 @@ export default function App() {
                 ) : undefined}
               />
             ))}
+            {visibleTriggerPlans.map((v) => (
+              <TriggerPlanCard
+                key={v.address}
+                vault={v}
+                extra={v.status === 'active' ? (
+                  triggerConfirmingAddress === v.address ? (
+                    <div className="stack">
+                      <p className="muted" style={{ fontSize: '0.85rem' }}>
+                        Cancel this plan? Your remaining balance will be returned to your wallet. This cannot be undone.
+                      </p>
+                      <div className="button-row">
+                        <Button variant="secondary" onClick={abortTriggerCancel}>No, keep it</Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => confirmTriggerCancel(v.address)}
+                          disabled={triggerCancellingAddress === v.address}
+                        >
+                          {triggerCancellingAddress === v.address ? '⏳ Cancelling...' : 'Yes, Cancel'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button variant="danger" onClick={() => requestTriggerCancel(v.address)}>
+                      ✗ Cancel Plan
+                    </Button>
+                  )
+                ) : undefined}
+              />
+            ))}
           </div>
           {cancelError && <p className="error">{cancelError}</p>}
+          {triggerCancelError && <p className="error">{triggerCancelError}</p>}
           <div className="button-row">
             <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
             <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
             <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
-            <Button onClick={startNewPlan}>+ New Plan</Button>
+            <Button onClick={openNewPlanChoice}>+ New Plan</Button>
           </div>
         </section>
       </Card>
@@ -1112,6 +1510,329 @@ export default function App() {
     );
   }
 
+  // ── View: Neuer Plan — Typenauswahl ─────────────────────────────────────────
+
+  if (view === 'newPlanChoice') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>✨ New Plan</h2>
+          <p className="muted">Choose the kind of plan you want to set up.</p>
+          {vaultsError && <p className="error">Could not load your existing plans: {vaultsError}</p>}
+          <button className="new-plan-tile" type="button" onClick={startNewPlan}>
+            <span className="new-plan-tile__icon">📅</span>
+            <span>
+              <span className="new-plan-tile__title" style={{ display: 'block' }}>DCA Plan</span>
+              <span className="new-plan-tile__sub">Buy on a recurring schedule — hourly, daily, or weekly</span>
+            </span>
+            <span className="new-plan-tile__chev">›</span>
+          </button>
+          <button className="new-plan-tile" type="button" onClick={startNewTriggerPlan}>
+            <span className="new-plan-tile__icon">⚡</span>
+            <span>
+              <span className="new-plan-tile__title" style={{ display: 'block' }}>Trigger Plan</span>
+              <span className="new-plan-tile__sub">Buy or sell once your price is hit — one-shot, cancel any time</span>
+            </span>
+            <span className="new-plan-tile__chev">›</span>
+          </button>
+          {(visiblePlans.length > 0 || visibleTriggerPlans.length > 0) && (
+            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          )}
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Richtung ────────────────────────────────────────────
+
+  if (view === 'triggerDirection') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>⚡ New Trigger Plan</h2>
+          <p className="muted">Buy a coin once it drops to your price, or sell a holding once it rises to yours.</p>
+          <div className="pill-toggle">
+            <button
+              type="button"
+              className={triggerDirectionChoice === 'buy' ? 'active' : undefined}
+              onClick={() => chooseTriggerDirection('buy')}
+            >
+              💰 Buy
+            </button>
+            <button
+              type="button"
+              className={triggerDirectionChoice === 'sell' ? 'active' : undefined}
+              onClick={() => chooseTriggerDirection('sell')}
+            >
+              💸 Sell
+            </button>
+          </div>
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('newPlanChoice')}>← Back</Button>
+            <Button onClick={confirmTriggerDirection} disabled={!triggerDirectionChoice}>Next →</Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Coin-Auswahl ────────────────────────────────────────
+
+  if (view === 'triggerCoin') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>{triggerDirectionChoice === 'buy' ? 'Which coin do you want to buy?' : 'Which holding do you want to sell?'}</h2>
+          <div className="tile-grid">
+            {TOKENS.map((token) => (
+              <button
+                key={token}
+                type="button"
+                className={triggerCoinChoice === token ? 'tile tile--selected' : 'tile'}
+                onClick={() => chooseTriggerCoin(token)}
+              >
+                <span className="tile-symbol"><TokenIcon token={token} size={20} /> {TOKEN_LABELS[token]}</span>
+                {triggerDirectionChoice === 'sell' && (
+                  <span className="tile-balance">
+                    {sellBalancesLoading
+                      ? 'loading…'
+                      : `${formatTokenAmount(sellBalances[token] ?? 0n, token)} held`}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('triggerDirection')}>← Back</Button>
+            <Button onClick={confirmTriggerCoin} disabled={!triggerCoinChoice}>Next →</Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Details (Buy) ───────────────────────────────────────
+
+  if (view === 'triggerDetailsBuy' && triggerCoinChoice) {
+    return (
+      <Card>
+        <section className="stack">
+          <h2 className="title-row"><TokenIcon token={triggerCoinChoice} size={20} /> Buy {TOKEN_LABELS[triggerCoinChoice]}</h2>
+          <InputField
+            id="buyTriggerPrice"
+            label="Trigger price — buy at or below"
+            type="text"
+            value={triggerDraft.priceUsd}
+            onChange={(value) => updateTriggerField('priceUsd', value)}
+            placeholder="65000"
+          />
+          <div className="amount-row">
+            <InputField
+              id="buyTriggerAmount"
+              label="Amount to spend"
+              type="text"
+              value={triggerDraft.amountHuman}
+              onChange={(value) => updateTriggerField('amountHuman', value)}
+              placeholder="100.00"
+            />
+            <div className="field token-select">
+              <label htmlFor="buyTriggerStable">Token</label>
+              <select
+                id="buyTriggerStable"
+                value={triggerDraft.stableSymbol}
+                onChange={(event) => updateTriggerField('stableSymbol', event.target.value as InputToken)}
+              >
+                {INPUT_TOKENS.map((token) => (
+                  <option key={token} value={token}>{token}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="field">
+            <label>Time limit</label>
+            <div className="pill-toggle">
+              {(['1d', '1w', 'none'] as const).map((limit) => (
+                <button
+                  key={limit}
+                  type="button"
+                  className={triggerDraft.timeLimit === limit ? 'active' : undefined}
+                  onClick={() => updateTriggerField('timeLimit', limit)}
+                >
+                  {TIME_LIMIT_LABEL[limit]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {triggerDetailsError && <p className="error">{triggerDetailsError}</p>}
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('triggerCoin')}>← Back</Button>
+            <Button onClick={submitTriggerBuyDetails}>Next →</Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Details (Sell) ──────────────────────────────────────
+
+  if (view === 'triggerDetailsSell' && triggerCoinChoice) {
+    return (
+      <Card>
+        <section className="stack">
+          <h2 className="title-row"><TokenIcon token={triggerCoinChoice} size={20} /> Sell {TOKEN_LABELS[triggerCoinChoice]}</h2>
+          <div className="slider-row">
+            <div className="label-row">
+              <label htmlFor="sellTriggerSlider">Amount to sell</label>
+              <strong>{sellPercent}%</strong>
+            </div>
+            <input
+              id="sellTriggerSlider"
+              type="range"
+              min="1"
+              max="100"
+              value={sellPercent}
+              onChange={(event) => handleSellPercentChange(Number(event.target.value))}
+              className={`slider-thumb-${triggerCoinChoice}`}
+              style={{
+                background: `linear-gradient(to right, ${TOKEN_COLOR[triggerCoinChoice]} 0%, ${TOKEN_COLOR[triggerCoinChoice]} ${sellPercent}%, rgba(255,255,255,0.12) ${sellPercent}%, rgba(255,255,255,0.12) 100%)`,
+              }}
+            />
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              {sellAmountHuman.toFixed(TOKEN_DISPLAY_DECIMALS[triggerCoinChoice])} of {formatTokenAmount(sellBalanceRaw, triggerCoinChoice)} {TOKEN_LABELS[triggerCoinChoice]}
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="sellTriggerPrice">Sell price — sell at or above</label>
+            <div className="amount-row">
+              <input
+                id="sellTriggerPrice"
+                type="text"
+                inputMode="decimal"
+                value={triggerDraft.priceUsd}
+                onChange={(event) => updateTriggerField('priceUsd', event.target.value)}
+                placeholder="75000"
+                style={{ flex: 1, minHeight: 42, padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 12, color: 'var(--text)', font: 'inherit' }}
+              />
+              <div className="field token-select" style={{ gap: 0 }}>
+                <select
+                  id="sellTriggerStable"
+                  value={triggerDraft.stableSymbol}
+                  onChange={(event) => updateTriggerField('stableSymbol', event.target.value as InputToken)}
+                  style={{ minHeight: 42 }}
+                >
+                  {INPUT_TOKENS.map((token) => (
+                    <option key={token} value={token}>{token}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="field">
+            <label>Time limit</label>
+            <div className="pill-toggle">
+              {(['1d', '1w', 'none'] as const).map((limit) => (
+                <button
+                  key={limit}
+                  type="button"
+                  className={triggerDraft.timeLimit === limit ? 'active' : undefined}
+                  onClick={() => updateTriggerField('timeLimit', limit)}
+                >
+                  {TIME_LIMIT_LABEL[limit]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {triggerDetailsError && <p className="error">{triggerDetailsError}</p>}
+          <div className="button-row">
+            <Button variant="secondary" onClick={() => setView('triggerCoin')}>← Back</Button>
+            <Button onClick={submitTriggerSellDetails}>Next →</Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Zusammenfassung ─────────────────────────────────────
+
+  if (view === 'triggerSummary' && triggerCoinChoice) {
+    const isBuy = triggerDraft.direction === 'buy';
+    const priceNum = parseStrictDecimal(triggerDraft.priceUsd) ?? 0;
+    const heldSymbol = isBuy ? triggerDraft.stableSymbol : TOKEN_LABELS[triggerCoinChoice];
+    return (
+      <Card>
+        <section className="stack center">
+          <h2>📋 Summary</h2>
+          <div className="summary">
+            <p className="title-row"><TokenIcon token={triggerCoinChoice} size={18} /> <strong>{isBuy ? 'Buy' : 'Sell'} {TOKEN_LABELS[triggerCoinChoice]}</strong></p>
+            <hr />
+            {isBuy ? (
+              <>
+                <p>Spend: <strong>{triggerDraft.amountHuman} {triggerDraft.stableSymbol}</strong></p>
+                <p>Trigger: buy at or below <strong>${priceNum.toLocaleString()}</strong></p>
+              </>
+            ) : (
+              <>
+                <p>Amount: <strong>{triggerDraft.amountHuman} {TOKEN_LABELS[triggerCoinChoice]}</strong> ({sellPercent}% of holding)</p>
+                <p>Trigger: sell at or above <strong>${priceNum.toLocaleString()}</strong></p>
+              </>
+            )}
+            <p>Time limit: <strong>{TIME_LIMIT_LABEL[triggerDraft.timeLimit]}</strong></p>
+            <hr />
+            <p className="muted" style={{ fontSize: '0.8rem' }}>
+              Cancel any time — locked funds return to your wallet immediately.
+            </p>
+          </div>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>
+            Confirming requires 3 wallet transactions: creating your vault, approving {heldSymbol}, and starting the plan.
+          </p>
+          {triggerSubmitError && (
+            <>
+              <p className="error">{triggerSubmitError}</p>
+              <a href={getAddCashDeeplink()} rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
+                Need more funds? Add cash via MiniPay ↗
+              </a>
+            </>
+          )}
+          <div className="button-row">
+            <Button variant="danger" onClick={resetTriggerForm} disabled={isTriggerSubmitting}>✗ Decline</Button>
+            <Button variant="success" onClick={handleTriggerSubmit} disabled={isTriggerSubmitting}>
+              {isTriggerSubmitting ? triggerSubmitPhaseLabel(triggerSubmitPhase ?? 'creating-vault', heldSymbol) : '✓ Confirm'}
+            </Button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Trigger-Plan — Erfolg ──────────────────────────────────────────────
+
+  if (view === 'triggerSuccess' && newTriggerVaultAddress && triggerCoinChoice) {
+    const isBuy = triggerDraft.direction === 'buy';
+    const priceNum = parseStrictDecimal(triggerDraft.priceUsd) ?? 0;
+    return (
+      <Card>
+        <section className="stack center">
+          <div style={{ fontSize: '3.5rem' }}>✅</div>
+          <h2 style={{ color: '#6ee7b7' }}>Plan Submitted!</h2>
+          <p>
+            <strong>{triggerDraft.amountHuman} {isBuy ? triggerDraft.stableSymbol : TOKEN_LABELS[triggerCoinChoice]}</strong>{' '}
+            {isBuy
+              ? <>triggers when {TOKEN_LABELS[triggerCoinChoice]} drops to ${priceNum.toLocaleString()}</>
+              : <>triggers when the price rises to ${priceNum.toLocaleString()}</>}
+          </p>
+          <a
+            href={`https://celoscan.io/address/${newTriggerVaultAddress}`}
+            rel="noreferrer"
+            className="muted"
+          >
+            View vault {newTriggerVaultAddress.slice(0, 6)}…{newTriggerVaultAddress.slice(-4)} on Celoscan ↗
+          </a>
+          <Button onClick={resetTriggerForm}>Back to My Plans</Button>
+        </section>
+      </Card>
+    );
+  }
+
   // ── View: Wizard (Schritte 1–6) ────────────────────────────────────────────
 
   return (
@@ -1149,10 +1870,10 @@ export default function App() {
             </button>
           </div>
           <Button onClick={nextPage} disabled={!formData.interval}>Next →</Button>
-          {visiblePlans.length > 0 && (
+          {(visiblePlans.length > 0 || visibleTriggerPlans.length > 0) && (
             <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
           )}
-          {visiblePlans.length === 0 && historyEntries.length > 0 && (
+          {visiblePlans.length === 0 && visibleTriggerPlans.length === 0 && historyEntries.length > 0 && (
             <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
           )}
           {existingVaults.length > 0 && (

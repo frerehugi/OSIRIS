@@ -953,3 +953,23 @@ export async function readTriggerVaultStatus(contractAddress: `0x${string}`) {
            triggerAbove, triggerPrice, expiresAt,
            initialized, cancelled, executed };
 }
+
+// ─── Zieltoken-Guthaben lesen (für den Sell-Trigger-Wizard) ──────────────────
+//
+// Direktes on-chain balanceOf() der Wallet — bewusst NICHT aus den
+// My-Purchases-Events hergeleitet (die zeigen nur Zukäufe über OSIRIS, nicht
+// den tatsächlichen Wallet-Bestand, der sich z.B. durch einen bereits
+// ausgeführten Sell-Trigger oder externe Transfers ändern kann).
+
+export async function getTargetTokenBalance(
+  tokenAddress: `0x${string}`,
+  ownerAddress: `0x${string}`,
+): Promise<bigint> {
+  const { publicClient } = getClients();
+  return await withRetry(() => publicClient.readContract({
+    address: tokenAddress,
+    abi:     ERC20_ABI,
+    functionName: "balanceOf",
+    args: [ownerAddress],
+  })) as bigint;
+}
