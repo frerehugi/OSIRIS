@@ -38,10 +38,14 @@ export function buildCapabilities() {
       note: 'The trigger price is evaluated off-chain by the Apis keeper (soft trigger) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.',
     },
 
+    // Einzige tatsächlich verwendete Quelle — muss mit getTokenPriceUsd() in
+    // apis/keeper/apisKeeper.ts übereinstimmen. Mento SortedOracles/RedStone
+    // standen hier früher als weitere Optionen, wurden aber nie verdrahtet
+    // (siehe Kommentar dort: pragmatische V1-Entscheidung, eine einheitliche
+    // Quelle statt pro-Token-Feed-IDs ohne Live-Verifikation) — der Eintrag
+    // hier hätte der KI fälschlich Quellenvielfalt vorgegaukelt, die es nicht gibt.
     priceSources: [
-      { id: 'mento-sorted-oracles', label: 'Mento SortedOracles', onChain: true,  covers: ['CELO', 'wETH', 'XAUoT'] },
-      { id: 'redstone',             label: 'RedStone',            onChain: false, covers: ['XAUoT', 'wBTC'] },
-      { id: 'squid-token-price',    label: 'Squid /token-price',  onChain: false, covers: ['wBTC', 'wETH', 'CELO', 'XAUoT'] },
+      { id: 'squid-token-price', label: 'Squid /v2/token-price', onChain: false, covers: ['wBTC', 'wETH', 'CELO', 'XAUoT'] },
     ],
 
     accessGrant: {
