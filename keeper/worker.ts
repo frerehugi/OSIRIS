@@ -25,8 +25,8 @@ export default {
           if (results.length === 0) {
             console.info("Done: nichts ausgeführt.");
           } else {
-            for (const { vaultAddress, receipt } of results) {
-              console.info(`Done: ${vaultAddress} -> ${receipt.transactionHash}`);
+            for (const { vaultAddress, receipt, kind } of results) {
+              console.info(`Done (${kind ?? "dca"}): ${vaultAddress} -> ${receipt.transactionHash}`);
             }
           }
         })

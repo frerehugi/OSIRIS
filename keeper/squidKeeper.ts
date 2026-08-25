@@ -18,12 +18,24 @@
 // viele Vaults. Der Keeper prüft ALLE (Factory-Clones + den einen Vault, der
 // vor der Factory direkt deployt wurde und nicht in factory.getAllVaults()
 // auftaucht) und führt jeden aus, der gerade dran ist.
+//
+// Trigger-Pläne (TriggerVaultFactory, siehe contracts/TriggerVault.sol) laufen
+// über denselben Zyklus und dieselbe Keeper-Wallet wie DCA — anders als der
+// ursprüngliche, inzwischen verworfene Apis-Plan mit eigenem Keeper-Prozess
+// (siehe Git-Historie apis/keeper/apisKeeper.ts, dessen bewährte Preis-Check-
+// Logik hier 1:1 übernommen wird): Owner/Blast-Radius/Treasury sind ohnehin
+// dieselben (OSIRIS besitzt jetzt beide Vault-Typen), ein zweiter Prozess mit
+// eigenem Wallet/Secrets hätte hier keinen Vorteil mehr.
 
 import { createWalletClient, createPublicClient, http, fallback, defineChain, parseUnits } from "viem";
 import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "../src/dcaVaultAbi";
-import { VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS } from "../src/config";
+import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from "../src/triggerVaultAbi";
+import {
+  VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS,
+  TRIGGER_VAULT_FACTORY_ADDRESS,
+} from "../src/config";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
 // passend zu den RPC-Endpoints aus foundry.toml.
@@ -219,6 +231,43 @@ function applyBuffer(toAmountMin: string): bigint {
   return (raw * BigInt(10_000 - SLIPPAGE_BPS_BUFFER)) / 10_000n;
 }
 
+// ─── Trigger-Pläne: Preis holen (Squid `/token-price`) ────────────────────────
+//
+// V1-Preisquelle, bewusst pragmatisch einheitlich über alle Zieltoken hinweg
+// statt Mento SortedOracles/RedStone-Integration mit pro-Token-Rate-Feed-IDs.
+// Gibt den USD-Preis als Zahl zurück (Squid liefert ihn bereits dezimal, nicht
+// als Fixed-Point-Integer).
+
+async function getTokenPriceUsd(integratorId: string, tokenAddress: `0x${string}`): Promise<number> {
+  const url = new URL("https://apiplus.squidrouter.com/v2/token-price");
+  url.searchParams.set("chainId", ACTIVE_CHAIN_ID);
+  url.searchParams.set("tokenAddress", tokenAddress);
+
+  const response = await fetch(url, { headers: { "x-integrator-id": integratorId } });
+  if (!response.ok) {
+    throw new Error(`Squid token-price fehlgeschlagen: ${response.status} ${await response.text()}`);
+  }
+  const data = await response.json() as { price: number };
+  return data.price;
+}
+
+// triggerPrice ist 8-dezimal skaliert (wie Chainlink/Squid), siehe
+// TriggerVault.sol und src/minipayWallet.ts (submitTriggerPlan).
+interface TriggerVaultState {
+  address:      `0x${string}`;
+  owner:        `0x${string}`;
+  heldToken:    `0x${string}`;
+  outputToken:  `0x${string}`;
+  watchToken:   `0x${string}`;
+  triggerAbove: boolean;
+  triggerPrice: bigint;
+}
+
+function isTriggerMet(vault: TriggerVaultState, priceUsd: number): boolean {
+  const triggerPriceUsd = Number(vault.triggerPrice) / 1e8;
+  return vault.triggerAbove ? priceUsd >= triggerPriceUsd : priceUsd <= triggerPriceUsd;
+}
+
 // ─── Vaults einsammeln ────────────────────────────────────────────────────────
 //
 // VAULT_ADDRESS (aus src/config.ts) wurde vor der Factory direkt deployt und
@@ -354,20 +403,136 @@ async function executeVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`)
   return receipt;
 }
 
+// ─── Trigger-Pläne: Vault-Zustand lesen ────────────────────────────────────────
+
+async function readTriggerVaultState(ctx: KeeperContext, vaultAddress: `0x${string}`): Promise<TriggerVaultState> {
+  const [owner, heldToken, outputToken, watchToken, triggerAbove, triggerPrice] = await Promise.all([
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "owner" }) as Promise<`0x${string}`>,
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "heldToken" }) as Promise<`0x${string}`>,
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "outputToken" }) as Promise<`0x${string}`>,
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "watchToken" }) as Promise<`0x${string}`>,
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "triggerAbove" }) as Promise<boolean>,
+    ctx.publicClient.readContract({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "triggerPrice" }) as Promise<bigint>,
+  ]);
+  return { address: vaultAddress, owner, heldToken, outputToken, watchToken, triggerAbove, triggerPrice };
+}
+
+// ─── Trigger-Pläne: einen Vault ausführen ──────────────────────────────────────
+//
+// Gleiche Gebühr-vorab-abschätzen-Logik wie executeVaultStep() oben: Squid
+// muss den NETTO-Betrag nach Gebührenabzug zum Quotieren bekommen, sonst
+// approved der Contract beim Swap zu wenig und der Router-Call revertet mit
+// SwapFailed(). fromAddress ist der Vault selbst (er hält heldToken bis zum
+// Swap, siehe execute() in TriggerVault.sol), toAddress ist vault.owner (dort
+// wird der Balance-Zuwachs gemessen).
+
+async function executeTriggerVaultStep(ctx: KeeperContext, vault: TriggerVaultState) {
+  const [feeBps, minFee] = await ctx.publicClient.readContract({
+    address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "feeInfo",
+  }) as [number, bigint, `0x${string}`];
+
+  // Vault-Bestand statt eines gecachten amount lesen — muss identisch sein
+  // (der Vault hält exakt den bei setupPlan() eingezahlten Betrag bis zur
+  // Ausführung), ist aber die tatsächliche On-Chain-Quelle der Wahrheit.
+  const vaultBalance = await ctx.publicClient.readContract({
+    address: vault.heldToken, abi: ERC20_ABI, functionName: "balanceOf", args: [vault.address],
+  }) as bigint;
+  if (vaultBalance === 0n) throw new Error(`Vault ${vault.address}: nichts zu tauschen (Bestand 0).`);
+
+  let feeAmount = (vaultBalance * BigInt(feeBps)) / 10_000n;
+  if (feeAmount < minFee) feeAmount = minFee;
+  const netAmount = vaultBalance - feeAmount;
+
+  const route = await getSquidRoute(ctx.integratorId, {
+    fromToken:   vault.heldToken,
+    toToken:     vault.outputToken,
+    fromAmount:  netAmount.toString(),
+    fromAddress: vault.address,
+    toAddress:   vault.owner,
+  });
+
+  const minAmountOut = applyBuffer(route.estimate.toAmountMin);
+
+  // Vor dem Broadcast simulieren — deckt z.B. SlippageExceeded oder eine seit
+  // dem Preis-Check inzwischen abgelaufene expiresAt auf, ohne echtes Gas zu
+  // verbrennen (gleiches Muster wie executeVaultStep() oben).
+  const { request } = await ctx.publicClient.simulateContract({
+    account:      ctx.account,
+    address:      vault.address,
+    abi:          TRIGGER_VAULT_ABI,
+    functionName: "execute",
+    args:         [route.transactionRequest.target, minAmountOut, route.transactionRequest.data],
+  });
+
+  const hash = await ctx.walletClient.writeContract(request);
+  const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
+
+  console.info(`Keeper: Trigger-Vault ${vault.address} ausgeführt. Tx: ${hash}`);
+  return receipt;
+}
+
+// ─── Trigger-Pläne: fällige Vaults finden ──────────────────────────────────────
+//
+// canExecute() prüft nur initialized/cancelled/executed/expiresAt on-chain —
+// die eigentliche Preisbedingung (triggerAbove/triggerPrice) ist rein
+// informativ im Contract hinterlegt und wird hier gegen Squids `/token-price`
+// geprüft (siehe TriggerVault.sol-Architekturkommentar: kein On-Chain-Oracle).
+
+async function findExecutableTriggerVaults(
+  ctx: KeeperContext, vaultAddresses: `0x${string}`[],
+): Promise<TriggerVaultState[]> {
+  const executable: TriggerVaultState[] = [];
+
+  for (const vaultAddress of vaultAddresses) {
+    const canExecute = await ctx.publicClient.readContract({
+      address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "canExecute",
+    }) as boolean;
+    if (!canExecute) continue; // initialisiert & nicht storniert/ausgeführt/abgelaufen
+
+    const authorized = await ctx.publicClient.readContract({
+      address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "isKeeper", args: [ctx.account.address],
+    }) as boolean;
+    // globalKeeper wird bei jedem Vault automatisch freigeschaltet (initialize())
+    // — Absicherung falls der Owner ihn per setKeeper() wieder entzogen hat.
+    if (!authorized) continue;
+
+    const vault = await readTriggerVaultState(ctx, vaultAddress);
+    const priceUsd = await getTokenPriceUsd(ctx.integratorId, vault.watchToken);
+    if (!isTriggerMet(vault, priceUsd)) continue;
+
+    console.info(
+      `Keeper: Trigger-Vault ${vaultAddress} erfüllt Preisbedingung (Preis ${priceUsd}, ` +
+      `Trigger ${vault.triggerAbove ? ">=" : "<="} ${Number(vault.triggerPrice) / 1e8}).`
+    );
+    executable.push(vault);
+  }
+
+  return executable;
+}
+
 // ─── CELO Auto-Refuel ─────────────────────────────────────────────────────────
 //
 // Die Keeper-Wallet ist gleichzeitig die Treasury (siehe DcaVaultFactory.
-// feeInfo() — treasury == globalKeeper) und sammelt dadurch laufend USDC/USDT-
-// Gebühren an. Statt die manuell in CELO umzutauschen, tauscht der Keeper nach
-// jedem Zyklus automatisch einen Teil davon in CELO, um sich selbst mit Gas
-// zu versorgen. USDC und USDT werden bewusst GETRENNT geprüft (eigene
-// Schwelle, eigener Swap) statt addiert — jeder Swap ist ohnehin ein eigener
-// Squid-Request pro Token, eine gemeinsame Prüfung würde nur Sonderlogik fürs
-// Kombinieren zweier ERC-20-Salden hinzufügen, ohne echten Vorteil.
+// feeInfo() — treasury == globalKeeper) und sammelt dadurch laufend Gebühren
+// an. Statt die manuell in CELO umzutauschen, tauscht der Keeper nach jedem
+// Zyklus automatisch einen Teil davon in CELO, um sich selbst mit Gas zu
+// versorgen. Jedes Token wird bewusst GETRENNT geprüft (eigene Schwelle,
+// eigener Swap) statt addiert — jeder Swap ist ohnehin ein eigener Squid-
+// Request pro Token, eine gemeinsame Prüfung würde nur Sonderlogik fürs
+// Kombinieren mehrerer ERC-20-Salden hinzufügen, ohne echten Vorteil.
+//
+// DCA-Gebühren fallen immer in USDC/USDT an — Trigger-Gebühren dagegen im
+// jeweiligen heldToken, das bei einem Sell-Trigger auch ein Zieltoken sein
+// kann (siehe TriggerVault.sol) — deshalb deckt die Liste alle fünf
+// Nicht-CELO-Token ab, die OSIRIS kennt (CELO selbst ausgenommen, da bereits
+// das Refuel-Ziel).
 
-const REFUEL_STABLE_TOKENS: { symbol: string; address: `0x${string}` }[] = [
-  { symbol: "USDC", address: INPUT_TOKENS.USDC.address },
-  { symbol: "USDT", address: INPUT_TOKENS.USDT.address },
+const REFUEL_CANDIDATE_TOKENS: { symbol: string; address: `0x${string}` }[] = [
+  { symbol: "USDC",  address: INPUT_TOKENS.USDC.address },
+  { symbol: "USDT",  address: INPUT_TOKENS.USDT.address },
+  { symbol: "wBTC",  address: TARGET_TOKENS.wBTC.address },
+  { symbol: "wETH",  address: TARGET_TOKENS.wETH.address },
+  { symbol: "XAUoT", address: TARGET_TOKENS.XAUoT.address },
 ];
 
 async function refuelFromToken(ctx: KeeperContext, token: { symbol: string; address: `0x${string}` }): Promise<void> {
@@ -409,7 +574,7 @@ async function refuelFromToken(ctx: KeeperContext, token: { symbol: string; addr
 }
 
 async function autoRefuelCelo(ctx: KeeperContext): Promise<void> {
-  for (const token of REFUEL_STABLE_TOKENS) {
+  for (const token of REFUEL_CANDIDATE_TOKENS) {
     try {
       await refuelFromToken(ctx, token);
     } catch (err) {
@@ -420,11 +585,56 @@ async function autoRefuelCelo(ctx: KeeperContext): Promise<void> {
   }
 }
 
+// Noch nicht deployt (siehe script/DeployTriggerVaultFactory.s.sol) — solange
+// TRIGGER_VAULT_FACTORY_ADDRESS in src/config.ts der Platzhalter ist,
+// überspringt der Zyklus den Trigger-Teil komplett statt gegen die
+// Nulladresse zu lesen.
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+// ─── Trigger-Pläne: Ausführungs-Zyklus ─────────────────────────────────────────
+//
+// Sequenziell statt parallel — gleiche Begründung wie bei den DCA-Vaults oben
+// (Squid-Rate-Limit + Nonce-Verwaltung der Keeper-Wallet).
+
+async function runTriggerVaultCycle(ctx: KeeperContext): Promise<KeeperCycleResult[]> {
+  if (TRIGGER_VAULT_FACTORY_ADDRESS === ZERO_ADDRESS) {
+    console.info("Keeper: TRIGGER_VAULT_FACTORY_ADDRESS noch nicht deployt — überspringe Trigger-Pläne.");
+    return [];
+  }
+
+  const allVaults = await ctx.publicClient.readContract({
+    address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "getAllVaults",
+  }) as `0x${string}`[];
+  console.info(`Keeper: ${allVaults.length} Trigger-Vault(s) insgesamt.`);
+
+  const executableVaults = await findExecutableTriggerVaults(ctx, allVaults);
+  const results: KeeperCycleResult[] = [];
+
+  if (executableVaults.length === 0) {
+    console.info("Keeper: Kein Trigger-Vault aktuell ausführbar (Preisbedingung nicht erfüllt oder canExecute = false).");
+    return results;
+  }
+
+  for (const vault of executableVaults) {
+    try {
+      const receipt = await executeTriggerVaultStep(ctx, vault);
+      results.push({ vaultAddress: vault.address, receipt, kind: "trigger" });
+    } catch (err) {
+      // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
+      // Nutzer) darf die Ausführung für alle anderen Vaults nicht blockieren.
+      console.error(`Keeper: Fehler bei Trigger-Vault ${vault.address}:`, err);
+    }
+  }
+
+  return results;
+}
+
 // ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
 
 export interface KeeperCycleResult {
   vaultAddress: `0x${string}`;
   receipt:      Awaited<ReturnType<typeof executeVaultStep>>;
+  kind?:        "dca" | "trigger"; // fehlt (= "dca") bei bereits vorhandenen Aufrufern
 }
 
 export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
@@ -446,7 +656,7 @@ export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
     for (const vaultAddress of executableVaults) {
       try {
         const receipt = await executeVaultStep(ctx, vaultAddress);
-        results.push({ vaultAddress, receipt });
+        results.push({ vaultAddress, receipt, kind: "dca" });
       } catch (err) {
         // Ein fehlschlagender Vault (z.B. SlippageExceeded für einen einzelnen
         // Nutzer) darf die Ausführung für alle anderen Vaults nicht blockieren.
@@ -454,6 +664,8 @@ export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
       }
     }
   }
+
+  results.push(...await runTriggerVaultCycle(ctx));
 
   await autoRefuelCelo(ctx);
 
