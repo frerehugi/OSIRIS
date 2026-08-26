@@ -484,27 +484,37 @@ async function findExecutableTriggerVaults(
   const executable: TriggerVaultState[] = [];
 
   for (const vaultAddress of vaultAddresses) {
-    const canExecute = await ctx.publicClient.readContract({
-      address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "canExecute",
-    }) as boolean;
-    if (!canExecute) continue; // initialisiert & nicht storniert/ausgeführt/abgelaufen
+    try {
+      const canExecute = await ctx.publicClient.readContract({
+        address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "canExecute",
+      }) as boolean;
+      if (!canExecute) continue; // initialisiert & nicht storniert/ausgeführt/abgelaufen
 
-    const authorized = await ctx.publicClient.readContract({
-      address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "isKeeper", args: [ctx.account.address],
-    }) as boolean;
-    // globalKeeper wird bei jedem Vault automatisch freigeschaltet (initialize())
-    // — Absicherung falls der Owner ihn per setKeeper() wieder entzogen hat.
-    if (!authorized) continue;
+      const authorized = await ctx.publicClient.readContract({
+        address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "isKeeper", args: [ctx.account.address],
+      }) as boolean;
+      // globalKeeper wird bei jedem Vault automatisch freigeschaltet (initialize())
+      // — Absicherung falls der Owner ihn per setKeeper() wieder entzogen hat.
+      if (!authorized) continue;
 
-    const vault = await readTriggerVaultState(ctx, vaultAddress);
-    const priceUsd = await getTokenPriceUsd(ctx.integratorId, vault.watchToken);
-    if (!isTriggerMet(vault, priceUsd)) continue;
+      const vault = await readTriggerVaultState(ctx, vaultAddress);
+      const priceUsd = await getTokenPriceUsd(ctx.integratorId, vault.watchToken);
+      if (!isTriggerMet(vault, priceUsd)) continue;
 
-    console.info(
-      `Keeper: Trigger-Vault ${vaultAddress} erfüllt Preisbedingung (Preis ${priceUsd}, ` +
-      `Trigger ${vault.triggerAbove ? ">=" : "<="} ${Number(vault.triggerPrice) / 1e8}).`
-    );
-    executable.push(vault);
+      console.info(
+        `Keeper: Trigger-Vault ${vaultAddress} erfüllt Preisbedingung (Preis ${priceUsd}, ` +
+        `Trigger ${vault.triggerAbove ? ">=" : "<="} ${Number(vault.triggerPrice) / 1e8}).`
+      );
+      executable.push(vault);
+    } catch (err) {
+      // Ein einzelner fehlschlagender Preis-Lookup/RPC-Read (z.B. Squid
+      // rate-limited oder kurzzeitig down) darf weder die Prüfung der
+      // restigen Trigger-Vaults noch — da runTriggerVaultCycle() ungefangen
+      // in runKeeperCycle() durchschlägt — den kompletten Zyklus inkl.
+      // autoRefuelCelo() abbrechen. Siehe Chat: "Der plan hat immer noch
+      // nicht ausgelöst" — vorher konnte genau das die stille Ursache sein.
+      console.error(`Keeper: Prüfung von Trigger-Vault ${vaultAddress} fehlgeschlagen:`, err);
+    }
   }
 
   return executable;
@@ -665,7 +675,13 @@ export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
     }
   }
 
-  results.push(...await runTriggerVaultCycle(ctx));
+  try {
+    results.push(...await runTriggerVaultCycle(ctx));
+  } catch (err) {
+    // Ein Fehler beim Auflisten der Trigger-Vaults (z.B. RPC-Read auf die
+    // Factory schlägt fehl) darf autoRefuelCelo() unten nicht verhindern.
+    console.error("Keeper: Trigger-Vault-Zyklus fehlgeschlagen:", err);
+  }
 
   await autoRefuelCelo(ctx);
 
