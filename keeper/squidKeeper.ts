@@ -247,8 +247,16 @@ async function getTokenPriceUsd(integratorId: string, tokenAddress: `0x${string}
   if (!response.ok) {
     throw new Error(`Squid token-price fehlgeschlagen: ${response.status} ${await response.text()}`);
   }
-  const data = await response.json() as { price: number };
-  return data.price;
+  // Antwort ist { token: { ..., usdPrice: number, ... } } — KEIN "price"-Feld
+  // auf oberster Ebene (siehe Chat: mit curl gegen die echte API verifiziert,
+  // vorher lief die Preisprüfung wegen data.price === undefined immer ins
+  // Leere, egal wie der tatsächliche Kurs stand).
+  const data = await response.json() as { token?: { usdPrice?: number } };
+  const price = data.token?.usdPrice;
+  if (typeof price !== "number" || !Number.isFinite(price)) {
+    throw new Error(`Squid token-price: kein gültiger usdPrice in der Antwort: ${JSON.stringify(data)}`);
+  }
+  return price;
 }
 
 // triggerPrice ist 8-dezimal skaliert (wie Chainlink/Squid), siehe
