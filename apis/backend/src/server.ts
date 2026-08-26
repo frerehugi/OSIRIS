@@ -15,13 +15,13 @@ export function buildServer(): McpServer {
   const server = new McpServer({ name: 'apis', version: '0.1.0' });
 
   // ── get_capabilities ──────────────────────────────────────────────────
-  // Öffentlich, kein Grant nötig — beschreibt nur, was Apis/OSIRIS können.
+  // Öffentlich, kein Grant nötig — beschreibt nur, was APIS/OSIRIS können.
   server.registerTool(
     'get_capabilities',
     {
-      title: 'Get Apis capabilities',
+      title: 'Get APIS capabilities',
       description:
-        'Returns the tokens, plan constraints, fees, and price sources Apis/OSIRIS support. ' +
+        'Returns the tokens, plan constraints, fees, and price sources APIS/OSIRIS support. ' +
         'Call this first to know what kinds of plans can be proposed.',
       inputSchema: {},
     },
@@ -36,9 +36,9 @@ export function buildServer(): McpServer {
     {
       title: 'Get wallet balances',
       description:
-        "Reads the grant owner's on-chain balances for all tokens Apis/OSIRIS support. " +
-        "Requires a grant code with 'read' access, created in the Apis app.",
-      inputSchema: { grantCode: z.string().describe('The code the user generated in Apis ("Create New Code for Agent").') },
+        "Reads the grant owner's on-chain balances for all tokens APIS/OSIRIS support. " +
+        "Requires a grant code with 'read' access, created in the APIS app.",
+      inputSchema: { grantCode: z.string().describe('The code the user generated in APIS ("Create New Code for Agent").') },
     },
     async ({ grantCode }) => {
       let grant;
@@ -62,8 +62,8 @@ export function buildServer(): McpServer {
         "Reads the grant owner's existing DCA and trigger (buy/sell) plans and their current status " +
         "(pending, active, cancelled, complete/executed, expired) directly from the OSIRIS contracts. " +
         "Does not include past purchase/execution history — only current plan status. " +
-        "Requires a grant code with 'read' access, created in the Apis app.",
-      inputSchema: { grantCode: z.string().describe('The code the user generated in Apis ("Create New Code for Agent").') },
+        "Requires a grant code with 'read' access, created in the APIS app.",
+      inputSchema: { grantCode: z.string().describe('The code the user generated in APIS ("Create New Code for Agent").') },
     },
     async ({ grantCode }) => {
       let grant;
@@ -92,12 +92,12 @@ export function buildServer(): McpServer {
       title: 'Propose an OSIRIS plan',
       description:
         'Validates a DCA buy plan (and an optional conditional sell trigger) against the real OSIRIS contract ' +
-        "constraints and compiles it into the exact parameters the Apis app needs. Does NOT execute anything — " +
+        "constraints and compiles it into the exact parameters the APIS app needs. Does NOT execute anything — " +
         "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
         'On success, base64url-encode the JSON result (as a single line, no extra fields) and give that string to the ' +
-        'user as a "plan code" to paste into the Apis app\'s Confirm Plan screen.',
+        'user as a "plan code" to paste into the APIS app\'s Confirm Plan screen.',
       inputSchema: {
-        grantCode:   z.string().describe('The code the user generated in Apis.'),
+        grantCode:   z.string().describe('The code the user generated in APIS.'),
         inputToken:  z.enum(['USDC', 'USDT']),
         totalAmount: z.string().describe('Human-readable amount, e.g. "50.00".'),
         interval:    z.enum(['hourly', 'daily', 'weekly']),

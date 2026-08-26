@@ -7,7 +7,7 @@ import {TriggerVaultFactory} from "../contracts/TriggerVaultFactory.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockSquidRouter} from "./mocks/MockSquidRouter.sol";
 
-/// @notice Test-Suite für TriggerVault + TriggerVaultFactory (Apis).
+/// @notice Test-Suite für TriggerVault + TriggerVaultFactory (APIS).
 ///
 /// Ausführen:    forge test --match-contract TriggerVaultTest -vvv
 

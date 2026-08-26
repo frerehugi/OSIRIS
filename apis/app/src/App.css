@@ -1,6 +1,6 @@
-/* Apis — App-Styling. Bewusst 1:1 an OSIRIS' echtes src/App.css angeglichen
+/* APIS — App-Styling. Bewusst 1:1 an OSIRIS' echtes src/App.css angeglichen
    (gleiche CSS-Variablen, gleiche Radial-Gradients, gleiche Pill-Buttons/
-   -Toggles, gleiche Token-Farben/-Icons, gleicher Slider-Override) — Apis
+   -Toggles, gleiche Token-Farben/-Icons, gleicher Slider-Override) — APIS
    soll als Bruder von OSIRIS erkennbar sein, siehe Chat. Eigene Datei (kein
    Import aus src/App.css) bleibt bestehen, weil apis/app ein komplett
    isoliertes Package ist (siehe Gesamtplan §22) — nur die Werte sind jetzt
@@ -76,7 +76,7 @@ button {
 
 /* Gleiche Behandlung wie OSIRIS' .banner (img { width:100%; border-radius:16px;
    display:block }, siehe src/App.css/App.tsx) — hier zusätzlich mit einer
-   max-width, weil Apis' Banner-Bild (anders als OSIRIS' Karten-interne
+   max-width, weil APIS' Banner-Bild (anders als OSIRIS' Karten-interne
    Nutzung) direkt auf dem Screen sitzt statt in einer schmaleren .card. */
 .landing-banner {
   width: 100%;
@@ -478,7 +478,7 @@ button {
   color: var(--text-faint);
 }
 
-/* ── About Apis ──────────────────────────────────────────────────────── */
+/* ── About APIS ──────────────────────────────────────────────────────── */
 
 .about-body {
   padding: 4px 18px 28px;

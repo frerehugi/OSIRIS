@@ -1,6 +1,6 @@
 // Token-Icon-Farben/-Symbole — 1:1 aus OSIRIS' echtem src/App.tsx übernommen
-// (TOKEN_COLOR/TOKEN_ICONS/TOKEN_ICON_TEXT dort), damit Apis' Token-Badges
-// exakt so aussehen wie OSIRIS' eigene — "Apis als Bruder von OSIRIS
+// (TOKEN_COLOR/TOKEN_ICONS/TOKEN_ICON_TEXT dort), damit APIS' Token-Badges
+// exakt so aussehen wie OSIRIS' eigene — "APIS als Bruder von OSIRIS
 // erkennbar" (siehe Chat). USDC/USDT kommen in OSIRIS' eigener Badge-Map
 // nicht vor (dort nie als Icon dargestellt) — hier ergänzt um die jeweils
 // offizielle Markenfarbe (Circle-Blau/Tether-Grün), gleiches Muster wie die
@@ -11,7 +11,7 @@ import type { INPUT_TOKENS, TARGET_TOKENS } from './config';
 export type AnyTokenSymbol = keyof typeof TARGET_TOKENS | keyof typeof INPUT_TOKENS;
 
 // cUSD ist Teil des Record-Typs (INPUT_TOKENS deckt beide Chains ab, siehe
-// src/config.ts), taucht aber in Apis' UI nirgends auf — Mainnet-INPUT_TOKENS
+// src/config.ts), taucht aber in APIS' UI nirgends auf — Mainnet-INPUT_TOKENS
 // hat kein cUSD. Eintrag nur für Typ-Vollständigkeit, mit Celos echter
 // Markenfarbe.
 export const TOKEN_ICON: Record<AnyTokenSymbol, string> = {

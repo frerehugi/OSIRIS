@@ -5,7 +5,7 @@
 import { createPublicClient, http, fallback } from 'viem';
 import { celo } from 'viem/chains';
 
-// Gleiche RPC-Fallback-Strategie wie OSIRIS' und Apis' Keeper — bewusst
+// Gleiche RPC-Fallback-Strategie wie OSIRIS' und APIS' Keeper — bewusst
 // wiederverwendetes Muster, kein neuer Anbieter.
 const RPC_URLS = ['https://forno.celo.org', 'https://rpc.ankr.com/celo'];
 

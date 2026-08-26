@@ -83,7 +83,7 @@ export default function Holdings() {
       </div>
 
       <p className="holdings-note">
-        Balances read directly from your MiniPay wallet. Apis never holds custody — this is a view, not a transfer.
+        Balances read directly from your MiniPay wallet. APIS never holds custody — this is a view, not a transfer.
       </p>
     </div>
   );

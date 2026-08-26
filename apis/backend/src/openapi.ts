@@ -14,11 +14,11 @@ const ANY_TOKEN_ENUM = ['wBTC', 'wETH', 'CELO', 'XAUoT', 'USDC', 'USDT'];
 export const OPENAPI_SPEC = {
   openapi: '3.1.0',
   info: {
-    title: 'Apis — OSIRIS Agent API',
+    title: 'APIS — OSIRIS Agent API',
     version: '0.1.0',
     description:
       'Read-only wallet/plan lookups and plan proposals for the OSIRIS DCA/trigger-vault contracts on Celo. ' +
-      'Every endpoint except /capabilities requires a grantCode the user generates in the Apis app ' +
+      'Every endpoint except /capabilities requires a grantCode the user generates in the APIS app ' +
       '("Create New Code for Agent") — a self-verifying, time-limited EIP-712 signature, not an API key. ' +
       'This API never executes anything and never holds funds: propose_plan only returns unsigned transaction ' +
       'parameters, which the user must confirm and sign themselves in MiniPay.',
@@ -28,7 +28,7 @@ export const OPENAPI_SPEC = {
     '/capabilities': {
       get: {
         operationId: 'getCapabilities',
-        summary: 'Get Apis/OSIRIS capabilities',
+        summary: 'Get APIS/OSIRIS capabilities',
         description: 'Returns the tokens, plan constraints, fees, and price sources OSIRIS supports. Call this first, no grant needed.',
         responses: { '200': { description: 'Capabilities object.' } },
       },
@@ -37,7 +37,7 @@ export const OPENAPI_SPEC = {
       post: {
         operationId: 'getBalances',
         summary: "Get the grant owner's wallet balances",
-        description: "Reads the grant owner's on-chain balances for all tokens Apis/OSIRIS support. Requires a grant code with 'read' access.",
+        description: "Reads the grant owner's on-chain balances for all tokens APIS/OSIRIS support. Requires a grant code with 'read' access.",
         requestBody: {
           required: true,
           content: {
@@ -46,7 +46,7 @@ export const OPENAPI_SPEC = {
                 type: 'object',
                 required: ['grantCode'],
                 properties: {
-                  grantCode: { type: 'string', description: 'The code the user generated in Apis ("Create New Code for Agent").' },
+                  grantCode: { type: 'string', description: 'The code the user generated in APIS ("Create New Code for Agent").' },
                 },
               },
             },
@@ -74,7 +74,7 @@ export const OPENAPI_SPEC = {
                 type: 'object',
                 required: ['grantCode'],
                 properties: {
-                  grantCode: { type: 'string', description: 'The code the user generated in Apis ("Create New Code for Agent").' },
+                  grantCode: { type: 'string', description: 'The code the user generated in APIS ("Create New Code for Agent").' },
                 },
               },
             },
@@ -92,10 +92,10 @@ export const OPENAPI_SPEC = {
         summary: 'Propose an OSIRIS DCA buy plan, optionally with an attached sell trigger',
         description:
           'Validates a DCA buy plan (and an optional conditional sell trigger) against the real OSIRIS contract ' +
-          'constraints and compiles it into the exact parameters the Apis app needs. Does NOT execute anything — ' +
+          'constraints and compiles it into the exact parameters the APIS app needs. Does NOT execute anything — ' +
           "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
           'On success, base64url-encode the JSON result (as a single line, no extra fields) and give that string to the ' +
-          'user as a "plan code" to paste into the Apis app\'s Confirm Plan screen.',
+          'user as a "plan code" to paste into the APIS app\'s Confirm Plan screen.',
         requestBody: {
           required: true,
           content: {
@@ -104,7 +104,7 @@ export const OPENAPI_SPEC = {
                 type: 'object',
                 required: ['grantCode', 'inputToken', 'totalAmount', 'interval', 'duration', 'targets'],
                 properties: {
-                  grantCode:   { type: 'string', description: 'The code the user generated in Apis.' },
+                  grantCode:   { type: 'string', description: 'The code the user generated in APIS.' },
                   inputToken:  { type: 'string', enum: ['USDC', 'USDT'] },
                   totalAmount: { type: 'string', description: 'Human-readable amount, e.g. "50.00".' },
                   interval:    { type: 'string', enum: ['hourly', 'daily', 'weekly'] },

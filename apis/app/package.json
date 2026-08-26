@@ -1,7 +1,7 @@
 {
   "name": "apis-app",
   "version": "0.1.0",
-  "description": "Apis — Agentic Powered Investment System. MiniPay Mini App, companion to OSIRIS.",
+  "description": "APIS — Agentic Powered Investment System. MiniPay Mini App, companion to OSIRIS.",
   "private": true,
   "type": "module",
   "scripts": {

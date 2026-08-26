@@ -28,7 +28,7 @@ import TokenIcon from '../components/TokenIcon';
 /// JETZT SCHON in ausreichender Menge hält (echtes Escrow, kein bloßes
 /// Allowance-Pull-Modell — der Betrag muss beim Setup real vorhanden sein).
 /// Reicht der Bestand nicht, wird der Sell-Trigger übersprungen, mit
-/// Hinweis, ihn später manuell in OSIRIS 1.1 nachzuholen (Apis selbst bietet
+/// Hinweis, ihn später manuell in OSIRIS 1.1 nachzuholen (APIS selbst bietet
 /// keine manuelle Plan-Erstellung mehr an, siehe Architektur-Wechsel).
 
 interface ProposedPlan {
@@ -345,7 +345,7 @@ export default function ConfirmPlan() {
             <b>Fee:</b> 0.99%, min. $0.035 per execution — charged by the OSIRIS contract itself, only when a step actually executes.
           </p>
           <p className="fee-note">
-            Apis never holds your funds. You sign every step yourself in MiniPay.
+            APIS never holds your funds. You sign every step yourself in MiniPay.
           </p>
 
           {error && <p className="createcode-error">{error}</p>}

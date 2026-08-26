@@ -5,10 +5,10 @@ import { useConnection, useSignTypedData } from 'wagmi';
 /// Access-Grant — siehe Gesamtplan §8/§20 (offene Frage "Signatur vs.
 /// On-Chain-Registry", jetzt entschieden: Signatur). Kein Backend nötig, um
 /// den Grant selbst gültig zu machen: der "Code" ist ein selbstständig
-/// prüfbares Objekt (Nachricht + Signatur) — ein künftiger Apis-Verifier
+/// prüfbares Objekt (Nachricht + Signatur) — ein künftiger APIS-Verifier
 /// (MCP-Server) kann die Signatur unabhängig gegen die behauptete Owner-
-/// Adresse prüfen (ecrecover/verifyTypedData), ohne dass Apis vorher irgendwo
-/// einen Datensatz angelegt haben müsste. Passt zu "Apis hält selbst keine
+/// Adresse prüfen (ecrecover/verifyTypedData), ohne dass APIS vorher irgendwo
+/// einen Datensatz angelegt haben müsste. Passt zu "APIS hält selbst keine
 /// Token oder Berechtigungen".
 ///
 /// Kein Verstoß gegen die MiniPay-Regel "kein Message-Signing zur Auth" —
@@ -86,6 +86,8 @@ export default function CreateCode() {
 
     try {
       const signature = await signTypedDataAsync({
+        // Bewusst 'Apis' (nicht 'APIS') — muss exakt mit grant.ts' EIP-712-
+        // Domain übereinstimmen, sonst schlägt jede Signaturprüfung fehl.
         domain: { name: 'Apis', version: '1', chainId: 42220 },
         types:  ACCESS_GRANT_TYPES,
         primaryType: 'AccessGrant',
@@ -120,7 +122,7 @@ export default function CreateCode() {
       </div>
 
       <p className="createcode-sub">
-        Grants <b>read + propose access only</b>, for a limited time you choose. Apis never holds your funds.
+        Grants <b>read + propose access only</b>, for a limited time you choose. APIS never holds your funds.
       </p>
 
       <div className="section-label">Choose assistant</div>

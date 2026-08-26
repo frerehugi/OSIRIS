@@ -7,7 +7,7 @@ import { TARGET_TOKENS } from '../config';
 import TokenIcon from '../components/TokenIcon';
 import type { AnyTokenSymbol } from '../tokenVisuals';
 
-/// "My Purchases" — neu für Apis, spiegelt 1:1 OSIRIS' eigene, bereits
+/// "My Purchases" — neu für APIS, spiegelt 1:1 OSIRIS' eigene, bereits
 /// erprobte Ansicht (siehe src/App.tsx View 'purchases'): Kachel-Raster
 /// gruppiert nach Zieltoken, mit Drill-down zur Einzel-Historie pro Token.
 /// Lädt bei jedem Öffnen frisch (kein eigenes Caching hier — das übernimmt

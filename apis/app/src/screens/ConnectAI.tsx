@@ -32,7 +32,7 @@ export default function ConnectAI() {
       </div>
 
       <p className="createcode-sub">
-        Pick the assistant you use. You add Apis as a tool there once — then, any time you want it to check your
+        Pick the assistant you use. You add APIS as a tool there once — then, any time you want it to check your
         wallet or propose a plan, you generate a one-time code in this app and paste it into that chat.
       </p>
 
@@ -49,7 +49,7 @@ export default function ConnectAI() {
       </div>
 
       <p className="createcode-sub">
-        Apis never holds your funds or private keys — a connected assistant can only read balances and propose
+        APIS never holds your funds or private keys — a connected assistant can only read balances and propose
         plans. Nothing moves until you confirm and sign it yourself in MiniPay.
       </p>
     </div>

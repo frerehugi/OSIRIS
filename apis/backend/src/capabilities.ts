@@ -1,5 +1,5 @@
 // Capability-Schema — maschinenlesbare Beschreibung dessen, was OSIRIS/Squid
-// und Apis' eigener TriggerVault-Contract können (siehe Gesamtplan §8). Rein
+// und APIS' eigener TriggerVault-Contract können (siehe Gesamtplan §8). Rein
 // statische Daten, reuse der bestehenden OSIRIS-Token-Konfiguration statt
 // einer zweiten, potenziell abweichenden Kopie (gleiches Prinzip wie in
 // apis/app/src/config.ts).

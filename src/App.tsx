@@ -1173,11 +1173,11 @@ export default function App() {
           </div>
 
           <div className="summary">
-            <p><strong>🐝 Manage with AI — Apis</strong></p>
+            <p><strong>🐝 Manage with AI — APIS</strong></p>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Apis connects OSIRIS to your AI assistant — Claude, ChatGPT, Gemini, or Grok. Chat about your plan in
+              APIS connects OSIRIS to your AI assistant — Claude, ChatGPT, Gemini, or Grok. Chat about your plan in
               plain language and it proposes one for you; nothing runs until you confirm and sign it yourself in
-              MiniPay. Apis never holds your funds or private keys.
+              MiniPay. APIS never holds your funds or private keys.
             </p>
             <a
               href="https://apis.osirisapp.xyz/connect"
@@ -1185,7 +1185,7 @@ export default function App() {
               className="muted"
               style={{ fontSize: '0.85rem' }}
             >
-              Set up Apis for your AI assistant ↗
+              Set up APIS for your AI assistant ↗
             </a>
           </div>
 
@@ -1222,17 +1222,17 @@ export default function App() {
           <h2>📄 Terms and Conditions</h2>
           <p className="muted" style={{ fontSize: '0.8rem' }}>Last updated: August 2026</p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            OSIRIS, and Apis (the AI layer that talks to it), are independent, non-commercial projects built by
+            OSIRIS, and APIS (the AI layer that talks to it), are independent, non-commercial projects built by
             Schmitz &amp; Hugenberg for two reasons: to push forward what's technically possible at the intersection
             of Web3 and AI agents, and because building this kind of thing is genuinely fun. Neither is a regulated
             financial product, a company, or a service with a business behind it — nothing in this app constitutes
             financial, investment, tax, or legal advice.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>Experimental technology, no warranty.</strong> OSIRIS and Apis are built on very new, largely
+            <strong>Experimental technology, no warranty.</strong> OSIRIS and APIS are built on very new, largely
             untested combinations of technology — EVM smart contracts, cross-chain DEX routing, off-chain price
             triggers with no on-chain oracle, and AI agents (Claude, ChatGPT, Gemini, Grok, and others) proposing
-            transactions on your behalf. All of it — contracts, keeper infrastructure, this app, and Apis — is
+            transactions on your behalf. All of it — contracts, keeper infrastructure, this app, and APIS — is
             provided strictly "as is" and "as available", without any warranty of any kind, express or implied,
             including warranties of merchantability, fitness for a particular purpose, non-infringement,
             availability, accuracy, or freedom from errors, bugs, or vulnerabilities. Schmitz &amp; Hugenberg give
@@ -1240,15 +1240,15 @@ export default function App() {
             all — and specifically do not guarantee that unaudited smart contracts are free of exploitable bugs.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>Use at your own risk.</strong> You use OSIRIS and Apis entirely at your own risk and
+            <strong>Use at your own risk.</strong> You use OSIRIS and APIS entirely at your own risk and
             exclusively with your own funds. Smart contracts and blockchain infrastructure can fail, be exploited,
             or behave unexpectedly; token prices are volatile and can lose most or all of their value; an AI
             assistant can misunderstand you or propose a plan that doesn't match your intent. You are solely
-            responsible for reviewing anything an AI proposes and for evaluating whether to use OSIRIS or Apis at
+            responsible for reviewing anything an AI proposes and for evaluating whether to use OSIRIS or APIS at
             all. Never commit more than you can afford to lose entirely.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>AI-assisted plans (Apis).</strong> An AI assistant connected via Apis can read your balances
+            <strong>AI-assisted plans (APIS).</strong> An AI assistant connected via APIS can read your balances
             and propose a plan, but it can never move funds or execute anything by itself — every action still
             requires your own confirmation and signature in MiniPay. Schmitz &amp; Hugenberg do not control, and
             accept no responsibility for, the AI providers themselves (Anthropic, OpenAI, Google, xAI, or any
@@ -1256,9 +1256,9 @@ export default function App() {
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
             <strong>No liability.</strong> To the fullest extent permitted by law, Schmitz &amp; Hugenberg, their
-            contributors, and anyone associated with OSIRIS or Apis accept no liability whatsoever for any direct,
+            contributors, and anyone associated with OSIRIS or APIS accept no liability whatsoever for any direct,
             indirect, incidental, or consequential loss or damage — including loss of funds, tokens, or data —
-            arising from your use of, or inability to use, OSIRIS or Apis, whether caused by a smart contract bug,
+            arising from your use of, or inability to use, OSIRIS or APIS, whether caused by a smart contract bug,
             a third-party service (including the Squid Router, any DEX it routes through, or any connected AI
             provider), network/RPC failures, wallet software, or any other cause.
           </p>
@@ -1268,12 +1268,12 @@ export default function App() {
             risk — see above.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>Research and hobby project, not a business.</strong> OSIRIS and Apis are a research and hobby
+            <strong>Research and hobby project, not a business.</strong> OSIRIS and APIS are a research and hobby
             effort, not a company with support SLAs or roadmap commitments. The OSIRIS Telegram group
             (t.me/osirisapp) is our only official point of contact — support there is offered on a best-effort
             basis and is not guaranteed, and we are not responsible for anyone or anything claiming to represent
-            OSIRIS or Apis elsewhere. These terms may change at any time without prior notice; continued use of
-            OSIRIS or Apis after a change constitutes acceptance of the updated terms.
+            OSIRIS or APIS elsewhere. These terms may change at any time without prior notice; continued use of
+            OSIRIS or APIS after a change constitutes acceptance of the updated terms.
           </p>
           <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
         </section>

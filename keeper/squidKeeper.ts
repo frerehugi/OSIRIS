@@ -21,7 +21,7 @@
 //
 // Trigger-Pläne (TriggerVaultFactory, siehe contracts/TriggerVault.sol) laufen
 // über denselben Zyklus und dieselbe Keeper-Wallet wie DCA — anders als der
-// ursprüngliche, inzwischen verworfene Apis-Plan mit eigenem Keeper-Prozess
+// ursprüngliche, inzwischen verworfene APIS-Plan mit eigenem Keeper-Prozess
 // (siehe Git-Historie apis/keeper/apisKeeper.ts, dessen bewährte Preis-Check-
 // Logik hier 1:1 übernommen wird): Owner/Blast-Radius/Treasury sind ohnehin
 // dieselben (OSIRIS besitzt jetzt beide Vault-Typen), ein zweiter Prozess mit

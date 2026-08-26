@@ -1,7 +1,7 @@
 {
   "name": "apis-backend",
   "version": "0.1.0",
-  "description": "Apis MCP server — Claude-facing tools for capabilities, balances, and plan proposals. Holds no keys, executes nothing.",
+  "description": "APIS MCP server — Claude-facing tools for capabilities, balances, and plan proposals. Holds no keys, executes nothing.",
   "private": true,
   "type": "module",
   "scripts": {

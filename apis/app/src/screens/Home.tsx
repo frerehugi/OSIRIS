@@ -12,7 +12,7 @@ const MENU_ITEMS: MenuItem[] = [
   { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a plan your AI assistant proposed' },
   { to: '/plans',        title: 'My Plans',                  sub: 'Active, completed, cancelled & purchases' },
   { to: '/holdings',      title: 'My Holdings',               sub: 'USDC · USDT · CELO · XAUoT · wBTC · wETH' },
-  { to: '/about',         title: 'About Apis',                sub: 'Terms, disclaimer & support' },
+  { to: '/about',         title: 'About APIS',                sub: 'Terms, disclaimer & support' },
 ];
 
 export default function Home() {
@@ -21,8 +21,8 @@ export default function Home() {
   return (
     <div className="screen screen--home">
       <div className="home-head">
-        <img src="/apis-icon-512.png" alt="Apis" className="home-head__mark" />
-        <div className="home-head__word">Apis</div>
+        <img src="/apis-icon-512.png" alt="APIS" className="home-head__mark" />
+        <div className="home-head__word">APIS</div>
       </div>
 
       <div className="menu-list">

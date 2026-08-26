@@ -8,6 +8,10 @@
 
 import { recoverTypedDataAddress } from 'viem';
 
+// Bewusst 'Apis' (nicht 'APIS') — EIP-712-Domain-String, muss exakt mit
+// CreateCode.tsx übereinstimmen, sonst schlägt jede Signaturprüfung fehl.
+// Eine Änderung würde alle bereits ausgestellten Grant-Codes ungültig
+// machen — keine reine Schreibweisen-Frage mehr, sobald einmal signiert.
 const ACCESS_GRANT_DOMAIN = { name: 'Apis', version: '1', chainId: 42220 } as const;
 
 const ACCESS_GRANT_TYPES = {
@@ -86,7 +90,7 @@ export async function verifyGrant(code: string, requiredScope: 'read' | 'propose
 
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   if (grant.expiresAt < nowSeconds) {
-    throw new GrantError('Grant has expired. Ask the user to create a new one in Apis.');
+    throw new GrantError('Grant has expired. Ask the user to create a new one in APIS.');
   }
 
   if (!grant.scope.includes(requiredScope)) {

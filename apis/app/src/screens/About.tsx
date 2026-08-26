@@ -6,7 +6,7 @@ import { useConnection } from 'wagmi';
 /// tatsächlich verbunden, sonst zu / (Landing).
 ///
 /// Ursprünglich 1:1 aus dem Mockup übernommen (siehe apis-mockup.html, Step
-/// "About Apis"), jetzt erweitert um eine klare Erklärung, was Apis/OSIRIS
+/// "About APIS"), jetzt erweitert um eine klare Erklärung, was APIS/OSIRIS
 /// überhaupt sind, plus Cross-Links in beide Richtungen (siehe Chat: "über
 /// osirisapp.xyz auch zu APIS gelangen können [...] und umgekehrt").
 export default function About() {
@@ -24,7 +24,7 @@ export default function About() {
         >
           ‹
         </button>
-        <span className="app-bar__title">About Apis</span>
+        <span className="app-bar__title">About APIS</span>
         <span className="app-bar__spacer" />
       </div>
 
@@ -32,9 +32,9 @@ export default function About() {
         <p className="about-lede">
           <strong>OSIRIS</strong> is a set of smart contracts on Celo that automatically buy crypto for you on a
           schedule (dollar-cost averaging), or the moment a price you set is hit (buy/sell triggers) — all from a
-          vault only you control. <strong>Apis</strong> is how you talk to it: it lets your AI assistant (Claude,
+          vault only you control. <strong>APIS</strong> is how you talk to it: it lets your AI assistant (Claude,
           ChatGPT, Gemini, Grok) read your balances and put together an OSIRIS plan for you to review — in plain
-          language, in the chat you already use. Apis never holds your funds or private keys, and no plan runs
+          language, in the chat you already use. APIS never holds your funds or private keys, and no plan runs
           until you confirm and sign it yourself in MiniPay.
         </p>
 
@@ -52,9 +52,9 @@ export default function About() {
         <div className="about-block">
           <h3>Legal</h3>
           <p className="about-lede" style={{ fontSize: 13 }}>
-            Apis is a non-custodial interface only — it cannot move, freeze, or access your funds. AI-generated
+            APIS is a non-custodial interface only — it cannot move, freeze, or access your funds. AI-generated
             plans are suggestions, not financial advice; you're responsible for reviewing every plan before
-            confirming it. Apis and OSIRIS are experimental, non-commercial projects — use is entirely at your own
+            confirming it. APIS and OSIRIS are experimental, non-commercial projects — use is entirely at your own
             risk.
           </p>
           <button type="button" className="menu-item" onClick={() => navigate('/terms')} style={{ marginTop: 4 }}>
@@ -88,7 +88,7 @@ export default function About() {
           Learn more about the OSIRIS protocol at osirisapp.xyz ↗
         </a>
 
-        <div className="about-version">Apis v0.1 · pre-release</div>
+        <div className="about-version">APIS v0.1 · pre-release</div>
         <div className="about-credit">Built by Schmitz &amp; Hugenberg</div>
       </div>
     </div>

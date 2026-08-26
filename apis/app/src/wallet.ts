@@ -32,7 +32,7 @@ export function hasInjectedProvider(): boolean {
 }
 
 /// Verbindet automatisch beim ersten Mount. `retry` erlaubt einen erneuten
-/// Versuch (z.B. durch Tippen auf das Apis-Logo auf dem Landing-Screen, siehe
+/// Versuch (z.B. durch Tippen auf das APIS-Logo auf dem Landing-Screen, siehe
 /// Gesamtplan §14 "Re-Entry") — bewusst kein sichtbarer "Connect"-Button,
 /// nur ein neutraler Marken-Tap, der denselben Mechanismus erneut auslöst.
 export function useAutoConnect() {
