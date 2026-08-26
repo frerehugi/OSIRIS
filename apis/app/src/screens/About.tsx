@@ -1,16 +1,27 @@
 import { useNavigate } from 'react-router-dom';
+import { useConnection } from 'wagmi';
 
-/// Letzter Screen aus dem Mockup — Inhalt 1:1 von dort übernommen (siehe
-/// apis-mockup.html, Step "About Apis"). Vier Pflichtelemente laut
-/// Gesamtplan §4: Kurzbeschreibung, Terms & Conditions, Contact
-/// (OSIRIS-Telegram), Credit-Zeile.
+/// Bewusst PUBLIC (siehe App.tsx) — auch ohne Wallet-Verbindung lesbar, z.B.
+/// verlinkt von osirisapp.xyz. "Zurück" geht deshalb zu /home nur, wenn
+/// tatsächlich verbunden, sonst zu / (Landing).
+///
+/// Ursprünglich 1:1 aus dem Mockup übernommen (siehe apis-mockup.html, Step
+/// "About Apis"), jetzt erweitert um eine klare Erklärung, was Apis/OSIRIS
+/// überhaupt sind, plus Cross-Links in beide Richtungen (siehe Chat: "über
+/// osirisapp.xyz auch zu APIS gelangen können [...] und umgekehrt").
 export default function About() {
   const navigate = useNavigate();
+  const { isConnected } = useConnection();
 
   return (
     <div className="screen screen--sub">
       <div className="app-bar">
-        <button type="button" className="app-bar__back" onClick={() => navigate('/home')} aria-label="Back to Home">
+        <button
+          type="button"
+          className="app-bar__back"
+          onClick={() => navigate(isConnected ? '/home' : '/')}
+          aria-label="Back"
+        >
           ‹
         </button>
         <span className="app-bar__title">About Apis</span>
@@ -19,9 +30,24 @@ export default function About() {
 
       <div className="about-body">
         <p className="about-lede">
-          Apis connects your AI assistant to the OSIRIS protocol on Celo. It never holds your funds or private
-          keys — it only reads your wallet and proposes plans that you confirm yourself in MiniPay.
+          <strong>OSIRIS</strong> is a set of smart contracts on Celo that automatically buy crypto for you on a
+          schedule (dollar-cost averaging), or the moment a price you set is hit (buy/sell triggers) — all from a
+          vault only you control. <strong>Apis</strong> is how you talk to it: it lets your AI assistant (Claude,
+          ChatGPT, Gemini, Grok) read your balances and put together an OSIRIS plan for you to review — in plain
+          language, in the chat you already use. Apis never holds your funds or private keys, and no plan runs
+          until you confirm and sign it yourself in MiniPay.
         </p>
+
+        <div className="about-block">
+          <h3>Get started</h3>
+          <button type="button" className="menu-item" onClick={() => navigate('/connect')} style={{ marginTop: 4 }}>
+            <span className="menu-item__text">
+              <span className="menu-item__title">Connect your AI assistant</span>
+              <span className="menu-item__sub">Claude, ChatGPT, Gemini, or Grok</span>
+            </span>
+            <span className="menu-item__chev" aria-hidden="true">›</span>
+          </button>
+        </div>
 
         <div className="about-block">
           <h3>Terms &amp; Conditions</h3>
@@ -53,6 +79,10 @@ export default function About() {
             </div>
           </div>
         </div>
+
+        <a href="https://osirisapp.xyz" rel="noreferrer" className="about-lede" style={{ fontSize: 13 }}>
+          Learn more about the OSIRIS protocol at osirisapp.xyz ↗
+        </a>
 
         <div className="about-version">Apis v0.1 · pre-release</div>
         <div className="about-credit">Built by Schmitz &amp; Hugenberg</div>

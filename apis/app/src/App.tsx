@@ -11,6 +11,11 @@ import Purchases from './screens/Purchases';
 import CreateCode from './screens/CreateCode';
 import ConfirmPlan from './screens/ConfirmPlan';
 import About from './screens/About';
+import ConnectAI from './screens/ConnectAI';
+import ConnectClaude from './screens/ConnectClaude';
+import ConnectChatGPT from './screens/ConnectChatGPT';
+import ConnectGemini from './screens/ConnectGemini';
+import ConnectGrok from './screens/ConnectGrok';
 
 /// Schützt Screens, die eine Verbindung voraussetzen — leitet sonst zurück
 /// zu Landing, wo der Auto-Connect (bzw. der Tap-to-Reconnect) greift.
@@ -57,10 +62,15 @@ export default function App() {
         path="/holdings"
         element={<RequireConnection><Holdings /></RequireConnection>}
       />
-      <Route
-        path="/about"
-        element={<RequireConnection><About /></RequireConnection>}
-      />
+      {/* Öffentlich — kein RequireConnection: reine Infos/Anleitungen, auch
+          außerhalb von MiniPay lesbar (z.B. verlinkt von osirisapp.xyz oder
+          geteilt), siehe Chat "entsprechende Infos bekommen ... tools laden". */}
+      <Route path="/about" element={<About />} />
+      <Route path="/connect" element={<ConnectAI />} />
+      <Route path="/claude" element={<ConnectClaude />} />
+      <Route path="/chatgpt" element={<ConnectChatGPT />} />
+      <Route path="/gemini" element={<ConnectGemini />} />
+      <Route path="/grok" element={<ConnectGrok />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

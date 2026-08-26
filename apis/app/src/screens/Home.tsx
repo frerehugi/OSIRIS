@@ -7,6 +7,7 @@ interface MenuItem {
 }
 
 const MENU_ITEMS: MenuItem[] = [
+  { to: '/connect',      title: 'Connect an AI Assistant',   sub: 'Claude, ChatGPT, Gemini, or Grok' },
   { to: '/create-code',  title: 'Create New Code for Agent', sub: 'Grant your AI temporary access' },
   { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a plan your AI assistant proposed' },
   { to: '/plans',        title: 'My Plans',                  sub: 'Active, completed, cancelled & purchases' },

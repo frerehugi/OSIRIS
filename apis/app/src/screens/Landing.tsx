@@ -30,9 +30,17 @@ export default function Landing() {
       <p className="landing-tagline">Agentic Powered Investment System</p>
 
       {providerMissing && (
-        <p className="landing-error">
-          Open this app inside MiniPay to continue.
-        </p>
+        <>
+          <p className="landing-error">
+            Open this app inside MiniPay to connect your wallet — but you can still look around from here.
+          </p>
+          <button type="button" className="btn-gold" onClick={() => navigate('/about')}>
+            What is Apis?
+          </button>
+          <button type="button" className="btn-gold" onClick={() => navigate('/connect')} style={{ marginTop: 10 }}>
+            Connect your AI
+          </button>
+        </>
       )}
       {!providerMissing && error && (
         <p className="landing-error">

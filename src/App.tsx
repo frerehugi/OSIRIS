@@ -1106,8 +1106,20 @@ export default function App() {
           />
           <h1>OSIRIS</h1>
           <p className="eyebrow">OSnabrück Investment and Risk Management System</p>
+          <p className="muted" style={{ fontSize: '0.85rem', maxWidth: '32ch', margin: '0 auto' }}>
+            Automatic crypto investing on Celo — on a schedule, or the moment your price is hit. Non-custodial,
+            your vault, your keys.
+          </p>
           {vaultsError && <p className="error">{vaultsError}</p>}
           <Button variant="secondary" onClick={() => setView('about')}>ℹ️ About OSIRIS</Button>
+          <a
+            href="https://apis.osirisapp.xyz/connect"
+            rel="noreferrer"
+            className="button button-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+          >
+            🐝 Manage OSIRIS with your AI
+          </a>
         </section>
       </Card>
     );
@@ -1121,9 +1133,10 @@ export default function App() {
         <section className="stack">
           <h2>ℹ️ About OSIRIS</h2>
           <p className="muted">
-            OSIRIS is a non-custodial DCA (dollar-cost averaging) vault. It automatically
-            invests your USDC or USDT into a diversified basket of crypto assets, on a
-            schedule you choose — no manual swaps, no missed entries.
+            OSIRIS is a non-custodial investing protocol on Celo. Two ways to use it: set up a{' '}
+            <strong>DCA plan</strong> that automatically buys a diversified crypto basket from your USDC/USDT on a
+            schedule you choose, or set a <strong>price trigger</strong> that buys or sells the moment your target
+            price is hit — no manual swaps, no missed entries, no watching charts.
           </p>
 
           <div className="summary">
@@ -1137,9 +1150,9 @@ export default function App() {
           <div className="summary">
             <p><strong>🔄 How it works</strong></p>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              1. Configure your plan (amount, allocation, interval)<br />
+              1. Configure your plan (amount, allocation/target price, interval)<br />
               2. Your own vault is created<br />
-              3. An automated keeper executes each step via Squid Router<br />
+              3. An automated keeper executes it — on schedule, or once your price is hit<br />
               4. Assets arrive directly in your wallet
             </p>
           </div>
@@ -1159,6 +1172,23 @@ export default function App() {
             </p>
           </div>
 
+          <div className="summary">
+            <p><strong>🐝 Manage with AI — Apis</strong></p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Apis connects OSIRIS to your AI assistant — Claude, ChatGPT, Gemini, or Grok. Chat about your plan in
+              plain language and it proposes one for you; nothing runs until you confirm and sign it yourself in
+              MiniPay. Apis never holds your funds or private keys.
+            </p>
+            <a
+              href="https://apis.osirisapp.xyz/connect"
+              rel="noreferrer"
+              className="muted"
+              style={{ fontSize: '0.85rem' }}
+            >
+              Set up Apis for your AI assistant ↗
+            </a>
+          </div>
+
           <a
             href="https://celoscan.io/address/0xba148255d757912442A97f87c50DD2F65FBab7E0"
             rel="noreferrer"
@@ -1166,10 +1196,6 @@ export default function App() {
             style={{ fontSize: '0.85rem' }}
           >
             View verified contract on Celoscan ↗
-          </a>
-
-          <a href="https://osirisapp.xyz" rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
-            Learn more at osirisapp.xyz ↗
           </a>
 
           <a href="https://t.me/osirisapp" rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
