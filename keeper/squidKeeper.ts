@@ -488,22 +488,35 @@ async function findExecutableTriggerVaults(
       const canExecute = await ctx.publicClient.readContract({
         address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "canExecute",
       }) as boolean;
-      if (!canExecute) continue; // initialisiert & nicht storniert/ausgeführt/abgelaufen
+      if (!canExecute) {
+        console.info(`Keeper: Trigger-Vault ${vaultAddress} übersprungen (canExecute = false).`);
+        continue; // initialisiert & nicht storniert/ausgeführt/abgelaufen
+      }
 
       const authorized = await ctx.publicClient.readContract({
         address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: "isKeeper", args: [ctx.account.address],
       }) as boolean;
       // globalKeeper wird bei jedem Vault automatisch freigeschaltet (initialize())
       // — Absicherung falls der Owner ihn per setKeeper() wieder entzogen hat.
-      if (!authorized) continue;
+      if (!authorized) {
+        console.info(`Keeper: Trigger-Vault ${vaultAddress} übersprungen (Keeper-Wallet ${ctx.account.address} nicht autorisiert).`);
+        continue;
+      }
 
       const vault = await readTriggerVaultState(ctx, vaultAddress);
       const priceUsd = await getTokenPriceUsd(ctx.integratorId, vault.watchToken);
-      if (!isTriggerMet(vault, priceUsd)) continue;
+      const triggerPriceUsd = Number(vault.triggerPrice) / 1e8;
+      if (!isTriggerMet(vault, priceUsd)) {
+        console.info(
+          `Keeper: Trigger-Vault ${vaultAddress} noch nicht fällig (Preis ${priceUsd}, ` +
+          `Trigger ${vault.triggerAbove ? ">=" : "<="} ${triggerPriceUsd}).`
+        );
+        continue;
+      }
 
       console.info(
         `Keeper: Trigger-Vault ${vaultAddress} erfüllt Preisbedingung (Preis ${priceUsd}, ` +
-        `Trigger ${vault.triggerAbove ? ">=" : "<="} ${Number(vault.triggerPrice) / 1e8}).`
+        `Trigger ${vault.triggerAbove ? ">=" : "<="} ${triggerPriceUsd}).`
       );
       executable.push(vault);
     } catch (err) {
