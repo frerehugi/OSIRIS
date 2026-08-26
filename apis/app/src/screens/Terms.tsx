@@ -81,9 +81,11 @@ export default function Terms() {
           <h3>Research and hobby project, not a business</h3>
           <p className="about-lede" style={{ fontSize: 13 }}>
             Apis and OSIRIS are a research and hobby effort, not a company with support SLAs or roadmap
-            commitments. Support is offered on a best-effort basis via Telegram (t.me/osirisapp) and is not
-            guaranteed. These terms may change at any time without prior notice; continued use of Apis or OSIRIS
-            after a change constitutes acceptance of the updated terms.
+            commitments. The OSIRIS Telegram group (t.me/osirisapp) is our only official point of contact —
+            support there is offered on a best-effort basis and is not guaranteed, and we are not responsible for
+            anyone or anything claiming to represent Apis or OSIRIS elsewhere. These terms may change at any time
+            without prior notice; continued use of Apis or OSIRIS after a change constitutes acceptance of the
+            updated terms.
           </p>
         </div>
       </div>

@@ -1199,7 +1199,7 @@ export default function App() {
           </a>
 
           <a href="https://t.me/osirisapp" rel="noreferrer" className="muted" style={{ fontSize: '0.85rem' }}>
-            Support &amp; updates on Telegram ↗
+            OSIRIS Telegram group — our only point of contact ↗
           </a>
 
           <div className="button-row">
@@ -1269,10 +1269,11 @@ export default function App() {
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
             <strong>Research and hobby project, not a business.</strong> OSIRIS and Apis are a research and hobby
-            effort, not a company with support SLAs or roadmap commitments. Support is offered on a best-effort
-            basis via Telegram (t.me/osirisapp) and is not guaranteed. These terms may change at any time without
-            prior notice; continued use of OSIRIS or Apis after a change constitutes acceptance of the updated
-            terms.
+            effort, not a company with support SLAs or roadmap commitments. The OSIRIS Telegram group
+            (t.me/osirisapp) is our only official point of contact — support there is offered on a best-effort
+            basis and is not guaranteed, and we are not responsible for anyone or anything claiming to represent
+            OSIRIS or Apis elsewhere. These terms may change at any time without prior notice; continued use of
+            OSIRIS or Apis after a change constitutes acceptance of the updated terms.
           </p>
           <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
         </section>
@@ -1314,7 +1315,8 @@ export default function App() {
             their own data handling — see their respective policies.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            Questions about this policy: t.me/osirisapp.
+            Questions about this policy: the OSIRIS Telegram group (t.me/osirisapp) is our only official point of
+            contact.
           </p>
           <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
         </section>

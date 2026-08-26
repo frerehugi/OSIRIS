@@ -74,14 +74,14 @@ export default function About() {
         </div>
 
         <div className="about-block">
-          <h3>Support</h3>
-          <div className="about-support">
+          <h3>Contact</h3>
+          <a href="https://t.me/osirisapp" rel="noreferrer" className="about-support" style={{ textDecoration: 'none' }}>
             <div className="about-support__icon" aria-hidden="true">T</div>
             <div>
-              <div className="about-support__title">OSIRIS Support</div>
-              <div className="about-support__sub">Telegram · same channel as OSIRIS</div>
+              <div className="about-support__title">OSIRIS Telegram group</div>
+              <div className="about-support__sub">Our only official point of contact</div>
             </div>
-          </div>
+          </a>
         </div>
 
         <a href="https://osirisapp.xyz" rel="noreferrer" className="about-lede" style={{ fontSize: 13 }}>

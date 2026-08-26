@@ -68,7 +68,10 @@ export default function Privacy() {
           </p>
         </div>
 
-        <p className="about-lede" style={{ fontSize: 13 }}>Questions about this policy: t.me/osirisapp.</p>
+        <p className="about-lede" style={{ fontSize: 13 }}>
+          Questions about this policy: the OSIRIS Telegram group (t.me/osirisapp) is our only official point of
+          contact.
+        </p>
       </div>
     </div>
   );
