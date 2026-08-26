@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Connect APIS to Claude, ChatGPT, Gemini, or Grok — the connector URL and setup steps for each." />
+  <title>APIS AI Connectors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --gold: #C9A84C;
+    --gold-light: #E8C96A;
+    --dark: #05070c;
+    --dark2: #0a1628;
+    --text: rgba(255,255,255,0.92);
+    --text-muted: rgba(255,255,255,0.5);
+    --text-faint: rgba(255,255,255,0.32);
+    --border: rgba(255,255,255,0.09);
+    --border-gold: rgba(201,168,76,0.25);
+    --card: rgba(255,255,255,0.045);
+    --success: #6ee7b7;
+    --ambient:
+      radial-gradient(ellipse 90% 55% at 15% -5%, rgba(98,126,234,0.14) 0%, transparent 60%),
+      radial-gradient(ellipse 70% 45% at 100% 15%, rgba(201,168,76,0.14) 0%, transparent 55%);
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ambient), var(--dark);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  a { color: inherit; }
+
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(5,7,12,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo { font-size: 1.05rem; font-weight: 800; color: var(--gold); letter-spacing: 0.06em; text-decoration: none; text-shadow: 0 0 24px rgba(201,168,76,0.35); }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13.5px; font-weight: 600; color: var(--text-muted); text-decoration: none;
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: var(--text); }
+
+  main { max-width: 800px; margin: 0 auto; padding: 56px 24px 100px; }
+
+  .page-eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  h1 { font-size: clamp(2rem, 5vw, 2.7rem); font-weight: 800; margin-bottom: 18px; text-wrap: balance; }
+
+  .intro-card {
+    background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border-gold);
+    border-radius: 18px; padding: 26px 28px; margin-bottom: 48px;
+  }
+  .intro-card p { font-size: 15px; color: var(--text-muted); line-height: 1.75; }
+  .intro-card p + p { margin-top: 12px; }
+  .intro-card strong { color: var(--text); font-weight: 600; }
+
+  .connectors-list { display: flex; flex-direction: column; gap: 20px; }
+
+  .connector-card {
+    background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border);
+    border-radius: 20px; padding: 28px 30px;
+    display: grid; grid-template-columns: 1fr 1.1fr; gap: 30px;
+  }
+  .connector-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .connector-emoji { font-size: 30px; line-height: 1; }
+  .connector-head h2 { font-size: 1.2rem; font-weight: 800; }
+  .connector-tagline { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; }
+
+  .connector-left p.connector-desc { font-size: 13.5px; color: var(--text-muted); line-height: 1.65; }
+
+  .connector-steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 10px; }
+  .connector-steps li {
+    counter-increment: step;
+    font-size: 13px; color: var(--text-muted); line-height: 1.55;
+    padding-left: 26px; position: relative;
+  }
+  .connector-steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--gold-dim, rgba(201,168,76,0.15)); color: var(--gold-light);
+    font-size: 10.5px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .url-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-faint); margin-bottom: 8px; margin-top: 18px;
+  }
+  .url-box {
+    background: rgba(0,0,0,0.35); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    font-family: 'Courier New', monospace; font-size: 12px; color: var(--gold-light);
+    word-break: break-all;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .copy-chip {
+    flex-shrink: 0; font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+    color: var(--text-muted); background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 10px;
+  }
+
+  .outro {
+    margin-top: 48px; text-align: center;
+    background: var(--ambient);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 40px 28px;
+  }
+  .outro p { font-size: 14.5px; color: var(--text-muted); max-width: 440px; margin: 0 auto 24px; line-height: 1.7; }
+  .btn-gold {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-light)); color: var(--dark2);
+    border: none; border-radius: 999px;
+    padding: 13px 28px; font-size: 14.5px; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+
+  @media (max-width: 640px) {
+    .connector-card { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">OSIRIS · APIS</a>
+  <a href="/" class="back-link">← Back to osirisapp.xyz</a>
+</nav>
+
+<main>
+  <div class="page-eyebrow">APIS AI Connectors</div>
+  <h1>Connect APIS to your AI</h1>
+
+  <div class="intro-card">
+    <p>
+      Before you can use APIS with MiniPay through your AI assistant, you need to give that assistant a couple of
+      tools and a bit of information about how to use them — a one-time setup, a bit like installing an app.
+    </p>
+    <p>
+      Pick your assistant below, open it in your browser or its own app, and follow the steps next to it. Each one
+      needs one specific web address (URL) pasted into a settings screen — that's what tells your AI where to find
+      APIS.
+    </p>
+  </div>
+
+  <div class="connectors-list">
+
+    <div class="connector-card">
+      <div class="connector-left">
+        <div class="connector-head">
+          <span class="connector-emoji">🟠</span>
+          <div>
+            <h2>Claude</h2>
+            <div class="connector-tagline">Custom connector — Claude app &amp; claude.ai</div>
+          </div>
+        </div>
+        <p class="connector-desc">Works in the Claude app and at claude.ai. You add APIS once as a "connector", then switch it on per chat.</p>
+      </div>
+      <div class="connector-right">
+        <ol class="connector-steps">
+          <li>Open Claude → Settings → Connectors → Add custom connector.</li>
+          <li>Paste the URL below into the connector URL field.</li>
+          <li>Set Authentication to "None" and save.</li>
+          <li>In any chat where you want to use it, turn on "APIS" from that conversation's tools/connectors picker.</li>
+        </ol>
+        <div class="url-label">Connector URL</div>
+        <div class="url-box"><span>https://apis-backend.frerehugi.workers.dev</span><span class="copy-chip">Copy</span></div>
+      </div>
+    </div>
+
+    <div class="connector-card">
+      <div class="connector-left">
+        <div class="connector-head">
+          <span class="connector-emoji">🟢</span>
+          <div>
+            <h2>ChatGPT</h2>
+            <div class="connector-tagline">Custom GPT Action</div>
+          </div>
+        </div>
+        <p class="connector-desc">You add APIS as an "Action" on a Custom GPT — either a new one or one you already made.</p>
+      </div>
+      <div class="connector-right">
+        <ol class="connector-steps">
+          <li>Create (or edit) a Custom GPT → Configure → Actions → Create new action.</li>
+          <li>Choose "Import from URL" and paste the URL below.</li>
+          <li>Set Authentication to "None".</li>
+          <li>Save your GPT — APIS' tools now show up as Actions it can use.</li>
+        </ol>
+        <div class="url-label">OpenAPI Schema URL</div>
+        <div class="url-box"><span>https://apis-backend.frerehugi.workers.dev/openapi.json</span><span class="copy-chip">Copy</span></div>
+      </div>
+    </div>
+
+    <div class="connector-card">
+      <div class="connector-left">
+        <div class="connector-head">
+          <span class="connector-emoji">🔵</span>
+          <div>
+            <h2>Gemini</h2>
+            <div class="connector-tagline">Gem / Extension custom action</div>
+          </div>
+        </div>
+        <p class="connector-desc">Add APIS as a custom action on a Gem. Google's naming for this changes fairly often.</p>
+      </div>
+      <div class="connector-right">
+        <ol class="connector-steps">
+          <li>Open Gems (or Extensions) → create a custom action.</li>
+          <li>Import the OpenAPI schema from the URL below.</li>
+          <li>No authentication required.</li>
+          <li>Save — Gemini can now call APIS' tools inside that Gem.</li>
+        </ol>
+        <div class="url-label">OpenAPI Schema URL</div>
+        <div class="url-box"><span>https://apis-backend.frerehugi.workers.dev/openapi.json</span><span class="copy-chip">Copy</span></div>
+      </div>
+    </div>
+
+    <div class="connector-card">
+      <div class="connector-left">
+        <div class="connector-head">
+          <span class="connector-emoji">⚫</span>
+          <div>
+            <h2>Grok</h2>
+            <div class="connector-tagline">Manual function setup</div>
+          </div>
+        </div>
+        <p class="connector-desc">Grok doesn't (yet) offer one-click import — point it at the schema directly and it can take it from there.</p>
+      </div>
+      <div class="connector-right">
+        <ol class="connector-steps">
+          <li>Give Grok the URL below and ask it to read and use it.</li>
+          <li>If your version needs manual function definitions, use the schema as the source — each path maps to one function.</li>
+        </ol>
+        <div class="url-label">OpenAPI Schema URL</div>
+        <div class="url-box"><span>https://apis-backend.frerehugi.workers.dev/openapi.json</span><span class="copy-chip">Copy</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="outro">
+    <p>Once your assistant is connected, open APIS any time and generate a one-time code — that's what actually lets it see your wallet or propose a plan.</p>
+    <a href="https://apis.osirisapp.xyz" target="_blank" rel="noreferrer" class="btn-gold">Open APIS →</a>
+  </div>
+</main>
+
+</body>
+</html>
