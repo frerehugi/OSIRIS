@@ -184,6 +184,22 @@ button {
 
 /* ── Sub-Screens ─────────────────────────────────────────────────────── */
 
+/* Kleines APIS-Icon oben zentriert auf jedem Sub-Screen (alles außer Landing
+   und Home, die ihr eigenes größeres Icon schon zeigen) — bewusst als
+   ::before auf .screen--sub statt in jeder Screen-Datei einzeln, da JEDER
+   Sub-Screen ausnahmslos diese eine Klasse trägt (siehe Chat: "ab Seite 2
+   [...] oben in der Mitte sichtbar"). */
+.screen--sub::before {
+  content: '';
+  display: block;
+  width: 30px;
+  height: 30px;
+  margin: 14px auto 0;
+  background: url('/apis-icon-512.png') center / cover;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
 .app-bar {
   display: flex;
   align-items: center;

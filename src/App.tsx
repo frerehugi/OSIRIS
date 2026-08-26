@@ -77,9 +77,10 @@ interface TriggerVaultSummary {
 }
 
 type View =
-  | 'connect' | 'vaultList' | 'wizard' | 'success' | 'history' | 'purchases' | 'about' | 'terms' | 'privacy'
+  | 'connect' | 'vaultList' | 'wizard' | 'success' | 'purchases' | 'about' | 'terms' | 'privacy'
   | 'newPlanChoice' | 'triggerDirection' | 'triggerCoin' | 'triggerDetailsBuy' | 'triggerDetailsSell'
-  | 'triggerSummary' | 'triggerSuccess';
+  | 'triggerSummary' | 'triggerSuccess'
+  | 'plansHub' | 'plansActive' | 'plansCompleted' | 'plansCancelled' | 'holdings';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -206,10 +207,10 @@ function computeVaultStatus(status: Awaited<ReturnType<typeof readPlanStatus>>):
   return 'active';
 }
 
-// Abgeschlossene und gecancelte Pläne werden sofort aus "Your Plans" entfernt
-// und landen stattdessen auf der History-Seite (siehe view === 'history') —
-// eventTimestamp wird dort nur noch zur Anzeige gebraucht, nicht mehr für
-// eine Verzögerung.
+// Abgeschlossene und gecancelte Pläne werden sofort aus "Active Plans"
+// entfernt und landen stattdessen unter "Completed"/"Cancelled" (siehe
+// completedDcaEntries/cancelledDcaEntries) — eventTimestamp wird dort nur
+// noch zur Anzeige gebraucht, nicht mehr für eine Verzögerung.
 
 // Der Contract speichert keinen expliziten "abgeschlossen am"-Zeitstempel —
 // nach dem letzten executeStep() wurde nextExecutionTimestamp aber bereits um
@@ -245,6 +246,20 @@ function getCancelledAt(vaultAddress: string): number | null {
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 const TOKEN_LABELS: Record<TokenType, string> = { wBTC: 'wBTC', wETH: 'wETH', CELO: 'CELO', XAUoT: 'Gold' };
+
+// ─── My Holdings — Zieltoken + Stablecoins in einer Liste ──────────────────────
+type HoldingToken = 'USDC' | 'USDT' | TokenType;
+const HOLDING_ICONS: Record<HoldingToken, string> = { USDC: '$', USDT: '$', wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
+const HOLDING_COLOR: Record<HoldingToken, string> = { USDC: '#2775CA', USDT: '#26A17B', wBTC: '#F7931A', wETH: '#627EEA', CELO: '#FCFF52', XAUoT: 'var(--gold)' };
+const HOLDING_TEXT: Record<HoldingToken, string>  = { USDC: '#ffffff', USDT: '#ffffff', wBTC: '#ffffff', wETH: '#ffffff', CELO: 'var(--dark2)', XAUoT: 'var(--dark2)' };
+const HOLDING_NAME: Record<HoldingToken, string>  = { USDC: 'USD Coin', USDT: 'Tether USD', wBTC: 'Wrapped Bitcoin', wETH: 'Wrapped Ether', CELO: 'Celo', XAUoT: 'Tether Gold' };
+const HOLDINGS: HoldingToken[] = ['USDC', 'USDT', 'CELO', 'XAUoT', 'wBTC', 'wETH'];
+
+function holdingTokenInfo(token: HoldingToken): { address: `0x${string}`; decimals: number } {
+  return token === 'USDC' || token === 'USDT'
+    ? INPUT_TOKEN_INFO[token]
+    : TARGET_TOKENS[token];
+}
 
 // Original-Markenfarben aus den Squid-Router-Buy-Screens in MiniPay (Bitcoin-
 // Orange, Ethereum-Blauviolett, Celo-Gelb), Gold nutzt den bestehenden
@@ -357,18 +372,10 @@ function formatExpiry(expiresAt: number): string {
   return days <= 1 ? 'Expires today' : `Expires in ${days} days`;
 }
 
-// Landing-Entscheidung nach Connect/Cancel: Ein Nutzer mit AUSSCHLIESSLICH
-// Trigger-Plänen (keinen DCA-Plänen) soll genauso auf "Your Plans" landen wie
-// jemand mit DCA-Plänen — nicht blind in den DCA-Wizard gedrängt werden.
-function hasVisiblePlans(dcaVaults: VaultSummary[], triggerVaults: TriggerVaultSummary[]): boolean {
-  return dcaVaults.some((v) => v.status === 'active' || v.status === 'pending')
-      || triggerVaults.some((v) => v.status === 'active' || v.status === 'pending');
-}
+/// ─── UI-Komponenten ───────────────────────────────────────────────────────────
 
-// ─── UI-Komponenten ───────────────────────────────────────────────────────────
-
-function Card({ children }: { children: ReactNode }) {
-  return <main className="card">{children}</main>;
+function Card({ children, noIcon }: { children: ReactNode; noIcon?: boolean }) {
+  return <main className={noIcon ? 'card card--no-icon' : 'card'}>{children}</main>;
 }
 
 function Button({
@@ -581,6 +588,9 @@ export default function App() {
   const [purchasesError, setPurchasesError]     = useState<string | null>(null);
   const [selectedToken, setSelectedToken]       = useState<TokenType | null>(null);
 
+  const [holdings, setHoldings]         = useState<Partial<Record<HoldingToken, bigint>>>({});
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -621,24 +631,42 @@ export default function App() {
     [formData.percentages],
   );
 
-  // "Your Plans" zeigt nur aktive/noch einzurichtende Pläne — abgeschlossene
-  // und gecancelte wandern sofort in "History" (siehe historyEntries unten).
+  // "Active plans" zeigt aktive/noch einzurichtende/abgelaufene Pläne —
+  // abgeschlossene und gecancelte wandern in "Completed"/"Cancelled" (siehe
+  // die vier completed/cancelled-Memos unten). 'expired' zählt bewusst als
+  // aktiv: ein abgelaufener Trigger-Plan braucht noch einen User-Cancel, um
+  // die gesperrten Mittel zurückzuholen, war vorher aber unerreichbar (siehe
+  // Chat) — gleiche Korrektur wie zuvor schon bei Apis.
   const visiblePlans = useMemo(
     () => existingVaults.filter((v) => v.status === 'active' || v.status === 'pending'),
     [existingVaults],
   );
-  const historyEntries = useMemo(
+  const visibleTriggerPlans = useMemo(
+    () => triggerVaults.filter((v) => v.status === 'active' || v.status === 'pending' || v.status === 'expired'),
+    [triggerVaults],
+  );
+
+  const completedDcaEntries = useMemo(
     () => existingVaults
-      .filter((v) => v.status === 'complete' || v.status === 'cancelled')
+      .filter((v) => v.status === 'complete')
+      .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
+    [existingVaults],
+  );
+  const cancelledDcaEntries = useMemo(
+    () => existingVaults
+      .filter((v) => v.status === 'cancelled')
       .sort((a, b) => (b.eventTimestamp ?? 0) - (a.eventTimestamp ?? 0)),
     [existingVaults],
   );
 
-  // Trigger-Pläne haben (anders als DCA) noch keine History-Ansicht — einmal
-  // gecancelt/ausgeführt verschwinden sie einfach aus "Your Plans" (weiterhin
-  // einsehbar über den Celoscan-Link, den die Karte schon zeigte).
-  const visibleTriggerPlans = useMemo(
-    () => triggerVaults.filter((v) => v.status === 'active' || v.status === 'pending'),
+  // Trigger-Pläne haben (anders als DCA) kein eventTimestamp-Feld — keine
+  // Sortierung nach Datum möglich, Reihenfolge folgt der on-chain-Ladeliste.
+  const completedTriggerPlans = useMemo(
+    () => triggerVaults.filter((v) => v.status === 'executed'),
+    [triggerVaults],
+  );
+  const cancelledTriggerPlans = useMemo(
+    () => triggerVaults.filter((v) => v.status === 'cancelled'),
     [triggerVaults],
   );
 
@@ -706,9 +734,9 @@ export default function App() {
   // ~2s), und ein Aufrufer wie handleConnect kann inzwischen längst nicht
   // mehr an der Stelle sein, an der der Nutzer noch auf das Ergebnis wartet
   // (z.B. wenn er zwischenzeitlich manuell zu "About" navigiert hat). Der
-  // Aufrufer entscheidet daher selbst, ob/wann und zu welchem View er anhand
-  // der Rückgabe (kombiniert mit loadTriggerVaults(), siehe hasVisiblePlans)
-  // navigiert.
+  // Aufrufer entscheidet daher selbst, ob/wann und zu welchem View er
+  // navigiert — inzwischen aber ohnehin immer 'vaultList' (Home-Menü), egal
+  // ob schon Pläne existieren.
   const loadVaults = async (address: `0x${string}`): Promise<VaultSummary[]> => {
     setVaultsLoading(true);
     setVaultsError(null);
@@ -816,6 +844,27 @@ export default function App() {
     }
   };
 
+  // Lädt bei jedem Öffnen frisch, dieselbe on-chain balanceOf()-Quelle wie
+  // loadSellBalances oben — kein neuer Contract-Call-Typ nötig.
+  const openHoldings = async () => {
+    setView('holdings');
+    if (!walletAddress) return;
+    setHoldingsLoading(true);
+    try {
+      const entries = await Promise.all(
+        HOLDINGS.map(async (token) => {
+          const info = holdingTokenInfo(token);
+          return [token, await getTargetTokenBalance(info.address, walletAddress)] as const;
+        }),
+      );
+      setHoldings(Object.fromEntries(entries));
+    } catch (error) {
+      console.error('Loading holdings failed', error);
+    } finally {
+      setHoldingsLoading(false);
+    }
+  };
+
   // Kein window.confirm() — MiniPays In-App-Browser (wie viele eingebettete
   // WebViews) unterdrückt native Dialoge und liefert sofort `false` zurück,
   // ohne den Dialog je anzuzeigen. Bestätigung läuft deshalb über einen
@@ -836,8 +885,8 @@ export default function App() {
     try {
       await cancelDcaPlan(vaultAddress, walletAddress);
       recordCancelledAt(vaultAddress);
-      const summaries = await loadVaults(walletAddress);
-      setView(hasVisiblePlans(summaries, triggerVaults) ? 'vaultList' : 'newPlanChoice');
+      await loadVaults(walletAddress);
+      setView('vaultList');
     } catch (error) {
       console.error('Cancel failed', error);
       setCancelError(error instanceof Error ? error.message : 'Cancel failed. Please try again.');
@@ -851,12 +900,13 @@ export default function App() {
     try {
       const address = await connectWallet();
       setWalletAddress(address);
-      const [dcaSummaries, triggerSummaries] = await Promise.all([loadVaults(address), loadTriggerVaults(address)]);
-      const nextView = hasVisiblePlans(dcaSummaries, triggerSummaries) ? 'vaultList' : 'newPlanChoice';
+      await Promise.all([loadVaults(address), loadTriggerVaults(address)]);
       // Nur übernehmen, wenn der Nutzer währenddessen nicht selbst schon
       // woanders hin navigiert hat (z.B. zu "About") — sonst würde das hier
       // die manuelle Navigation nach ein paar Sekunden Ladezeit überschreiben.
-      setView((prev) => (prev === 'connect' ? nextView : prev));
+      // "vaultList" ist jetzt das Home-Menü, immer der richtige Landepunkt
+      // nach dem Connect — unabhängig davon, ob schon Pläne existieren.
+      setView((prev) => (prev === 'connect' ? 'vaultList' : prev));
     } catch (error) {
       console.error('Wallet connection failed', error);
       setVaultsError(error instanceof Error ? error.message : 'Wallet connection failed.');
@@ -888,9 +938,7 @@ export default function App() {
     setNewVaultAddress(null);
     setFormData(createInitialFormState());
     if (walletAddress) {
-      void loadVaults(walletAddress).then((summaries) => {
-        setView(hasVisiblePlans(summaries, triggerVaults) ? 'vaultList' : 'newPlanChoice');
-      });
+      void loadVaults(walletAddress).then(() => setView('vaultList'));
     } else {
       setView('connect');
     }
@@ -1021,9 +1069,7 @@ export default function App() {
     setNewTriggerVaultAddress(null);
     setTriggerDraft(createInitialTriggerDraft());
     if (walletAddress) {
-      void loadTriggerVaults(walletAddress).then((summaries) => {
-        setView(hasVisiblePlans(existingVaults, summaries) ? 'vaultList' : 'newPlanChoice');
-      });
+      void loadTriggerVaults(walletAddress).then(() => setView('vaultList'));
     } else {
       setView('connect');
     }
@@ -1081,7 +1127,7 @@ export default function App() {
 
   if (view === 'connect') {
     return (
-      <Card>
+      <Card noIcon>
         <section className="stack center">
           {/* Verbindung passiert automatisch (siehe autoConnectStarted-Effekt oben) —
               kein sichtbarer "Connect Wallet"-Button. Das Banner selbst ist trotzdem
@@ -1324,17 +1370,112 @@ export default function App() {
     );
   }
 
-  // ── View: Liste bestehender Vaults ────────────────────────────────────────
+  // ── View: Home-Menü (Seite 2) ───────────────────────────────────────────────
 
   if (view === 'vaultList') {
     return (
       <Card>
         <section className="stack">
           <TokenTicker />
+          <div className="menu-list">
+            <button type="button" className="menu-item" onClick={() => setView('plansHub')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">My Plans</span>
+                <span className="menu-item__sub">Active, completed, cancelled & purchases</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={openHoldings}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">My Holdings</span>
+                <span className="menu-item__sub">USDC · USDT · CELO · XAUoT · wBTC · wETH</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={openNewPlanChoice}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">+ New Plan</span>
+                <span className="menu-item__sub">Start a DCA or price-trigger plan</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={() => setView('about')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">About OSIRIS</span>
+                <span className="menu-item__sub">Terms, disclaimer & support</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={() => setView('connect')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">Disconnect</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: My Plans — Hub (Active/Completed/Cancelled/Purchases) ────────────
+
+  if (view === 'plansHub') {
+    return (
+      <Card>
+        <section className="stack">
           <div className="view-header">
-            <h2>📂 Your Plans</h2>
+            <h2>📂 My Plans</h2>
             <button className="view-header__info" type="button" aria-label="About OSIRIS" onClick={() => setView('about')}>ℹ️</button>
           </div>
+          <div className="menu-list">
+            <button type="button" className="menu-item" onClick={() => setView('plansActive')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">Active plans</span>
+                <span className="menu-item__sub">Currently running or awaiting setup</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={() => setView('plansCompleted')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">Completed plans</span>
+                <span className="menu-item__sub">Finished DCA & trigger plans</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={() => setView('plansCancelled')}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">Cancelled plans</span>
+                <span className="menu-item__sub">Plans you cancelled</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+            <button type="button" className="menu-item" onClick={openPurchases}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">My purchases</span>
+                <span className="menu-item__sub">Full history, grouped by token</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Active Plans (inkl. abgelaufener Trigger-Pläne, siehe
+  //    visibleTriggerPlans oben — 'expired' braucht noch einen User-Cancel,
+  //    um gesperrte Mittel zurückzuholen) ───────────────────────────────────
+
+  if (view === 'plansActive') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>📂 Active Plans</h2>
+          {visiblePlans.length === 0 && visibleTriggerPlans.length === 0 && (
+            <p className="muted">No active plans yet.</p>
+          )}
           <div className="plan-list">
             {visiblePlans.map((v) => (
               <PlanCard
@@ -1369,7 +1510,7 @@ export default function App() {
               <TriggerPlanCard
                 key={v.address}
                 vault={v}
-                extra={v.status === 'active' ? (
+                extra={(v.status === 'active' || v.status === 'expired') ? (
                   triggerConfirmingAddress === v.address ? (
                     <div className="stack">
                       <p className="muted" style={{ fontSize: '0.85rem' }}>
@@ -1397,41 +1538,106 @@ export default function App() {
           </div>
           {cancelError && <p className="error">{cancelError}</p>}
           {triggerCancelError && <p className="error">{triggerCancelError}</p>}
-          <div className="button-row">
-            <Button variant="secondary" onClick={() => setView('connect')}>← Disconnect</Button>
-            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
-            <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
-            <Button onClick={openNewPlanChoice}>+ New Plan</Button>
-          </div>
+          <Button variant="secondary" onClick={() => setView('plansHub')}>← Back to My Plans</Button>
         </section>
       </Card>
     );
   }
 
-  // ── View: History (abgeschlossene + gecancelte Pläne) ─────────────────────
+  // ── View: Completed Plans ───────────────────────────────────────────────────
 
-  if (view === 'history') {
+  if (view === 'plansCompleted') {
     return (
       <Card>
         <section className="stack">
-          <h2>🕘 Plan History</h2>
-          {historyEntries.length === 0 && (
-            <p className="muted">No past plans yet.</p>
+          <h2>✅ Completed Plans</h2>
+          {completedDcaEntries.length === 0 && completedTriggerPlans.length === 0 && (
+            <p className="muted">No completed plans yet.</p>
           )}
           <div className="plan-list">
-            {historyEntries.map((v) => (
+            {completedDcaEntries.map((v) => (
               <PlanCard
                 key={v.address}
                 vault={v}
-                extra={
-                  <span className="cancelled-note">
-                    {v.status === 'cancelled' ? 'Cancelled on' : 'Completed on'} {formatHistoryTimestamp(v.eventTimestamp)}
-                  </span>
-                }
+                extra={<span className="cancelled-note">Completed on {formatHistoryTimestamp(v.eventTimestamp)}</span>}
               />
             ))}
+            {completedTriggerPlans.map((v) => (
+              <TriggerPlanCard key={v.address} vault={v} extra={<span className="cancelled-note">Executed</span>} />
+            ))}
           </div>
-          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          <Button variant="secondary" onClick={() => setView('plansHub')}>← Back to My Plans</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Cancelled Plans ───────────────────────────────────────────────────
+
+  if (view === 'plansCancelled') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>✗ Cancelled Plans</h2>
+          {cancelledDcaEntries.length === 0 && cancelledTriggerPlans.length === 0 && (
+            <p className="muted">No cancelled plans yet.</p>
+          )}
+          <div className="plan-list">
+            {cancelledDcaEntries.map((v) => (
+              <PlanCard
+                key={v.address}
+                vault={v}
+                extra={<span className="cancelled-note">Cancelled on {formatHistoryTimestamp(v.eventTimestamp)}</span>}
+              />
+            ))}
+            {cancelledTriggerPlans.map((v) => (
+              <TriggerPlanCard key={v.address} vault={v} extra={<span className="cancelled-note">Cancelled</span>} />
+            ))}
+          </div>
+          <Button variant="secondary" onClick={() => setView('plansHub')}>← Back to My Plans</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: My Holdings ───────────────────────────────────────────────────────
+
+  if (view === 'holdings') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>💰 My Holdings</h2>
+          <div className="holdings-list">
+            {HOLDINGS.map((token) => {
+              const info = holdingTokenInfo(token);
+              const raw  = holdings[token];
+              return (
+                <div key={token} className="holding-row">
+                  <span
+                    className="token-icon"
+                    style={{ width: 30, height: 30, fontSize: 16, background: HOLDING_COLOR[token], color: HOLDING_TEXT[token] }}
+                  >
+                    {HOLDING_ICONS[token]}
+                  </span>
+                  <div className="holding-row__name">
+                    <span className="holding-row__symbol">{token}</span>
+                    <span className="holding-row__full">{HOLDING_NAME[token]}</span>
+                  </div>
+                  <div className="holding-row__amount">
+                    {holdingsLoading
+                      ? '···'
+                      : raw !== undefined
+                        ? Number(formatUnits(raw, info.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                        : '—'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="holdings-note">
+            Balances read directly from your MiniPay wallet. OSIRIS never holds custody — this is a view, not a transfer.
+          </p>
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
         </section>
       </Card>
     );
@@ -1517,7 +1723,7 @@ export default function App() {
               {purchases.length === 0 && <p className="muted">No purchases yet.</p>}
             </>
           )}
-          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
         </section>
       </Card>
     );
@@ -1542,7 +1748,7 @@ export default function App() {
           >
             View vault {newVaultAddress.slice(0, 6)}…{newVaultAddress.slice(-4)} on Celoscan ↗
           </a>
-          <Button onClick={resetForm}>Back to My Plans</Button>
+          <Button onClick={resetForm}>Back to Home</Button>
         </section>
       </Card>
     );
@@ -1574,7 +1780,7 @@ export default function App() {
             <span className="new-plan-tile__chev">›</span>
           </button>
           {(visiblePlans.length > 0 || visibleTriggerPlans.length > 0) && (
-            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
+            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
           )}
         </section>
       </Card>
@@ -1865,7 +2071,7 @@ export default function App() {
           >
             View vault {newTriggerVaultAddress.slice(0, 6)}…{newTriggerVaultAddress.slice(-4)} on Celoscan ↗
           </a>
-          <Button onClick={resetTriggerForm}>Back to My Plans</Button>
+          <Button onClick={resetTriggerForm}>Back to Home</Button>
         </section>
       </Card>
     );
@@ -1908,15 +2114,7 @@ export default function App() {
             </button>
           </div>
           <Button onClick={nextPage} disabled={!formData.interval}>Next →</Button>
-          {(visiblePlans.length > 0 || visibleTriggerPlans.length > 0) && (
-            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to My Plans</Button>
-          )}
-          {visiblePlans.length === 0 && visibleTriggerPlans.length === 0 && historyEntries.length > 0 && (
-            <Button variant="secondary" onClick={() => setView('history')}>🕘 History</Button>
-          )}
-          {existingVaults.length > 0 && (
-            <Button variant="secondary" onClick={openPurchases}>💰 My Purchases</Button>
-          )}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
         </section>
       )}
 
