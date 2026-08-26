@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="OSIRIS and APIS: automatic crypto investing on Celo, right inside MiniPay. Set up a plan, or manage it by chatting with your AI assistant." />
+  <title>OSIRIS &amp; APIS</title>
+
+  <!-- Open Graph / Telegram / Twitter link previews -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://osirisapp.xyz/promo/" />
+  <meta property="og:title" content="OSIRIS &amp; APIS" />
+  <meta property="og:description" content="Two free apps for automatic crypto investing on Celo, built right into your MiniPay wallet." />
+  <meta property="og:image" content="https://osirisapp.xyz/og-image.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="OSIRIS &amp; APIS" />
+  <meta name="twitter:description" content="Two free apps for automatic crypto investing on Celo, built right into your MiniPay wallet." />
+  <meta name="twitter:image" content="https://osirisapp.xyz/og-image.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" />
+<style>
+  :root {
+    --gold: #C9A84C;
+    --gold-light: #E8C96A;
+    --gold-dim: rgba(201, 168, 76, 0.14);
+    --border-gold: rgba(201, 168, 76, 0.28);
+    --bg: #05070c;
+    --bg2: #0a1628;
+    --card: rgba(255, 255, 255, 0.045);
+    --border: rgba(255, 255, 255, 0.09);
+    --text: rgba(255, 255, 255, 0.94);
+    --text-muted: rgba(255, 255, 255, 0.62);
+    --text-faint: rgba(255, 255, 255, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 18px;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(98, 126, 234, 0.13) 0%, transparent 60%),
+      radial-gradient(ellipse 70% 45% at 100% 10%, rgba(201, 168, 76, 0.16) 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--card);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    padding: 40px 30px 32px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  }
+
+  .badges {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 30px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 14px 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .badge img { width: 16px; height: 16px; border-radius: 4px; display: block; }
+  .badge strong { color: var(--text); font-weight: 700; }
+
+  .lockup {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  .lockup img {
+    width: 68px;
+    height: 68px;
+    border-radius: 18px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  }
+
+  .lockup-x {
+    font-size: 20px;
+    color: var(--text-faint);
+    font-weight: 300;
+  }
+
+  h1 {
+    text-align: center;
+    margin: 0 0 8px;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: var(--gold);
+    text-shadow: 0 0 26px rgba(201, 168, 76, 0.35);
+    text-wrap: balance;
+  }
+
+  .subtitle {
+    text-align: center;
+    margin: 0 0 32px;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    max-width: 34ch;
+    margin-left: auto;
+    margin-right: auto;
+    text-wrap: balance;
+  }
+
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(201, 168, 76, 0.75);
+  }
+
+  .eyebrow img { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; }
+
+  .section p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.65;
+    color: var(--text-muted);
+  }
+
+  .section p strong { color: var(--text); font-weight: 600; }
+
+  .route-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .route-note img { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 0 0 26px;
+  }
+
+  .how-title {
+    text-align: center;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+
+  .how-sub {
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text-faint);
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+
+  .links {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 30px;
+  }
+
+  .link-pill {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 20px;
+    border-radius: 999px;
+    border: 1px solid var(--border-gold);
+    background: rgba(201, 168, 76, 0.05);
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .link-pill:hover { background: var(--gold-dim); border-color: var(--gold); }
+
+  .link-pill__num {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--gold), var(--gold-light));
+    color: var(--bg2);
+    font-size: 0.72rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .link-pill__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+
+  .link-pill__url {
+    font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--gold-light);
+  }
+
+  .link-pill__desc { font-size: 0.76rem; color: var(--text-faint); }
+
+  .link-pill__go { margin-left: auto; color: var(--gold); font-size: 18px; flex-shrink: 0; }
+
+  .foot {
+    text-align: center;
+    font-size: 0.76rem;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  .foot a { color: var(--gold-light); text-decoration: none; }
+  .foot a:hover { text-decoration: underline; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card { animation: rise 0.5s ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="badges">
+    <span class="badge"><img src="../minipay-icon.svg" alt="" />Built for <strong>MiniPay</strong></span>
+    <span class="badge"><img src="../squid-icon.svg" alt="" style="border-radius:50%;" />Powered by <strong>Squid Router</strong></span>
+  </div>
+
+  <div class="lockup">
+    <img src="../osiris-icon.png" alt="OSIRIS" />
+    <span class="lockup-x">+</span>
+    <img src="../apis-icon.png" alt="APIS" />
+  </div>
+
+  <h1>OSIRIS &amp; APIS</h1>
+  <p class="subtitle">Two free apps for automatic crypto investing on Celo, built right into your MiniPay wallet.</p>
+
+  <div class="section">
+    <div class="eyebrow"><img src="../osiris-icon.png" alt="" />OSIRIS — the vault system</div>
+    <p>
+      OSIRIS is a savings app for crypto. Set up a plan once, and it buys a mix of Bitcoin, Ethereum, Celo, or gold
+      for you automatically — either on a schedule you pick (every hour, day, or week), or the moment a price you
+      set is reached. Your money always stays in <strong>your own vault</strong>. No one else can move it, not even
+      us.
+    </p>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow"><img src="../apis-icon.png" alt="" />APIS — talk to your AI assistant</div>
+    <p>
+      APIS lets you set up and manage OSIRIS without opening the app at all. Just talk to your AI assistant —
+      Claude, ChatGPT, Gemini, or Grok — and it can check your balances and put together a plan for you. Nothing
+      happens until <strong>you personally approve it</strong> in MiniPay.
+    </p>
+  </div>
+
+  <div class="route-note">
+    <img src="../squid-icon.svg" alt="" />
+    Every trade is routed through Squid Router, which compares many exchanges on Celo at once to find you a fair
+    price.
+  </div>
+
+  <hr />
+
+  <p class="how-title">You can use both apps today</p>
+  <p class="how-sub">Open MiniPay on your phone, then visit one of these pages in its built-in browser.</p>
+
+  <div class="links">
+    <a class="link-pill" href="https://osirisapp.xyz" target="_blank" rel="noreferrer">
+      <span class="link-pill__num">1</span>
+      <span class="link-pill__text">
+        <span class="link-pill__url">osirisapp.xyz</span>
+        <span class="link-pill__desc">Start here — an overview of both apps</span>
+      </span>
+      <span class="link-pill__go" aria-hidden="true">→</span>
+    </a>
+    <a class="link-pill" href="https://app.osirisapp.xyz" target="_blank" rel="noreferrer">
+      <span class="link-pill__num">2</span>
+      <span class="link-pill__text">
+        <span class="link-pill__url">app.osirisapp.xyz</span>
+        <span class="link-pill__desc">Open OSIRIS and set up your first plan</span>
+      </span>
+      <span class="link-pill__go" aria-hidden="true">→</span>
+    </a>
+    <a class="link-pill" href="https://apis.osirisapp.xyz" target="_blank" rel="noreferrer">
+      <span class="link-pill__num">3</span>
+      <span class="link-pill__text">
+        <span class="link-pill__url">apis.osirisapp.xyz</span>
+        <span class="link-pill__desc">Connect your AI assistant to OSIRIS</span>
+      </span>
+      <span class="link-pill__go" aria-hidden="true">→</span>
+    </a>
+  </div>
+
+  <p class="foot">
+    Non-custodial. Free and open source.<br />
+    Questions? Join the <a href="https://t.me/osirisapp" target="_blank" rel="noreferrer">OSIRIS Telegram group</a>.
+  </p>
+
+</div>
+
+</body>
+</html>
