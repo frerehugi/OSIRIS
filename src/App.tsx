@@ -1222,47 +1222,57 @@ export default function App() {
           <h2>📄 Terms and Conditions</h2>
           <p className="muted" style={{ fontSize: '0.8rem' }}>Last updated: August 2026</p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            OSIRIS is an independent, non-commercial passion project built by Schmitz &amp;
-            Hugenberg to explore and experiment with the Web3 ecosystem. It is not a
-            regulated financial product, and nothing in this app constitutes financial,
-            investment, tax, or legal advice.
+            OSIRIS, and Apis (the AI layer that talks to it), are independent, non-commercial projects built by
+            Schmitz &amp; Hugenberg for two reasons: to push forward what's technically possible at the intersection
+            of Web3 and AI agents, and because building this kind of thing is genuinely fun. Neither is a regulated
+            financial product, a company, or a service with a business behind it — nothing in this app constitutes
+            financial, investment, tax, or legal advice.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>No warranty.</strong> OSIRIS, its smart contracts, its keeper
-            infrastructure, and this app are provided strictly "as is" and "as available",
-            without any warranty of any kind, express or implied — including, without
-            limitation, warranties of merchantability, fitness for a particular purpose,
-            non-infringement, availability, accuracy, or that the software is free of
-            errors, bugs, or vulnerabilities. Schmitz &amp; Hugenberg make no guarantee
-            that OSIRIS will function correctly, continuously, or at all.
+            <strong>Experimental technology, no warranty.</strong> OSIRIS and Apis are built on very new, largely
+            untested combinations of technology — EVM smart contracts, cross-chain DEX routing, off-chain price
+            triggers with no on-chain oracle, and AI agents (Claude, ChatGPT, Gemini, Grok, and others) proposing
+            transactions on your behalf. All of it — contracts, keeper infrastructure, this app, and Apis — is
+            provided strictly "as is" and "as available", without any warranty of any kind, express or implied,
+            including warranties of merchantability, fitness for a particular purpose, non-infringement,
+            availability, accuracy, or freedom from errors, bugs, or vulnerabilities. Schmitz &amp; Hugenberg give
+            absolutely no guarantee that any part of this will function correctly, securely, continuously, or at
+            all — and specifically do not guarantee that unaudited smart contracts are free of exploitable bugs.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>Use at your own risk.</strong> You use OSIRIS entirely at your own
-            risk and exclusively with your own funds. Smart contracts and blockchain
-            infrastructure can fail, be exploited, or behave unexpectedly; token prices
-            are volatile and can lose most or all of their value. You are solely
-            responsible for evaluating whether to use OSIRIS and for any funds you commit
-            to it. Never invest more than you can afford to lose entirely.
+            <strong>Use at your own risk.</strong> You use OSIRIS and Apis entirely at your own risk and
+            exclusively with your own funds. Smart contracts and blockchain infrastructure can fail, be exploited,
+            or behave unexpectedly; token prices are volatile and can lose most or all of their value; an AI
+            assistant can misunderstand you or propose a plan that doesn't match your intent. You are solely
+            responsible for reviewing anything an AI proposes and for evaluating whether to use OSIRIS or Apis at
+            all. Never commit more than you can afford to lose entirely.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>No liability.</strong> To the fullest extent permitted by law, Schmitz
-            &amp; Hugenberg, its contributors, and anyone associated with OSIRIS accept no
-            liability whatsoever for any direct, indirect, incidental, or consequential
-            loss or damage — including loss of funds, tokens, or data — arising from your
-            use of, or inability to use, OSIRIS, whether caused by a smart contract bug,
-            a third-party service (including the Squid Router and any DEX it routes
-            through), network/RPC failures, wallet software, or any other cause.
+            <strong>AI-assisted plans (Apis).</strong> An AI assistant connected via Apis can read your balances
+            and propose a plan, but it can never move funds or execute anything by itself — every action still
+            requires your own confirmation and signature in MiniPay. Schmitz &amp; Hugenberg do not control, and
+            accept no responsibility for, the AI providers themselves (Anthropic, OpenAI, Google, xAI, or any
+            other) or the accuracy of what they say or propose.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>Non-custodial.</strong> OSIRIS never takes custody of your funds. Each
-            vault is your own smart contract; only you can cancel a plan and withdraw. This
-            does not eliminate smart-contract or market risk — see above.
+            <strong>No liability.</strong> To the fullest extent permitted by law, Schmitz &amp; Hugenberg, their
+            contributors, and anyone associated with OSIRIS or Apis accept no liability whatsoever for any direct,
+            indirect, incidental, or consequential loss or damage — including loss of funds, tokens, or data —
+            arising from your use of, or inability to use, OSIRIS or Apis, whether caused by a smart contract bug,
+            a third-party service (including the Squid Router, any DEX it routes through, or any connected AI
+            provider), network/RPC failures, wallet software, or any other cause.
           </p>
           <p className="muted" style={{ fontSize: '0.85rem' }}>
-            <strong>No support obligation.</strong> Support is offered on a best-effort
-            basis via Telegram (t.me/osirisapp) and is not guaranteed. These terms may
-            change at any time without prior notice; continued use of OSIRIS after a
-            change constitutes acceptance of the updated terms.
+            <strong>Non-custodial.</strong> OSIRIS never takes custody of your funds. Each vault is your own smart
+            contract; only you can cancel a plan and withdraw. This does not eliminate smart-contract or market
+            risk — see above.
+          </p>
+          <p className="muted" style={{ fontSize: '0.85rem' }}>
+            <strong>Research and hobby project, not a business.</strong> OSIRIS and Apis are a research and hobby
+            effort, not a company with support SLAs or roadmap commitments. Support is offered on a best-effort
+            basis via Telegram (t.me/osirisapp) and is not guaranteed. These terms may change at any time without
+            prior notice; continued use of OSIRIS or Apis after a change constitutes acceptance of the updated
+            terms.
           </p>
           <Button variant="secondary" onClick={() => setView('about')}>← Back</Button>
         </section>

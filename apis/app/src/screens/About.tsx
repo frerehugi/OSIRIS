@@ -50,23 +50,27 @@ export default function About() {
         </div>
 
         <div className="about-block">
-          <h3>Terms &amp; Conditions</h3>
-          <ul className="about-list">
-            <li>Apis is a non-custodial interface only. It cannot move, freeze, or access your funds.</li>
-            <li>
-              AI-generated plans are suggestions, not financial advice — you are responsible for reviewing
-              every plan before confirming it.
-            </li>
-            <li>Digital asset prices are volatile. Past performance does not indicate future results.</li>
-            <li>
-              Access grants are limited to reading balances and proposing plans — never to executing
-              transactions without your explicit confirmation.
-            </li>
-            <li>
-              Use of Apis and OSIRIS is entirely at your own risk. See the full Terms of Service and Privacy
-              Policy for details.
-            </li>
-          </ul>
+          <h3>Legal</h3>
+          <p className="about-lede" style={{ fontSize: 13 }}>
+            Apis is a non-custodial interface only — it cannot move, freeze, or access your funds. AI-generated
+            plans are suggestions, not financial advice; you're responsible for reviewing every plan before
+            confirming it. Apis and OSIRIS are experimental, non-commercial projects — use is entirely at your own
+            risk.
+          </p>
+          <button type="button" className="menu-item" onClick={() => navigate('/terms')} style={{ marginTop: 4 }}>
+            <span className="menu-item__text">
+              <span className="menu-item__title">Terms &amp; Conditions</span>
+              <span className="menu-item__sub">Full disclaimer</span>
+            </span>
+            <span className="menu-item__chev" aria-hidden="true">›</span>
+          </button>
+          <button type="button" className="menu-item" onClick={() => navigate('/privacy')} style={{ marginTop: 10 }}>
+            <span className="menu-item__text">
+              <span className="menu-item__title">Privacy Policy</span>
+              <span className="menu-item__sub">What we do (and don't) collect</span>
+            </span>
+            <span className="menu-item__chev" aria-hidden="true">›</span>
+          </button>
         </div>
 
         <div className="about-block">

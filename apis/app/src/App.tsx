@@ -11,6 +11,8 @@ import Purchases from './screens/Purchases';
 import CreateCode from './screens/CreateCode';
 import ConfirmPlan from './screens/ConfirmPlan';
 import About from './screens/About';
+import Terms from './screens/Terms';
+import Privacy from './screens/Privacy';
 import ConnectAI from './screens/ConnectAI';
 import ConnectClaude from './screens/ConnectClaude';
 import ConnectChatGPT from './screens/ConnectChatGPT';
@@ -66,6 +68,8 @@ export default function App() {
           außerhalb von MiniPay lesbar (z.B. verlinkt von osirisapp.xyz oder
           geteilt), siehe Chat "entsprechende Infos bekommen ... tools laden". */}
       <Route path="/about" element={<About />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="/connect" element={<ConnectAI />} />
       <Route path="/claude" element={<ConnectClaude />} />
       <Route path="/chatgpt" element={<ConnectChatGPT />} />

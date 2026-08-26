@@ -502,30 +502,6 @@ button {
   margin: 0 0 10px;
 }
 
-.about-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.about-list li {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.55;
-  padding-left: 18px;
-  position: relative;
-}
-
-.about-list li::before {
-  content: '—';
-  position: absolute;
-  left: 0;
-  color: var(--gold);
-}
-
 .about-support {
   display: flex;
   align-items: center;
