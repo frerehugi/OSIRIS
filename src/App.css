@@ -257,21 +257,22 @@ h2 {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 18px 16px;
+  padding: 18px 22px;
   background: var(--card);
   backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  border: 1px solid var(--border-gold);
+  border-radius: 999px;
   cursor: pointer;
   text-align: left;
   font: inherit;
   color: inherit;
   width: 100%;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .new-plan-tile:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--gold-dim);
+  border-color: var(--gold);
 }
 
 .new-plan-tile:focus-visible {
@@ -287,6 +288,7 @@ h2 {
 .new-plan-tile__title {
   font-weight: 700;
   font-size: 0.98rem;
+  color: var(--gold-light);
 }
 
 .new-plan-tile__sub {
@@ -297,7 +299,7 @@ h2 {
 
 .new-plan-tile__chev {
   margin-left: auto;
-  color: var(--text-faint);
+  color: var(--gold);
   font-size: 20px;
 }
 
@@ -314,20 +316,21 @@ h2 {
   align-items: center;
   gap: 14px;
   min-height: 64px;
-  padding: 16px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
+  padding: 16px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border-gold);
   background: var(--card);
   backdrop-filter: blur(20px);
   text-align: left;
   font: inherit;
   color: inherit;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .menu-item:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--gold-dim);
+  border-color: var(--gold);
 }
 
 .menu-item:focus-visible {
@@ -344,6 +347,7 @@ h2 {
 .menu-item__title {
   font-weight: 700;
   font-size: 0.98rem;
+  color: var(--gold-light);
 }
 
 .menu-item__sub {
@@ -353,7 +357,7 @@ h2 {
 
 .menu-item__chev {
   margin-left: auto;
-  color: var(--text-faint);
+  color: var(--gold);
   font-size: 20px;
 }
 

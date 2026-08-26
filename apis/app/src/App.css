@@ -165,12 +165,23 @@ h1 {
   align-items: center;
   gap: 14px;
   min-height: 64px;
-  padding: 16px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
+  padding: 16px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border-gold);
   background: var(--card);
   backdrop-filter: blur(20px);
   text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.menu-item:hover {
+  background: var(--gold-dim);
+  border-color: var(--gold);
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid var(--gold-light);
+  outline-offset: 2px;
 }
 
 .menu-item__text {
@@ -182,6 +193,7 @@ h1 {
 .menu-item__title {
   font-weight: 700;
   font-size: 16px;
+  color: var(--gold-light);
 }
 
 .menu-item__sub {
@@ -191,7 +203,7 @@ h1 {
 
 .menu-item__chev {
   margin-left: auto;
-  color: var(--text-faint);
+  color: var(--gold);
   font-size: 20px;
 }
 
