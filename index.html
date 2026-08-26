@@ -199,6 +199,16 @@
   }
   .hero-bridge:hover { border-color: var(--border-gold); }
 
+  .hero-hint-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 10px;
+    font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .hero-hint-link:hover { color: var(--gold-light); border-color: var(--border-gold); }
+
   /* ── Sections ── */
   section { padding: 76px 24px; max-width: 1000px; margin: 0 auto; }
   .section-tag {
@@ -384,6 +394,7 @@
     A non-custodial vault system on Celo. Buy a diversified crypto basket on a schedule,
     or set a price that buys or sells for you the moment it's hit — <strong>your keys, your vault, always</strong>.
   </p>
+  <a href="https://docs.minipay.xyz/getting-started/test-in-minipay.html" target="_blank" rel="noreferrer" class="hero-hint-link">📘 How to unlock your in-app browser in MiniPay (Enable Developer Mode)</a>
 
   <div class="token-row">
     <div class="token-chip">
