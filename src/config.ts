@@ -35,6 +35,13 @@ export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477
 // 0x10FC1B7BF6d2c8e429f40C7536c35303D1CdF3D9).
 export const TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
 
+// SendVaultFactory — Auszahlungs-Erweiterung neben DcaVaultFactory/
+// TriggerVaultFactory (siehe script/DeploySendVaultFactory.s.sol). NOCH
+// NICHT DEPLOYT — Platzhalter-Nulladresse, bis der echte Deploy gelaufen
+// ist. keeper/squidKeeper.ts überspringt den Send-Zyklus komplett, solange
+// dieser Wert die Nulladresse ist (siehe dortiger ZERO_ADDRESS-Vergleich).
+export const SEND_VAULT_FACTORY_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
   symbol:   string;

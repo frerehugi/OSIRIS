@@ -10,6 +10,7 @@ import CancelledPlans from './screens/CancelledPlans';
 import Purchases from './screens/Purchases';
 import CreateCode from './screens/CreateCode';
 import ConfirmPlan from './screens/ConfirmPlan';
+import AddressBook from './screens/AddressBook';
 import About from './screens/About';
 import Terms from './screens/Terms';
 import Privacy from './screens/Privacy';
@@ -63,6 +64,10 @@ export default function App() {
       <Route
         path="/holdings"
         element={<RequireConnection><Holdings /></RequireConnection>}
+      />
+      <Route
+        path="/address-book"
+        element={<RequireConnection><AddressBook /></RequireConnection>}
       />
       {/* Öffentlich — kein RequireConnection: reine Infos/Anleitungen, auch
           außerhalb von MiniPay lesbar (z.B. verlinkt von osirisapp.xyz oder

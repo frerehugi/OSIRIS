@@ -9,9 +9,10 @@ interface MenuItem {
 const MENU_ITEMS: MenuItem[] = [
   { to: '/connect',      title: 'Connect an AI Assistant',   sub: 'Claude, ChatGPT, Gemini, or Grok' },
   { to: '/create-code',  title: 'Create New Code for Agent', sub: 'Grant your AI temporary access' },
-  { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a plan your AI assistant proposed' },
+  { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a buy, sell-trigger, or send plan your AI assistant proposed' },
   { to: '/plans',        title: 'My Plans',                  sub: 'Active, completed, cancelled & purchases' },
   { to: '/holdings',      title: 'My Holdings',               sub: 'USDC · USDT · CELO · XAUoT · wBTC · wETH' },
+  { to: '/address-book',  title: 'Address Book',              sub: 'Contacts your AI assistant can send to' },
   { to: '/about',         title: 'About APIS',                sub: 'Terms, disclaimer & support' },
 ];
 

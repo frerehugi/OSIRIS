@@ -4,34 +4,49 @@ import { useConnection, usePublicClient, useWriteContract } from 'wagmi';
 import { formatUnits, parseEventLogs } from 'viem';
 import {
   ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, FACTORY_ADDRESS,
-  TARGET_TOKENS, INPUT_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
+  TARGET_TOKENS, INPUT_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS,
+  type TokenInfo,
 } from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
+import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from '../sendVaultAbi';
 import type { AnyTokenSymbol } from '../tokenVisuals';
 import TokenIcon from '../components/TokenIcon';
 
-/// Confirm Plan — nimmt den Code entgegen, den `propose_plan` (apis/backend)
-/// im Chat ausgibt, und führt ihn aus. Spiegelt OSIRIS' eigenes
+/// Confirm Plan — nimmt den Code entgegen, den propose_plan/propose_send_plan/
+/// propose_direct_send (apis/backend) im Chat ausgeben, und führt ihn aus.
+/// Ein einziger Screen/Button für alle drei Plan-Arten (siehe Chat: "confirm
+/// plan und confirm send sind doch die gleichen Funktionen [...] dafür
+/// reicht doch ein Button") — der Plan-Typ wird aus der Form des dekodierten
+/// JSON selbst erkannt (isDcaPlan/isSendPlan/isDirectSend unten), nicht aus
+/// einem separaten Menüpunkt. Genau wie schon vorher bei Buy+Sell-Trigger:
+/// verschiedene Vault-Typen/Factories, aber ein Code/Screen.
+///
+/// DCA-Zweig (isDcaPlan): unverändert — spiegelt OSIRIS' eigenes
 /// submitDcaPlan() in src/minipayWallet.ts 1:1 im Aufbau (createVault() →
-/// approve() → setupPlan(), dieselbe ABI-Argumentreihenfolge), hier über
-/// wagmi statt über einen rohen viem-Client, damit es zum Rest von apis/app
-/// passt.
+/// approve() → setupPlan()), inkl. optionalem sellTrigger-Anhang über
+/// TriggerVaultFactory/TriggerVault.
+///
+/// Send-Zweig (isSendPlan): dieselbe 3-Transaktionen-Sequenz, nur auf
+/// SendVaultFactory/SendVault (siehe contracts/SendVault.sol) — kein Router,
+/// kein minAmountOut, dafür ein RecipientPlan[]-Tupel-Array. Jede
+/// Empfängeradresse wird in der Summary VOLL ausgeschrieben, nicht gekürzt
+/// (siehe Sterntalers pageSummary()-Prinzip) — anders als der Rest von APIS,
+/// wo eine gekürzte Adresse (0x1234...abcd) sonst Standard ist, weil hier
+/// (anders als beim eigenen Address Book) kein vorab bestätigter Kontakt
+/// dahintersteht.
+///
+/// Direct-Send-Zweig (isDirectSend): kein Vault, kein Keeper, keine Gebühr —
+/// eine einzelne ERC20.transfer()-Tx (siehe planCompiler.ts,
+/// compileDirectSend()-Kommentar zur Architekturentscheidung "Direkter
+/// Transfer" für Stufe 1).
 ///
 /// Der Plan-Code ist bewusst ein einfügbarer Text-Code statt eines Deep-
 /// Links — gleiches Prinzip wie der Access-Grant-Code aus Create New Code
 /// (siehe CreateCode.tsx): kein Backend/State nötig, um ihn zu übertragen,
-/// nur base64url(JSON) von genau dem, was propose_plan zurückgibt.
-///
-/// Der optionale triggerSell-Anhang läuft über TriggerVaultFactory/
-/// TriggerVault (siehe planCompiler.ts) — dieselbe 3-Transaktionen-Sequenz
-/// wie der Buy-Plan, nur NACH ihm und nur, wenn der User das sellToken
-/// JETZT SCHON in ausreichender Menge hält (echtes Escrow, kein bloßes
-/// Allowance-Pull-Modell — der Betrag muss beim Setup real vorhanden sein).
-/// Reicht der Bestand nicht, wird der Sell-Trigger übersprungen, mit
-/// Hinweis, ihn später manuell in OSIRIS 1.1 nachzuholen (APIS selbst bietet
-/// keine manuelle Plan-Erstellung mehr an, siehe Architektur-Wechsel).
+/// nur base64url(JSON) von genau dem, was das jeweilige propose_*-Tool
+/// zurückgibt.
 
-interface ProposedPlan {
+interface DcaProposedPlan {
   summary: string;
   setupPlanArgs: {
     inputToken:              `0x${string}`;
@@ -56,6 +71,38 @@ interface ProposedPlan {
   };
 }
 
+interface SendProposedPlan {
+  summary: string;
+  setupPlanArgs: {
+    token:                    `0x${string}`;
+    recipients:               { wallet: `0x${string}`; totalAmount: string }[];
+    duration:                 number;
+    interval:                 number;
+    firstExecutionTimestamp:  number;
+  };
+}
+
+interface DirectSendProposedPlan {
+  summary: string;
+  transferArgs: {
+    token:  `0x${string}`;
+    to:     `0x${string}`;
+    amount: string;
+  };
+}
+
+type ProposedPlan = DcaProposedPlan | SendProposedPlan | DirectSendProposedPlan;
+
+function isDirectSend(plan: ProposedPlan): plan is DirectSendProposedPlan {
+  return 'transferArgs' in plan;
+}
+function isSendPlan(plan: ProposedPlan): plan is SendProposedPlan {
+  return 'setupPlanArgs' in plan && 'recipients' in plan.setupPlanArgs;
+}
+function isDcaPlan(plan: ProposedPlan): plan is DcaProposedPlan {
+  return 'setupPlanArgs' in plan && 'targetTokens' in plan.setupPlanArgs;
+}
+
 const ALL_TOKENS: Record<string, TokenInfo> = { ...TARGET_TOKENS, ...INPUT_TOKENS };
 const ALL_TOKENS_BY_ADDRESS = new Map(Object.values(ALL_TOKENS).map((t) => [t.address.toLowerCase(), t]));
 
@@ -67,15 +114,19 @@ function decodePlanCode(code: string): ProposedPlan {
   const normalized = code.trim().replace(/-/g, '+').replace(/_/g, '/');
   const json = atob(normalized);
   const parsed = JSON.parse(json);
-  if (!parsed?.setupPlanArgs) throw new Error('This code does not look like a plan code.');
+  if (!parsed?.setupPlanArgs && !parsed?.transferArgs) throw new Error('This code does not look like a plan code.');
   return parsed as ProposedPlan;
 }
 
 const INTERVAL_LABEL: Record<number, string> = { 3_600: 'hourly', 86_400: 'daily', 604_800: 'weekly' };
 
 type Phase =
-  | 'idle' | 'creating-vault' | 'approving-buy' | 'setting-up-plan'
-  | 'creating-sell-vault' | 'approving-sell' | 'setting-up-sell-plan' | 'done';
+  | 'idle'
+  | 'creating-vault' | 'approving-buy' | 'setting-up-plan'
+  | 'creating-sell-vault' | 'approving-sell' | 'setting-up-sell-plan'
+  | 'creating-send-vault' | 'approving-send' | 'setting-up-send-plan'
+  | 'sending'
+  | 'done';
 
 type SellOutcome = { status: 'created'; vaultAddress: `0x${string}` } | { status: 'skipped-no-balance' };
 
@@ -110,6 +161,81 @@ export default function ConfirmPlan() {
     if (!address || !publicClient || !plan) return;
     setError(null);
 
+    // ── Direct Send: kein Vault, eine Tx ────────────────────────────────
+    if (isDirectSend(plan)) {
+      try {
+        setPhase('sending');
+        const hash = await writeContractAsync({
+          address: plan.transferArgs.token,
+          abi: ERC20_ABI,
+          functionName: 'transfer',
+          args: [plan.transferArgs.to, BigInt(plan.transferArgs.amount)],
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
+        setPhase('done');
+      } catch (err) {
+        setError(err instanceof Error ? `Send failed: ${err.message}` : 'Send failed. Please try again.');
+        setPhase('idle');
+      }
+      return;
+    }
+
+    // ── Send Plan: eigener 3-Tx-Ablauf auf SendVaultFactory/SendVault ───
+    if (isSendPlan(plan)) {
+      let currentPhase: Phase = 'creating-send-vault';
+      try {
+        const { token, recipients, duration, interval, firstExecutionTimestamp } = plan.setupPlanArgs;
+        const totalAmountRaw = recipients.reduce((sum, r) => sum + BigInt(r.totalAmount), 0n);
+        const submitFirstExecutionTimestamp = Math.max(firstExecutionTimestamp, Math.floor(Date.now() / 1000) + 60);
+
+        currentPhase = 'creating-send-vault';
+        setPhase('creating-send-vault');
+        const createVaultHash = await writeContractAsync({
+          address: SEND_VAULT_FACTORY_ADDRESS,
+          abi: SEND_VAULT_FACTORY_ABI,
+          functionName: 'createVault',
+        });
+        const createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
+        const [vaultCreatedEvent] = parseEventLogs({ abi: SEND_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createVaultReceipt.logs });
+        const newVaultAddress = vaultCreatedEvent?.args.vault;
+        if (!newVaultAddress) throw new Error('Vault was created, but its address could not be read from the event.');
+        setVaultAddress(newVaultAddress);
+
+        currentPhase = 'approving-send';
+        setPhase('approving-send');
+        const approveHash = await writeContractAsync({
+          address: token, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, totalAmountRaw],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+        currentPhase = 'setting-up-send-plan';
+        setPhase('setting-up-send-plan');
+        const setupPlanHash = await writeContractAsync({
+          address: newVaultAddress,
+          abi: SEND_VAULT_ABI,
+          functionName: 'setupPlan',
+          args: [
+            token,
+            recipients.map((r) => ({ wallet: r.wallet, totalAmount: BigInt(r.totalAmount) })),
+            duration,
+            BigInt(interval),
+            BigInt(submitFirstExecutionTimestamp),
+          ],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
+
+        setPhase('done');
+      } catch (err) {
+        const label =
+          currentPhase === 'creating-send-vault' ? 'Creating the vault' :
+          currentPhase === 'approving-send' ? 'Approval' : 'Setting up the plan';
+        setError(err instanceof Error ? `${label} failed: ${err.message}` : `${label} failed. Please try again.`);
+        setPhase('idle');
+      }
+      return;
+    }
+
+    // ── DCA-Plan (+ optionaler Sell-Trigger) — unverändert ──────────────
     const { inputToken, totalAmount, duration, interval, firstExecutionTimestamp, targetTokens, targetBps } = plan.setupPlanArgs;
     const totalAmountRaw = BigInt(totalAmount);
 
@@ -218,6 +344,58 @@ export default function ConfirmPlan() {
   };
 
   if (phase === 'done' && plan) {
+    if (isDirectSend(plan)) {
+      const tokenInfo = tokenForAddress(plan.transferArgs.token);
+      return (
+        <div className="screen screen--sub">
+          <div className="app-bar">
+            <span className="app-bar__spacer" />
+            <span className="app-bar__title">Confirm Plan</span>
+            <span className="app-bar__spacer" />
+          </div>
+          <div className="sell-done">
+            <div className="sell-done__icon">✓</div>
+            <p className="sell-done__title">Sent</p>
+            <p className="sell-done__sub">
+              {formatUnits(BigInt(plan.transferArgs.amount), tokenInfo.decimals)} {tokenInfo.symbol} was sent to {plan.transferArgs.to}.
+            </p>
+            <button type="button" className="btn-gold" onClick={() => navigate('/home')}>
+              Back to Home
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (isSendPlan(plan)) {
+      const tokenInfo = tokenForAddress(plan.setupPlanArgs.token);
+      const totalRaw = plan.setupPlanArgs.recipients.reduce((sum, r) => sum + BigInt(r.totalAmount), 0n);
+      return (
+        <div className="screen screen--sub">
+          <div className="app-bar">
+            <span className="app-bar__spacer" />
+            <span className="app-bar__title">Confirm Plan</span>
+            <span className="app-bar__spacer" />
+          </div>
+          <div className="sell-done">
+            <div className="sell-done__icon">✓</div>
+            <p className="sell-done__title">Send plan is live</p>
+            <p className="sell-done__sub">
+              {formatUnits(totalRaw, tokenInfo.decimals)} {tokenInfo.symbol} will now go out to {plan.setupPlanArgs.recipients.length} recipient{plan.setupPlanArgs.recipients.length === 1 ? '' : 's'}, {INTERVAL_LABEL[plan.setupPlanArgs.interval] ?? ''} over {plan.setupPlanArgs.duration} payout{plan.setupPlanArgs.duration === 1 ? '' : 's'}.
+            </p>
+            {vaultAddress && (
+              <a className="sell-done__link" href={`https://celoscan.io/address/${vaultAddress}`} rel="noreferrer">
+                View vault on Celoscan ↗
+              </a>
+            )}
+            <button type="button" className="btn-gold" onClick={() => navigate('/plans')}>
+              View My Plans
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     const inputTokenInfo = tokenForAddress(plan.setupPlanArgs.inputToken);
     return (
       <div className="screen screen--sub">
@@ -268,7 +446,7 @@ export default function ConfirmPlan() {
       {!plan && (
         <>
           <p className="createcode-sub">
-            Paste the plan code your AI assistant gave you after negotiating a strategy.
+            Paste the plan code your AI assistant gave you — works for buy plans, sell triggers, and sends.
           </p>
           <div className="sell-card">
             <textarea
@@ -289,7 +467,97 @@ export default function ConfirmPlan() {
         </>
       )}
 
-      {plan && (
+      {/* ── Direct-Send-Zweig: eine Zeile, eine Tx ─────────────────────── */}
+      {plan && isDirectSend(plan) && (
+        <>
+          <div style={{ padding: '0 18px 8px', display: 'flex', justifyContent: 'center' }}>
+            <span style={{
+              fontSize: 11, color: 'var(--text-faint)', background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 999, padding: '5px 12px',
+            }}>
+              Proposed plan · detected: Direct send
+            </span>
+          </div>
+
+          <div className="section-label">Send</div>
+          <div className="sell-card">
+            <div className="recipient-row">
+              <TokenIcon token={tokenForAddress(plan.transferArgs.token).symbol as AnyTokenSymbol} size={26} />
+              <span className="recipient-row__addr">{plan.transferArgs.to}</span>
+              <span className="recipient-row__amt">
+                {formatUnits(BigInt(plan.transferArgs.amount), tokenForAddress(plan.transferArgs.token).decimals)} {tokenForAddress(plan.transferArgs.token).symbol}
+              </span>
+            </div>
+          </div>
+          <p className="fee-note">No vault, no keeper, no fee — a single wallet transfer, sent right away.</p>
+          <div className="warn-note">Double-check the address above. Sends cannot be reversed.</div>
+
+          {error && <p className="createcode-error">{error}</p>}
+
+          <button type="button" className="btn-gold" onClick={handleConfirm} disabled={busy || !address}>
+            {phase === 'sending' ? 'Confirm send in MiniPay…' : 'Confirm & Sign in MiniPay'}
+          </button>
+        </>
+      )}
+
+      {/* ── Send-Plan-Zweig: mehrere Empfänger, geplant ────────────────── */}
+      {plan && isSendPlan(plan) && (
+        <>
+          <div style={{ padding: '0 18px 8px', display: 'flex', justifyContent: 'center' }}>
+            <span style={{
+              fontSize: 11, color: 'var(--text-faint)', background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 999, padding: '5px 12px',
+            }}>
+              Proposed plan · detected: Send
+            </span>
+          </div>
+
+          <div className="section-label">Send</div>
+          <div className="sell-card">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ fontFamily: "'SF Mono','JetBrains Mono',ui-monospace,monospace", fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>
+                {formatUnits(plan.setupPlanArgs.recipients.reduce((sum, r) => sum + BigInt(r.totalAmount), 0n), tokenForAddress(plan.setupPlanArgs.token).decimals)} {tokenForAddress(plan.setupPlanArgs.token).symbol}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {plan.setupPlanArgs.duration} {INTERVAL_LABEL[plan.setupPlanArgs.interval] ?? ''} payout{plan.setupPlanArgs.duration === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+
+          <div className="section-label">Recipients ({plan.setupPlanArgs.recipients.length})</div>
+          <div className="sell-card">
+            {plan.setupPlanArgs.recipients.map((r, i) => (
+              <div className="recipient-row" key={r.wallet + i}>
+                <span className="recipient-row__addr">{r.wallet}</span>
+                <span className="recipient-row__amt">
+                  {formatUnits(BigInt(r.totalAmount), tokenForAddress(plan.setupPlanArgs.token).decimals)} {tokenForAddress(plan.setupPlanArgs.token).symbol}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="fee-note">Paid out in {plan.setupPlanArgs.duration} equal {INTERVAL_LABEL[plan.setupPlanArgs.interval] ?? ''} instalments per recipient, starting in ~1 minute.</p>
+
+          <p className="fee-note">
+            <b>Fee:</b> 0.49% per payout, min. $0.009 — charged by the SendVault contract itself, only when a payout actually executes.
+          </p>
+          <p className="fee-note">
+            APIS never holds your funds. You sign every step yourself in MiniPay.
+          </p>
+          <div className="warn-note">Double-check every address above. Sends cannot be reversed.</div>
+
+          {error && <p className="createcode-error">{error}</p>}
+
+          <button type="button" className="btn-gold" onClick={handleConfirm} disabled={busy || !address}>
+            {phase === 'creating-send-vault' ? 'Confirm vault creation in MiniPay…'
+              : phase === 'approving-send' ? 'Confirm approval in MiniPay…'
+              : phase === 'setting-up-send-plan' ? 'Confirm plan setup in MiniPay…'
+              : 'Confirm & Sign in MiniPay'}
+          </button>
+        </>
+      )}
+
+      {/* ── DCA-Plan-Zweig (+ optionaler Sell-Trigger) — unverändert ───── */}
+      {plan && isDcaPlan(plan) && (
         <>
           <div style={{ padding: '0 18px 8px', display: 'flex', justifyContent: 'center' }}>
             <span style={{

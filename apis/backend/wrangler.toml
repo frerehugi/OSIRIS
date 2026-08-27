@@ -6,3 +6,16 @@ compatibility_flags = ["nodejs_compat"]
 # Kein Binding auf einen Fund-relevanten Key — dieser Worker hält keine
 # Wallet, keinen Private Key, nichts, was Custody bedeuten würde (siehe
 # Gesamtplan §1/§8). Reine Lese-/Verifikations-/Validierungslogik.
+
+# ADDRESS_BOOK: einziger Server-State dieses Workers (siehe src/addressBook.ts)
+# — nötig, damit get_address_book der KI überhaupt etwas zurückgeben kann;
+# localStorage (wie bisher bei Sterntaler/OSIRIS) ist für diesen Worker
+# unerreichbar. Kein Fund-relevanter Inhalt (nur Name→Adresse-Zuordnungen),
+# Schreibzugriff bleibt trotzdem signaturgebunden (siehe contactSignature.ts).
+#
+# NOCH NICHT ANGELEGT — Platzhalter-ID. Vor dem ersten Deploy:
+#   wrangler kv namespace create ADDRESS_BOOK
+# und die echte "id" hier eintragen.
+[[kv_namespaces]]
+binding = "ADDRESS_BOOK"
+id = "REPLACE_WITH_REAL_KV_NAMESPACE_ID"

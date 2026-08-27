@@ -856,6 +856,160 @@ h1 {
   margin: 8px 0 0;
 }
 
+/* ── Confirm Plan — Send-Zweig (recipients, siehe ConfirmPlan.tsx) ─────── */
+
+/* Jede Empfänger-Zeile: Token-Badge + volle, nicht gekürzte Adresse + eigener
+   Betrag — nach Sterntalers pageSummary()-Prinzip (siehe Chat: "jeder
+   Empfänger einzeln ausgeschrieben"), weil es hier — anders als beim
+   restlichen APIS-Adressbuch — kein vorab verifiziertes Adressbuch gibt. */
+.recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.recipient-row + .recipient-row {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.recipient-row__addr {
+  flex: 1;
+  min-width: 0;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.recipient-row__amt {
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: right;
+}
+
+.warn-note {
+  margin: 14px 18px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  font-size: 12.5px;
+  color: var(--danger);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* ── Address Book ────────────────────────────────────────────────────── */
+
+.contact-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 18px 0;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.contact-row:last-child {
+  border-bottom: none;
+}
+
+.contact-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gold-dim);
+  color: var(--gold-light);
+  font-weight: 800;
+  font-size: 14px;
+  border: 1px solid var(--border-gold);
+}
+
+.contact-row__name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contact-row__title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.contact-row__addr {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.contact-row__remove {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.confirm-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.confirm-addr {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--gold-light);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin: 22px 18px 0;
+}
+
+.btn-row .btn-gold {
+  flex: 1;
+  margin: 0;
+}
+
+.empty-note {
+  padding: 4px 18px 0;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 22px 18px 0;
+}
+
 /* ─── My Purchases — Kachel-Raster, identisch zu OSIRIS' .tile (src/App.css) ─── */
 
 .tile-grid {

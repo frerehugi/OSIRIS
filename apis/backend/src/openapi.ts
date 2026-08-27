@@ -10,6 +10,7 @@ const SERVER_URL = 'https://apis-backend.frerehugi.workers.dev';
 
 const TARGET_TOKEN_ENUM = ['wBTC', 'wETH', 'CELO', 'XAUoT'];
 const ANY_TOKEN_ENUM = ['wBTC', 'wETH', 'CELO', 'XAUoT', 'USDC', 'USDT'];
+const SEND_TOKEN_ENUM = ['USDC', 'USDT', 'cUSD', 'wBTC', 'wETH', 'CELO', 'XAUoT'];
 
 export const OPENAPI_SPEC = {
   openapi: '3.1.0',
@@ -146,6 +147,131 @@ export const OPENAPI_SPEC = {
         responses: {
           '200': { description: 'Compiled plan parameters and a human-readable summary.' },
           '400': { description: 'Invalid grant code, or the plan draft failed validation (see `errors`).' },
+        },
+      },
+    },
+    '/propose-send': {
+      post: {
+        operationId: 'proposeSendPlan',
+        summary: 'Propose a scheduled, multi-recipient send plan',
+        description:
+          'Validates a scheduled payout (one or more recipients, each with their own total amount, paid out in ' +
+          "equal installments over time) against the real OSIRIS SendVault contract constraints. Does NOT execute " +
+          "anything. Requires a grant code with 'propose' access. For a single immediate transfer use /direct-send " +
+          'instead.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['grantCode', 'token', 'recipients', 'interval', 'duration'],
+                properties: {
+                  grantCode: { type: 'string', description: 'The code the user generated in APIS.' },
+                  token:     { type: 'string', enum: SEND_TOKEN_ENUM, description: 'The token to send — the user must already hold it.' },
+                  recipients: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['address', 'totalAmount'],
+                      properties: {
+                        address:     { type: 'string', description: 'A raw 0x wallet address. NEVER a name.' },
+                        totalAmount: { type: 'string', description: 'Human-readable amount this recipient receives IN TOTAL over the whole plan, e.g. "50.00".' },
+                      },
+                    },
+                  },
+                  interval: { type: 'string', enum: ['hourly', 'daily', 'weekly'] },
+                  duration: { type: 'integer', minimum: 1, description: "Number of payouts each recipient's total is split evenly across." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Compiled send plan parameters and a human-readable summary.' },
+          '400': { description: 'Invalid grant code, or the plan draft failed validation (see `errors`).' },
+        },
+      },
+    },
+    '/direct-send': {
+      post: {
+        operationId: 'proposeDirectSend',
+        summary: 'Propose a single, immediate transfer',
+        description:
+          'Validates a one-off, immediate transfer of a token the user already holds — no vault, no keeper, no fee. ' +
+          "Requires a grant code with 'propose' access.",
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['grantCode', 'token', 'to', 'amount'],
+                properties: {
+                  grantCode: { type: 'string', description: 'The code the user generated in APIS.' },
+                  token:     { type: 'string', enum: SEND_TOKEN_ENUM },
+                  to:        { type: 'string', description: 'A raw 0x wallet address. NEVER a name.' },
+                  amount:    { type: 'string', description: 'Human-readable amount, e.g. "5.00".' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Compiled transfer parameters and a human-readable summary.' },
+          '400': { description: 'Invalid grant code, or the draft failed validation (see `errors`).' },
+        },
+      },
+    },
+    '/address-book': {
+      post: {
+        operationId: 'getAddressBook',
+        summary: "Get the grant owner's saved contacts",
+        description: "Reads the grant owner's saved address book (name -> wallet address). Requires a grant code with 'read' access.",
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['grantCode'],
+                properties: { grantCode: { type: 'string', description: 'The code the user generated in APIS.' } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'The saved contacts.' },
+          '400': { description: 'Invalid or expired grant code.' },
+        },
+      },
+    },
+    '/address-book/propose': {
+      post: {
+        operationId: 'proposeAddressBookEntry',
+        summary: 'Propose a new address book contact',
+        description:
+          'Validates a name/address pair and prepares it for the user to confirm. Does NOT save anything — the ' +
+          "entry is only written after the user confirms in the APIS app. Requires a grant code with 'propose' access.",
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['grantCode', 'name', 'address'],
+                properties: {
+                  grantCode: { type: 'string', description: 'The code the user generated in APIS.' },
+                  name:      { type: 'string' },
+                  address:   { type: 'string', description: 'A raw 0x wallet address. Never guess this or infer it from a name.' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Validated name/address, ready to be confirmed in the app.' },
+          '400': { description: 'Invalid grant code, or the address is malformed.' },
         },
       },
     },

@@ -22,6 +22,24 @@ export function buildCapabilities() {
       { symbol: TARGET_TOKENS.XAUoT.symbol, address: TARGET_TOKENS.XAUoT.address, decimals: TARGET_TOKENS.XAUoT.decimals },
     ],
 
+    // Alle MiniPay-Token, die SendVault/ein Direkt-Send versenden kann — bewusst
+    // eine eigene Liste statt inputTokens/targetTokens wiederzuverwenden: ein
+    // Send braucht keinen Squid-Swap, daher gilt hier NICHT dieselbe
+    // "nur Squid-routbare Stablecoins"-Einschränkung wie bei inputTokens.
+    // cUSD/USDm ist deshalb hier nutzbar, obwohl es für dcaPlan aktuell
+    // blockiert ist (siehe inputTokens-Kommentar in src/config.ts). USAT
+    // (Tether, seit Juli 2026 auf Celo Mainnet) folgt, sobald die
+    // Contract-Adresse verifiziert und in src/config.ts eingetragen ist.
+    sendTokens: [
+      { symbol: INPUT_TOKENS.USDC.symbol,   address: INPUT_TOKENS.USDC.address,   decimals: INPUT_TOKENS.USDC.decimals },
+      { symbol: INPUT_TOKENS.USDT.symbol,   address: INPUT_TOKENS.USDT.address,   decimals: INPUT_TOKENS.USDT.decimals },
+      { symbol: INPUT_TOKENS.cUSD.symbol,   address: INPUT_TOKENS.cUSD.address,   decimals: INPUT_TOKENS.cUSD.decimals },
+      { symbol: TARGET_TOKENS.wBTC.symbol,  address: TARGET_TOKENS.wBTC.address,  decimals: TARGET_TOKENS.wBTC.decimals },
+      { symbol: TARGET_TOKENS.wETH.symbol,  address: TARGET_TOKENS.wETH.address,  decimals: TARGET_TOKENS.wETH.decimals },
+      { symbol: TARGET_TOKENS.CELO.symbol,  address: TARGET_TOKENS.CELO.address,  decimals: TARGET_TOKENS.CELO.decimals },
+      { symbol: TARGET_TOKENS.XAUoT.symbol, address: TARGET_TOKENS.XAUoT.address, decimals: TARGET_TOKENS.XAUoT.decimals },
+    ],
+
     dcaPlan: {
       description: 'Buy-only, time-scheduled plan on the existing, unmodified OSIRIS DcaVault contract.',
       maxTargets: 10,
@@ -36,6 +54,24 @@ export function buildCapabilities() {
       direction: 'take-profit only — sells once the price is at or above the trigger price.',
       timeLimits: ['1d', '1w', '1m', 'none'],
       note: "The trigger price is evaluated off-chain by OSIRIS' shared keeper (soft trigger, same one that executes DCA tranches) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.",
+    },
+
+    sendPlan: {
+      description: 'A multi-recipient, time-scheduled payout on a new, dedicated OSIRIS SendVault contract — no swap, the sender already holds the token. Each recipient gets their own total amount, split evenly across the plan\'s payouts.',
+      maxRecipients: 10,
+      intervals: ['hourly', 'daily', 'weekly'],
+      feeBps: 49,
+      note: 'Fee is charged by the OSIRIS contract itself on every payout, independent of who calls it. Recipients must always be raw 0x addresses supplied by the user — never a name the AI resolves itself; use get_address_book to look up a saved contact\'s address first.',
+    },
+
+    directSend: {
+      description: 'A single, immediate transfer of a token the user already holds — no vault, no keeper, no fee. Executed as one plain wallet transfer the user signs directly in MiniPay.',
+      note: 'For anything scheduled or split across multiple recipients, use sendPlan instead.',
+    },
+
+    addressBook: {
+      description: 'The grant owner\'s saved contacts (name -> wallet address), so the AI can reference people by name in conversation.',
+      note: 'Read via get_address_book (scope \'read\'). New entries are only ever PROPOSED via propose_address_book_entry (scope \'propose\') — the user must confirm the full address themselves in the APIS app before anything is saved. The AI can never write an entry directly.',
     },
 
     // Einzige tatsächlich verwendete Quelle — muss mit getTokenPriceUsd() in

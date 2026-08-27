@@ -32,9 +32,10 @@ import { celo } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "../src/dcaVaultAbi";
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from "../src/triggerVaultAbi";
+import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from "../src/sendVaultAbi";
 import {
   VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS,
-  TRIGGER_VAULT_FACTORY_ADDRESS,
+  TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS,
 } from "../src/config";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
@@ -660,12 +661,117 @@ async function runTriggerVaultCycle(ctx: KeeperContext): Promise<KeeperCycleResu
   return results;
 }
 
+// ─── Send-Pläne: fällige Vaults finden ─────────────────────────────────────────
+//
+// Anders als bei Trigger-Plänen gibt es hier keine Preisbedingung zu prüfen —
+// canExecute() (initialized/!cancelled/currentStep<totalSteps/Zeit erreicht)
+// ist bereits die vollständige Antwort. Trotzdem pro Vault einzeln mit
+// try/catch statt als Batch-Promise.all wie bei findExecutableVaults(): ein
+// einzelner fehlschlagender RPC-Read darf die Prüfung der übrigen Send-Vaults
+// nicht abbrechen — gleiches Isolationsmuster wie findExecutableTriggerVaults()
+// (siehe dortigen Kommentar zum ursprünglichen stillen Trigger-Bug).
+
+async function findExecutableSendVaults(
+  ctx: KeeperContext, vaultAddresses: `0x${string}`[],
+): Promise<`0x${string}`[]> {
+  const executable: `0x${string}`[] = [];
+
+  for (const vaultAddress of vaultAddresses) {
+    try {
+      const canExecute = await ctx.publicClient.readContract({
+        address: vaultAddress, abi: SEND_VAULT_ABI, functionName: "canExecute",
+      }) as boolean;
+      if (!canExecute) continue;
+
+      const authorized = await ctx.publicClient.readContract({
+        address: vaultAddress, abi: SEND_VAULT_ABI, functionName: "isKeeper", args: [ctx.account.address],
+      }) as boolean;
+      if (!authorized) {
+        console.info(`Keeper: Send-Vault ${vaultAddress} übersprungen (Keeper-Wallet ${ctx.account.address} nicht autorisiert).`);
+        continue;
+      }
+
+      executable.push(vaultAddress);
+    } catch (err) {
+      console.error(`Keeper: Prüfung von Send-Vault ${vaultAddress} fehlgeschlagen:`, err);
+    }
+  }
+
+  return executable;
+}
+
+// ─── Send-Pläne: einen Vault ausführen ─────────────────────────────────────────
+//
+// Kein Squid-Aufruf, kein Router, keine Calldata — executeStep() nimmt keine
+// Parameter entgegen (siehe SendVault.sol). Simulieren vor dem Broadcast
+// bleibt trotzdem sinnvoll (deckt z.B. eine seit dem letzten canExecute()-Read
+// stornierte Plan auf, ohne echtes Gas zu verbrennen).
+
+async function executeSendVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`) {
+  const { request } = await ctx.publicClient.simulateContract({
+    account:      ctx.account,
+    address:      vaultAddress,
+    abi:          SEND_VAULT_ABI,
+    functionName: "executeStep",
+    args:         [],
+  });
+
+  const hash = await ctx.walletClient.writeContract(request);
+  const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
+
+  const newStep = await ctx.publicClient.readContract({
+    address: vaultAddress, abi: SEND_VAULT_ABI, functionName: "currentStep",
+  });
+
+  console.info(`Keeper: Send-Vault ${vaultAddress} — Schritt ${newStep} ausgeführt. Tx: ${hash}`);
+  return receipt;
+}
+
+// ─── Send-Pläne: Ausführungs-Zyklus ─────────────────────────────────────────────
+//
+// Sequenziell statt parallel — gleiche Begründung wie bei DCA/Trigger oben
+// (Nonce-Verwaltung der Keeper-Wallet; Squid-Rate-Limit spielt hier mangels
+// Squid-Aufrufen keine Rolle, aber die Nonce-Reihenfolge schon).
+
+async function runSendVaultCycle(ctx: KeeperContext): Promise<KeeperCycleResult[]> {
+  if (SEND_VAULT_FACTORY_ADDRESS === ZERO_ADDRESS) {
+    console.info("Keeper: SEND_VAULT_FACTORY_ADDRESS noch nicht deployt — überspringe Send-Pläne.");
+    return [];
+  }
+
+  const allVaults = await ctx.publicClient.readContract({
+    address: SEND_VAULT_FACTORY_ADDRESS, abi: SEND_VAULT_FACTORY_ABI, functionName: "getAllVaults",
+  }) as `0x${string}`[];
+  console.info(`Keeper: ${allVaults.length} Send-Vault(s) insgesamt.`);
+
+  const executableVaults = await findExecutableSendVaults(ctx, allVaults);
+  const results: KeeperCycleResult[] = [];
+
+  if (executableVaults.length === 0) {
+    console.info("Keeper: Kein Send-Vault aktuell ausführbar (canExecute = false).");
+    return results;
+  }
+
+  for (const vaultAddress of executableVaults) {
+    try {
+      const receipt = await executeSendVaultStep(ctx, vaultAddress);
+      results.push({ vaultAddress, receipt, kind: "send" });
+    } catch (err) {
+      // Ein fehlschlagender Vault darf die Ausführung für alle anderen
+      // Send-Vaults nicht blockieren — gleiches Muster wie DCA/Trigger oben.
+      console.error(`Keeper: Fehler bei Send-Vault ${vaultAddress}:`, err);
+    }
+  }
+
+  return results;
+}
+
 // ─── Haupt-Keeper-Funktion ────────────────────────────────────────────────────
 
 export interface KeeperCycleResult {
   vaultAddress: `0x${string}`;
   receipt:      Awaited<ReturnType<typeof executeVaultStep>>;
-  kind?:        "dca" | "trigger"; // fehlt (= "dca") bei bereits vorhandenen Aufrufern
+  kind?:        "dca" | "trigger" | "send"; // fehlt (= "dca") bei bereits vorhandenen Aufrufern
 }
 
 export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
@@ -702,6 +808,14 @@ export async function runKeeperCycle(env: Env): Promise<KeeperCycleResult[]> {
     // Ein Fehler beim Auflisten der Trigger-Vaults (z.B. RPC-Read auf die
     // Factory schlägt fehl) darf autoRefuelCelo() unten nicht verhindern.
     console.error("Keeper: Trigger-Vault-Zyklus fehlgeschlagen:", err);
+  }
+
+  try {
+    results.push(...await runSendVaultCycle(ctx));
+  } catch (err) {
+    // Gleiche Isolation wie beim Trigger-Zyklus oben — ein Fehler beim
+    // Auflisten der Send-Vaults darf autoRefuelCelo() nicht verhindern.
+    console.error("Keeper: Send-Vault-Zyklus fehlgeschlagen:", err);
   }
 
   await autoRefuelCelo(ctx);

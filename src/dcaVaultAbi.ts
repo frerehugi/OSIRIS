@@ -374,6 +374,15 @@ export const ERC20_ABI = [
     inputs:  [{ name: "owner", type: "address" }, { name: "spender", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
+  // Für den Direct-Send-Zweig in apis/app/src/screens/ConfirmPlan.tsx (siehe
+  // planCompiler.ts, compileDirectSend()) — ein einmaliger Transfer ohne
+  // Vault, daher direkt aus der Nutzer-Wallet statt über safeTransferFrom.
+  {
+    type: "function", name: "transfer",
+    stateMutability: "nonpayable",
+    inputs:  [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
   {
     type: "function", name: "balanceOf",
     stateMutability: "view",

@@ -225,3 +225,182 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     triggerSell: compiledTriggerSell,
   };
 }
+
+// ─── Send-Pläne (SendVault) ─────────────────────────────────────────────────
+//
+// Reiner Auszahlungs-Plan, kein Swap — anders als compilePlan() oben gibt es
+// hier keine targetTokens/targetBps, dafür individuelle Gesamtbeträge pro
+// Empfänger (siehe SendVault.sol-Architekturkommentar: "Gesamtbetrag pro
+// Empfänger, gleichmäßig über Tranchen verteilt", Chat-Entscheidung). Nutzt
+// resolveAnyToken() wieder (deckt INPUT_TOKENS inkl. cUSD/USDm UND
+// TARGET_TOKENS ab) — ein Send kennt keine "nur Stablecoin als Input"-
+// Einschränkung wie compilePlan(), weil kein Squid-Routing-Schritt existiert.
+
+const SEND_MAX_RECIPIENTS = 10; // muss SendVault.MAX_RECIPIENTS spiegeln
+
+// Rohe 0x-Adressen only — niemals ein von der KI selbst aufgelöster Name.
+// Siehe Sterntalers addressBook.ts-Kommentar zum Angriffsszenario: ein
+// KI-vorgeschlagenes Name→Adresse-Mapping darf hier nie unwidersprochen
+// durchgehen. Ob eine Adresse im Address Book des Nutzers steht, prüft die KI
+// vorher selbst über get_address_book — dieser Compiler sieht ohnehin nur
+// die fertige Adresse, nie einen Namen.
+export const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+export interface SendRecipientInput {
+  address:     string; // 0x... — siehe ADDRESS_RE-Kommentar oben
+  totalAmount: string; // Human-readable, GESAMT über die Laufzeit (nicht pro Tranche)
+}
+
+export interface SendPlanDraft {
+  owner:      `0x${string}`;
+  token:      string; // Key aus INPUT_TOKENS oder TARGET_TOKENS
+  recipients: SendRecipientInput[];
+  interval:   'hourly' | 'daily' | 'weekly';
+  duration:   number; // Anzahl Auszahlungen
+}
+
+export interface CompiledSendPlan {
+  valid: true;
+  summary: string;
+  setupPlanArgs: {
+    token:                    `0x${string}`;
+    recipients:               { wallet: `0x${string}`; totalAmount: string }[];
+    duration:                 number;
+    interval:                 number; // Sekunden
+    firstExecutionTimestamp:  number;
+  };
+}
+
+export function compileSendPlan(draft: SendPlanDraft): CompiledSendPlan | InvalidPlan {
+  const errors: string[] = [];
+
+  const token = resolveAnyToken(draft.token);
+  if (!token) errors.push(`Unknown token '${draft.token}'.`);
+
+  const interval = INTERVAL_SECONDS[draft.interval];
+  if (!interval) errors.push(`Unknown interval '${draft.interval}'. Use hourly, daily, or weekly.`);
+
+  if (!Number.isInteger(draft.duration) || draft.duration <= 0) {
+    errors.push('Duration must be a positive whole number of payouts.');
+  }
+
+  if (draft.recipients.length === 0 || draft.recipients.length > SEND_MAX_RECIPIENTS) {
+    errors.push(`Plan must have between 1 and ${SEND_MAX_RECIPIENTS} recipients.`);
+  }
+
+  const resolvedRecipients: { wallet: `0x${string}`; totalAmount: string }[] = [];
+  const seen = new Set<string>();
+  let totalAmountHuman = 0;
+
+  for (const recipient of draft.recipients) {
+    if (!ADDRESS_RE.test(recipient.address)) {
+      errors.push(`'${recipient.address}' is not a valid wallet address (0x + 40 hex chars). Ask the user for the exact address — never guess it or reuse a name.`);
+      continue;
+    }
+    const lower = recipient.address.toLowerCase();
+    if (seen.has(lower)) {
+      errors.push(`Duplicate recipient address '${recipient.address}'.`);
+      continue;
+    }
+    seen.add(lower);
+
+    if (!token) continue;
+
+    let amountRaw = 0n;
+    try {
+      amountRaw = parseUnits(recipient.totalAmount, token.decimals);
+    } catch {
+      errors.push(`'${recipient.totalAmount}' is not a valid amount for ${recipient.address}.`);
+      continue;
+    }
+    if (amountRaw <= 0n) {
+      errors.push(`Amount for ${recipient.address} must be greater than zero.`);
+      continue;
+    }
+    // Spiegel der echten Contract-Prüfung (SendVault.setupPlan(): totalAmount
+    // < duration revertet, sonst rundet trancheAmount auf 0).
+    if (draft.duration > 0 && amountRaw < BigInt(draft.duration)) {
+      errors.push(`Amount for ${recipient.address} is too small for ${draft.duration} payout(s) — the contract would reject it.`);
+      continue;
+    }
+
+    resolvedRecipients.push({ wallet: recipient.address as `0x${string}`, totalAmount: amountRaw.toString() });
+    totalAmountHuman += Number(recipient.totalAmount);
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+
+  const firstExecutionTimestamp = Math.floor(Date.now() / 1000) + 60;
+  const payoutWord = draft.duration === 1 ? 'payout' : 'payouts';
+  const summary =
+    `Send: ${totalAmountHuman} ${draft.token} total to ${resolvedRecipients.length} ` +
+    `recipient${resolvedRecipients.length === 1 ? '' : 's'}, split evenly over ${draft.duration} ${draft.interval} ${payoutWord} each.`;
+
+  return {
+    valid: true,
+    summary,
+    setupPlanArgs: {
+      token: token!.address,
+      recipients: resolvedRecipients,
+      duration: draft.duration,
+      interval,
+      firstExecutionTimestamp,
+    },
+  };
+}
+
+// ─── Einmaliger Direkt-Send (kein Vault) ─────────────────────────────────────
+//
+// Stufe 1 aus dem Chat ("Sende 5 USDC an diese Adresse", einmalig, sofort):
+// bewusst OHNE Vault/Keeper — ein reiner ERC20.transfer(), den die App direkt
+// ausführt, ohne createVault()/setupPlan()-Umweg und ohne SendVault-Gebühr
+// (siehe Chat: "Direkter Transfer" als bewusste Architekturentscheidung).
+
+export interface DirectSendDraft {
+  token:  string;
+  to:     string;
+  amount: string;
+}
+
+export interface CompiledDirectSend {
+  valid: true;
+  summary: string;
+  transferArgs: {
+    token:  `0x${string}`;
+    to:     `0x${string}`;
+    amount: string;
+  };
+}
+
+export function compileDirectSend(draft: DirectSendDraft): CompiledDirectSend | InvalidPlan {
+  const errors: string[] = [];
+
+  const token = resolveAnyToken(draft.token);
+  if (!token) errors.push(`Unknown token '${draft.token}'.`);
+
+  if (!ADDRESS_RE.test(draft.to)) {
+    errors.push(`'${draft.to}' is not a valid wallet address (0x + 40 hex chars). Ask the user for the exact address — never guess it or reuse a name.`);
+  }
+
+  let amountRaw = 0n;
+  if (token) {
+    try {
+      amountRaw = parseUnits(draft.amount, token.decimals);
+    } catch {
+      errors.push(`'${draft.amount}' is not a valid amount.`);
+    }
+    if (amountRaw <= 0n) errors.push('Amount must be greater than zero.');
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+
+  return {
+    valid: true,
+    summary: `Send ${draft.amount} ${draft.token} to ${draft.to}, once, right away.`,
+    transferArgs: {
+      token:  token!.address,
+      to:     draft.to as `0x${string}`,
+      amount: amountRaw.toString(),
+    },
+  };
+}
