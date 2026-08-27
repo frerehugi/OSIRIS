@@ -36,11 +36,9 @@ export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477
 export const TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
 
 // SendVaultFactory — Auszahlungs-Erweiterung neben DcaVaultFactory/
-// TriggerVaultFactory (siehe script/DeploySendVaultFactory.s.sol). NOCH
-// NICHT DEPLOYT — Platzhalter-Nulladresse, bis der echte Deploy gelaufen
-// ist. keeper/squidKeeper.ts überspringt den Send-Zyklus komplett, solange
-// dieser Wert die Nulladresse ist (siehe dortiger ZERO_ADDRESS-Vergleich).
-export const SEND_VAULT_FACTORY_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+// TriggerVaultFactory. Deployt + auf Celo Mainnet verifiziert am 27.08.2026
+// (SendVault-Implementation: 0x09B4bCA1f8C2103b6469F77C0035dA82100DaCCB).
+export const SEND_VAULT_FACTORY_ADDRESS = "0x1d7a157Bb1823482039B4B3037fb1737B1F2750A" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
