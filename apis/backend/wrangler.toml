@@ -13,9 +13,7 @@ compatibility_flags = ["nodejs_compat"]
 # unerreichbar. Kein Fund-relevanter Inhalt (nur Name→Adresse-Zuordnungen),
 # Schreibzugriff bleibt trotzdem signaturgebunden (siehe contactSignature.ts).
 #
-# NOCH NICHT ANGELEGT — Platzhalter-ID. Vor dem ersten Deploy:
-#   wrangler kv namespace create ADDRESS_BOOK
-# und die echte "id" hier eintragen.
+# Angelegt am 27.08.2026 via `wrangler kv namespace create ADDRESS_BOOK`.
 [[kv_namespaces]]
 binding = "ADDRESS_BOOK"
-id = "REPLACE_WITH_REAL_KV_NAMESPACE_ID"
+id = "e3ae8389b8054f168e84afc457554b0d"
