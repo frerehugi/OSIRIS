@@ -1,8 +1,14 @@
 // Squid /v2/route-Client — keine Wallet-Abhängigkeit, damit sowohl der
 // Keeper (broadcastet) als auch reine Debug-/Read-Scripts (simulieren nur)
 // diesen Code nutzen können, ohne KEEPER_PRIVATE_KEY zu benötigen.
+//
+// Nutzt bewusst das globale fetch() statt axios: dieser Client wird auch vom
+// plattformneutralen Keeper-Kern (keeper/squidKeeper.ts) genutzt, der
+// produktiv als Cloudflare Worker läuft (siehe dortiger Architektur-
+// Kommentar) — fetch() ist dort nachweislich verfügbar, axios' Verhalten im
+// Workers-Runtime ist unverifiziert. Node 18+ (der andere Laufzeit-Kontext,
+// siehe cli.ts) hat fetch() ebenfalls global verfügbar.
 
-import axios from "axios";
 import { ACTIVE_CHAIN_ID } from "../src/config";
 
 export interface SquidTransactionRequest {
@@ -69,63 +75,67 @@ export function getValidatedIntegratorId(): string {
   return id;
 }
 
-export async function getSquidRoute(params: {
+// integratorId kommt als expliziter Parameter (nicht intern aus process.env
+// gelesen wie getValidatedIntegratorId()) — damit dieselbe Funktion sowohl von
+// reinen Node-Skripten (die getValidatedIntegratorId() an der Aufrufstelle
+// nutzen) als auch vom plattformneutralen Keeper-Kern (keeper/squidKeeper.ts)
+// genutzt werden kann, der aus Cloudflare-Workers-Gründen bewusst NIE direkt
+// auf process.env zugreift (siehe dortiger Architektur-Kommentar).
+export async function getSquidRoute(integratorId: string, params: {
   fromToken:   `0x${string}`;
   toToken:     `0x${string}`;
   fromAmount:  string;
   fromAddress: `0x${string}`;
   toAddress:   `0x${string}`;
 }): Promise<SquidRoute> {
-  const integratorId = getValidatedIntegratorId();
-
   for (let attempt = 0; attempt <= RETRY_BACKOFFS_MS.length; attempt++) {
-    try {
-      const response = await axios.post(
-        "https://apiplus.squidrouter.com/v2/route",
-        {
-          fromChain:   ACTIVE_CHAIN_ID,
-          toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
-          fromToken:   params.fromToken,
-          toToken:     params.toToken,
-          fromAmount:  params.fromAmount,
-          fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
-          toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
-          slippage:    SQUID_QUOTE_SLIPPAGE_PERCENT, // Contract erzwingt minAmountOut zusätzlich on-chain
-          quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
-        },
-        {
-          headers: {
-            "x-integrator-id": integratorId,
-            "Content-Type":    "application/json",
-          },
-        }
-      );
-      return response.data.route as SquidRoute;
-    } catch (err) {
-      if (!axios.isAxiosError(err)) throw err;
+    const response = await fetch("https://apiplus.squidrouter.com/v2/route", {
+      method: "POST",
+      headers: {
+        "x-integrator-id": integratorId,
+        "Content-Type":    "application/json",
+      },
+      body: JSON.stringify({
+        fromChain:   ACTIVE_CHAIN_ID,
+        toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
+        fromToken:   params.fromToken,
+        toToken:     params.toToken,
+        fromAmount:  params.fromAmount,
+        fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
+        toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
+        slippage:    SQUID_QUOTE_SLIPPAGE_PERCENT, // Contract erzwingt minAmountOut zusätzlich on-chain
+        quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
+      }),
+    });
 
-      const status = err.response?.status;
-      const isRetryable = status === 429 || status === 502 || status === 504;
-      if (!isRetryable || attempt === RETRY_BACKOFFS_MS.length) throw err;
-
-      let backoffMs = RETRY_BACKOFFS_MS[attempt];
-      if (status === 504) {
-        // Squid sendet bei 504 einen eigenen retry-after-Header (Sekunden) —
-        // dem vertrauen wir hier (beobachtet: ~120s, länger als die feste
-        // Staffel), anders als bei 429/502 oben, wo er sich in der Praxis
-        // als zu knapp erwiesen hat.
-        const retryAfterSeconds = Number(err.response?.headers?.["retry-after"]);
-        backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-          ? retryAfterSeconds * 1_000
-          : SQUID_GATEWAY_TIMEOUT_FALLBACK_MS;
-      }
-
-      console.warn(
-        `Squid: ${status} für ${params.toToken} — warte ${backoffMs}ms ` +
-        `(Versuch ${attempt + 1}/${RETRY_BACKOFFS_MS.length})`
-      );
-      await sleep(backoffMs);
+    if (response.ok) {
+      const data = await response.json() as { route: SquidRoute };
+      return data.route;
     }
+
+    const status = response.status;
+    const isRetryable = status === 429 || status === 502 || status === 504;
+    if (!isRetryable || attempt === RETRY_BACKOFFS_MS.length) {
+      throw new Error(`Squid-Route fehlgeschlagen: ${status} ${await response.text()}`);
+    }
+
+    let backoffMs = RETRY_BACKOFFS_MS[attempt];
+    if (status === 504) {
+      // Squid sendet bei 504 einen eigenen retry-after-Header (Sekunden) —
+      // dem vertrauen wir hier (beobachtet: ~120s, länger als die feste
+      // Staffel), anders als bei 429/502 oben, wo er sich in der Praxis
+      // als zu knapp erwiesen hat.
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1_000
+        : SQUID_GATEWAY_TIMEOUT_FALLBACK_MS;
+    }
+
+    console.warn(
+      `Squid: ${status} für ${params.toToken} — warte ${backoffMs}ms ` +
+      `(Versuch ${attempt + 1}/${RETRY_BACKOFFS_MS.length})`
+    );
+    await sleep(backoffMs);
   }
   throw new Error("Squid-Route: unerreichbar nach maximalen Versuchen.");
 }
