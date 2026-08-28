@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import {
-  compilePlan, compileSendPlan, compileDirectSend, ADDRESS_RE,
+  compilePlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
   type PlanDraft, type SellTriggerDraft, type SendPlanDraft, type DirectSendDraft,
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
@@ -111,8 +111,9 @@ export function buildServer(env: ServerEnv): McpServer {
         'Validates a DCA buy plan (and an optional conditional sell trigger) against the real OSIRIS contract ' +
         "constraints and compiles it into the exact parameters the APIS app needs. Does NOT execute anything — " +
         "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
-        'On success, base64url-encode the JSON result (as a single line, no extra fields) and give that string to the ' +
-        'user as a "plan code" to paste into the APIS app\'s Confirm Plan screen.',
+        'On success, the response includes a ready-to-use `planCode` field — give the user that exact string, ' +
+        'verbatim and unmodified, as the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT ' +
+        'construct, re-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
       inputSchema: {
         grantCode:   z.string().describe('The code the user generated in APIS.'),
         inputToken:  z.enum(['USDC', 'USDT']),
@@ -162,9 +163,10 @@ export function buildServer(env: ServerEnv): McpServer {
         "equal installments over time) against the real OSIRIS SendVault contract constraints. Does NOT execute " +
         "anything — the user still confirms and signs everything themselves in MiniPay. Requires a grant code with " +
         "'propose' access. For a single, immediate, one-off transfer use propose_direct_send instead — this tool " +
-        'is for anything scheduled or split across multiple recipients. On success, base64url-encode the JSON ' +
-        'result (as a single line, no extra fields) and give that string to the user as a "plan code" to paste ' +
-        'into the APIS app\'s Confirm Plan screen (it auto-detects this is a send plan).',
+        'is for anything scheduled or split across multiple recipients. On success, the response includes a ' +
+        'ready-to-use `planCode` field — give the user that exact string, verbatim and unmodified, as the "plan ' +
+        'code" to paste into the APIS app\'s Confirm Plan screen (it auto-detects this is a send plan). Do NOT ' +
+        'construct, re-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
       inputSchema: {
         grantCode: z.string().describe('The code the user generated in APIS.'),
         token:     z.enum(SEND_TOKEN_SYMBOLS).describe('The token to send — the user must already hold it.'),
@@ -203,8 +205,10 @@ export function buildServer(env: ServerEnv): McpServer {
         'Validates a one-off, immediate transfer of a token the user already holds. No vault, no keeper, no fee — ' +
         'runs as a single plain wallet transfer the user signs directly in MiniPay, right after confirming. For ' +
         'anything scheduled or split across multiple recipients use propose_send_plan instead. Requires a grant ' +
-        "code with 'propose' access. On success, base64url-encode the JSON result and give that string to the " +
-        'user as a "plan code" to paste into the APIS app\'s Confirm Plan screen.',
+        "code with 'propose' access. On success, the response includes a ready-to-use `planCode` field — give " +
+        'the user that exact string, verbatim and unmodified, as the "plan code" to paste into the APIS app\'s ' +
+        'Confirm Plan screen. Do NOT construct, re-encode, or reconstruct this code yourself from the other fields — ' +
+        'copy `planCode` exactly as given.',
       inputSchema: {
         grantCode: z.string().describe('The code the user generated in APIS.'),
         token:     z.enum(SEND_TOKEN_SYMBOLS),
@@ -266,8 +270,10 @@ export function buildServer(env: ServerEnv): McpServer {
       description:
         'Validates a name/address pair and prepares it for the user to confirm. Does NOT save anything — the ' +
         'entry is only ever written after the user reviews the full address and confirms in the APIS app. ' +
-        "Requires a grant code with 'propose' access. On success, base64url-encode the JSON result and give that " +
-        'string to the user as a "contact code" to paste into the APIS app\'s Address Book screen.',
+        "Requires a grant code with 'propose' access. On success, the response includes a ready-to-use " +
+        '`contactCode` field — give the user that exact string, verbatim and unmodified, as the "contact code" ' +
+        'to paste into the APIS app\'s Address Book screen. Do NOT construct, re-encode, or reconstruct this code ' +
+        'yourself from the other fields — copy `contactCode` exactly as given.',
       inputSchema: {
         grantCode: z.string().describe('The code the user generated in APIS.'),
         name:      z.string().min(1).max(60),
@@ -288,7 +294,8 @@ export function buildServer(env: ServerEnv): McpServer {
         };
       }
 
-      return { content: [{ type: 'text', text: JSON.stringify({ valid: true, name, address }, null, 2) }] };
+      const compiled = { valid: true as const, name, address };
+      return { content: [{ type: 'text', text: JSON.stringify({ ...compiled, contactCode: encodePlanCode(compiled) }, null, 2) }] };
     },
   );
 
