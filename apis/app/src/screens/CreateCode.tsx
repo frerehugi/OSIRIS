@@ -33,12 +33,16 @@ const ACCESS_GRANT_TYPES = {
   ],
 } as const;
 
-const ASSISTANTS = [
-  { id: 'chatgpt', label: 'ChatGPT' },
-  { id: 'claude',  label: 'Claude'  },
-  { id: 'gemini',  label: 'Gemini'  },
-] as const;
-type AssistantId = (typeof ASSISTANTS)[number]['id'];
+// `agent` bleibt Teil der signierten Nachricht (EIP-712-Schema-Änderung
+// würde alle bereits ausgestellten Codes ungültig machen), wird aber von
+// grant.ts nie inhaltlich geprüft — nur zur Signaturverifikation erneut
+// eingelesen (siehe dortiger Kommentar). Der Wert ist also rein informativ,
+// nie eine Rechte-Unterscheidung. Bewusst kein Assistant-Picker mehr: der
+// Code gilt für jeden Assistant gleichermaßen (read+propose), eine
+// Auswahl hier hätte nur eine zweite, separat gepflegte Assistant-Liste
+// bedeutet (siehe ConnectAI.tsx) — genau das Muster, das dort mal zu
+// "Grok fehlt in Create Code" geführt hat.
+const AGENT_LABEL = 'any';
 
 function randomNonce(): bigint {
   const bytes = new Uint8Array(16);
@@ -59,13 +63,10 @@ export default function CreateCode() {
   const { address } = useConnection();
   const { signTypedDataAsync, isPending } = useSignTypedData();
 
-  const [assistant, setAssistant] = useState<AssistantId>('chatgpt');
   const [durationIndex, setDurationIndex] = useState(1); // Default 5d
   const [grantCode, setGrantCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const assistantLabel = ASSISTANTS.find((a) => a.id === assistant)!.label;
 
   const generateCode = async () => {
     if (!address) return;
@@ -78,7 +79,7 @@ export default function CreateCode() {
 
     const message = {
       owner:     address,
-      agent:     assistant,
+      agent:     AGENT_LABEL,
       scope:     'read+propose',
       expiresAt,
       nonce,
@@ -122,22 +123,9 @@ export default function CreateCode() {
       </div>
 
       <p className="createcode-sub">
-        Grants <b>read + propose access only</b>, for a limited time you choose. APIS never holds your funds.
+        Grants <b>read + propose access only</b>, for a limited time you choose. Works for any assistant — Claude,
+        ChatGPT, Gemini, Grok, or whatever you connect next. APIS never holds your funds.
       </p>
-
-      <div className="section-label">Choose assistant</div>
-      <div className="assistant-row">
-        {ASSISTANTS.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            className={a.id === assistant ? 'assistant assistant--active' : 'assistant'}
-            onClick={() => setAssistant(a.id)}
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
 
       <div className="section-label">Access window</div>
       <div className="segmented">
@@ -153,7 +141,7 @@ export default function CreateCode() {
         ))}
       </div>
 
-      <div className="section-label">What {assistantLabel} can do</div>
+      <div className="section-label">What your AI assistant can do</div>
       <ul className="perm-list">
         <li className="perm perm--ok">View wallet balances</li>
         <li className="perm perm--ok">View OSIRIS plan options</li>
@@ -175,7 +163,7 @@ export default function CreateCode() {
             {copied ? 'Copied' : 'Copy'}
           </button>
           <div className="code-card__foot">
-            Expires in {DURATIONS[durationIndex].label} · paste into {assistantLabel}
+            Expires in {DURATIONS[durationIndex].label} · paste into your AI assistant's chat
           </div>
         </div>
       )}
