@@ -33,7 +33,7 @@ export default function ConnectAI() {
 
       <p className="createcode-sub">
         Pick the assistant you use. You add APIS as a tool there once — then, any time you want it to check your
-        wallet or propose a plan, you generate a one-time code in this app and paste it into that chat.
+        wallet or propose a plan, you generate an access code in this app and paste it into that chat.
       </p>
 
       <div className="menu-list">

@@ -2,7 +2,7 @@
 
 **OSnabrück Investment and Risk Management System**
 
-A non-custodial DCA (Dollar-Cost Averaging) vault on Celo, accessible via MiniPay. Every user gets their **own dedicated vault** — created on demand through a factory contract — that automatically invests a stablecoin into a self-chosen basket of wBTC, wETH, CELO and XAUoT (Tether Gold) on a daily or weekly schedule. Routing goes exclusively through [Squid Router](https://www.squidrouter.com/), which sources liquidity across all DEXs on Celo instead of relying on a single fixed pool.
+A non-custodial DeFi protocol on Celo, accessible via MiniPay. Every plan gets its **own dedicated vault clone** — created on demand through a factory contract — across three independent vault types: a recurring DCA (Dollar-Cost Averaging) plan that invests a stablecoin into a self-chosen basket of wBTC, wETH, CELO and XAUoT (Tether Gold) on a schedule, a one-shot price-triggered buy/sell, and a scheduled multi-recipient send. Swap routing goes exclusively through [Squid Router](https://www.squidrouter.com/), which sources liquidity across all DEXs on Celo instead of relying on a single fixed pool. [`apis/`](apis/) is a companion MCP/REST agent layer (`apis/backend`) plus a MiniPay Mini App (`apis/app`) that let an AI assistant propose plans on the same vaults for the user to confirm and sign themselves.
 
 🔴 **Live on Celo Mainnet** — [frerehugi.github.io/OSIRIS](https://frerehugi.github.io/OSIRIS) · [Open the app](https://frerehugi.github.io/OSIRIS/app/)
 
@@ -16,20 +16,32 @@ osiris/
 │   ├── DcaVault.sol             # DCA vault logic — clone implementation (EIP-1167)
 │   ├── DcaVaultFactory.sol      # Creates one DCA vault clone per user
 │   ├── TriggerVault.sol         # Price-trigger vault — one-shot buy/sell (EIP-1167 clone, one per plan)
-│   └── TriggerVaultFactory.sol  # Creates one TriggerVault clone per plan
+│   ├── TriggerVaultFactory.sol  # Creates one TriggerVault clone per plan
+│   ├── SendVault.sol            # Multi-recipient payout vault — no swap, own factory
+│   └── SendVaultFactory.sol     # Creates one SendVault clone per plan
 ├── script/
 │   ├── DeployFactory.s.sol             # Deploys DCA implementation + factory (Mainnet)
 │   ├── DeployTriggerVaultFactory.s.sol # Deploys TriggerVault implementation + factory (Mainnet)
+│   ├── DeploySendVaultFactory.s.sol    # Deploys SendVault implementation + factory (Mainnet)
 │   └── DeployMocks.s.sol               # Mock wBTC/XAUoT ERC-20s (Sepolia only)
 ├── test/
-│   ├── DcaVault.t.sol         # DCA vault unit tests
-│   ├── DcaVaultFactory.t.sol  # DCA factory unit tests
-│   ├── TriggerVault.t.sol     # Trigger vault unit tests
-│   └── mocks/                 # MockERC20, MockSquidRouter
+│   ├── DcaVault.t.sol          # DCA vault unit tests
+│   ├── DcaVaultFactory.t.sol   # DCA factory unit tests
+│   ├── TriggerVault.t.sol      # Trigger vault unit tests
+│   ├── SendVault.t.sol         # Send vault unit tests
+│   ├── SendVaultFactory.t.sol  # Send factory unit tests
+│   └── mocks/                  # MockERC20, MockSquidRouter, MockFeeOnTransferERC20
 ├── keeper/
-│   └── squidKeeper.ts         # Automated executor (Node.js) — DCA tranches + trigger plans, same wallet
+│   └── squidKeeper.ts         # Automated executor (Node.js) — DCA tranches, trigger plans, send plans, same wallet
 ├── .github/workflows/
-│   └── keeper.yml             # Manual/backup keeper run (production uses a Cloudflare Worker cron, see keeper/worker.ts)
+│   └── keeper.yml             # Manual/backup keeper run — production automation is a Cloudflare Worker
+│                               # cron (keeper/worker.ts, every 5 minutes, see Automation section below)
+├── apis/
+│   ├── backend/                # MCP + REST agent layer (Cloudflare Worker) — lets an AI assistant
+│   │                            # propose DCA/trigger/send plans and address-book entries for the user
+│   │                            # to confirm; never holds funds or signs anything itself
+│   └── app/                    # MiniPay Mini App companion — confirms AI-proposed plans, manages
+│                               # access grants and the address book
 ├── src/
 │   ├── App.tsx                 # React frontend — connect, "Your Plans" (DCA + trigger), DCA wizard, trigger wizard
 │   ├── App.css                 # Dark/gold theme
@@ -56,9 +68,9 @@ The `gh-pages` branch hosts the static site: `index.html` (landing page) at the 
 | Smart Contracts | Solidity 0.8.20, OpenZeppelin (Clones, SafeERC20, ReentrancyGuard) |
 | Vault Pattern | EIP-1167 Minimal Proxy Clones — one cheap clone per user via a factory |
 | Routing | Squid Router v2 (exclusive — no direct Uniswap integration) |
-| Keeper | Node.js, tsx, viem, axios |
-| Automation | GitHub Actions (hourly cron + manual `workflow_dispatch`) |
-| Testing | Foundry (`forge test`) |
+| Keeper | Node.js/TypeScript core (`keeper/squidKeeper.ts`), shared by a Cloudflare Worker cron (production) and a CLI/GitHub Actions entry point (manual/backup) |
+| Automation | Cloudflare Worker cron, every 5 minutes (`keeper/wrangler.toml`) — primary; `.github/workflows/keeper.yml` is manual/backup only |
+| Testing | Foundry (`forge test`) — 177 tests across five suites |
 | Network | Celo Mainnet (Squid does not support Celo Sepolia) |
 
 ---
@@ -121,8 +133,13 @@ Deploys the `DcaVault` implementation and `DcaVaultFactory` (constructor args: i
 
 | Contract | Address |
 |---|---|
-| DcaVaultFactory | [`0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5`](https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5#code) |
-| DcaVault (implementation) | [`0x9d148530b0EE408EAA801D74D7eA968955F24d13`](https://celoscan.io/address/0x9d148530b0ee408eaa801d74d7ea968955f24d13#code) |
+| DcaVaultFactory (current) | [`0xba148255d757912442A97f87c50DD2F65FBab7E0`](https://celoscan.io/address/0xba148255d757912442a97f87c50dd2f65fbab7e0#code) |
+| DcaVaultFactory (previous, still serving pre-existing plans) | [`0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411`](https://celoscan.io/address/0x28f5e38c41f2cdb6d436972df5f3f42bd40ed411#code) |
+| DcaVault (implementation) | [`0xeB05629ABB85f6aa23044e6a85708477E43b87fd`](https://celoscan.io/address/0xeb05629abb85f6aa23044e6a85708477e43b87fd#code) |
+| TriggerVaultFactory | [`0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97`](https://celoscan.io/address/0xed39de472baee17e6ce05a0a4a0515eb4df98a97#code) |
+| TriggerVault (implementation) | [`0x10FC1B7BF6d2c8e429f40C7536c35303D1CdF3D9`](https://celoscan.io/address/0x10fc1b7bf6d2c8e429f40c7536c35303d1cdf3d9#code) |
+| SendVaultFactory | [`0x1d7a157Bb1823482039B4B3037fb1737B1F2750A`](https://celoscan.io/address/0x1d7a157bb1823482039b4b3037fb1737b1f2750a#code) |
+| SendVault (implementation) | [`0x09B4bCA1f8C2103b6469F77C0035dA82100DaCCB`](https://celoscan.io/address/0x09b4bca1f8c2103b6469f77c0035da82100daccb#code) |
 | Squid Router | `0xce16F69375520ab01377ce7B88f5BA8C48F8D666` |
 
 ### Trigger Plans
@@ -137,7 +154,21 @@ forge script script/DeployTriggerVaultFactory.s.sol \
   -vvvv
 ```
 
-Not yet deployed — `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is still the pre-deploy placeholder, and both the frontend and keeper treat that as "feature not live yet" rather than failing.
+Deployed and verified on Celo Mainnet (see the table above).
+
+### Send Plans
+
+A third, independent vault type for scheduled, multi-recipient payouts — no swap, no router, no `minAmountOut`: the sender already holds the token, `SendVaultFactory.createVault()` clones `SendVault` for a `RecipientPlan[]` (wallet + total amount per recipient), split evenly across the plan's payouts on the same duration/interval schedule as a DCA plan. Deploy with:
+
+```bash
+forge script script/DeploySendVaultFactory.s.sol \
+  --rpc-url celo_mainnet \
+  --broadcast \
+  --verify \
+  -vvvv
+```
+
+Deployed and verified on Celo Mainnet (see the table above).
 
 ### Testing
 
@@ -145,36 +176,32 @@ Not yet deployed — `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is still
 forge test -vvv
 ```
 
-105 tests across three suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`, `TriggerVault.t.sol` — the latter covers both `TriggerVault` and `TriggerVaultFactory`), covering setup validation, execution, slippage/router/failure guards, cancellation, expiry, and factory clone creation.
+177 tests across five suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`, `TriggerVault.t.sol` — the latter covers both `TriggerVault` and `TriggerVaultFactory` — `SendVault.t.sol`, `SendVaultFactory.t.sol`), covering setup validation, execution, slippage/router/failure guards, cancellation, expiry, fee-on-transfer handling, and factory clone creation.
 
 ---
 
 ## Keeper Service
 
-The keeper reads `DcaVaultFactory.getAllVaults()` plus any legacy vault deployed before the factory existed, batches `canExecute()` reads (groups of 10, to be gentle on the RPC provider), and for every vault that's due: fetches a real, executable route per target token from Squid (`quoteOnly: false`), simulates `executeStep(...)`, then broadcasts it.
+The keeper reads `DcaVaultFactory.getAllVaults()` (supports multiple factory addresses, comma-separated, so already-funded plans on a previous factory keep executing after a migration) plus any legacy vault deployed before the factory existed, batches `canExecute()` reads (groups of 10, to be gentle on the RPC provider), and for every vault that's due: fetches a real, executable route per target token from Squid (`quoteOnly: false`), simulates `executeStep(...)`, then broadcasts it.
 
-The same cycle also handles trigger plans, using the same wallet — no separate process or secrets: it reads all `TriggerVaultFactory` vaults, filters by `canExecute()` (on-chain: initialized/not cancelled/not executed/not expired), fetches the watched token's price from Squid's `/token-price`, and executes any vault whose stored `triggerAbove`/`triggerPrice` condition is met. This part of the cycle is a no-op until `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is set to a real deployment.
+The same cycle also handles trigger plans and send plans, using the same wallet — no separate process or secrets. Trigger plans: reads all `TriggerVaultFactory` vaults, filters by `canExecute()` (on-chain: initialized/not cancelled/not executed/not expired), fetches the watched token's price from Squid's `/token-price`, and executes any vault whose stored `triggerAbove`/`triggerPrice` condition is met — the contract itself has no price oracle, this check is entirely off-chain (see Known Limitations). Send plans: reads all `SendVaultFactory` vaults, filters by `canExecute()`, and calls `executeStep()` on any due plan — no swap, no price involved.
 
 ```bash
 # keeper/.env (never commit!)
 KEEPER_PRIVATE_KEY=0x...
 SQUID_INTEGRATOR_ID=...       # from https://app.squidrouter.com/
-FACTORY_ADDRESS=0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5
+FACTORY_ADDRESSES=0xba148255d757912442A97f87c50DD2F65FBab7E0,0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411
 
 npm run keeper
 ```
 
-### Automation via GitHub Actions
+`TRIGGER_VAULT_FACTORY_ADDRESS`/`SEND_VAULT_FACTORY_ADDRESS` aren't environment variables — the keeper imports them straight from `src/config.ts`, same single source of truth as the frontend.
 
-`.github/workflows/keeper.yml` runs `npm run keeper` every hour (`0 * * * *`) and supports manual triggering (`workflow_dispatch`). Requires three repository secrets:
+### Automation
 
-| Secret | Value |
-|---|---|
-| `KEEPER_PRIVATE_KEY` | Keeper wallet private key (needs a small CELO balance for gas) |
-| `SQUID_INTEGRATOR_ID` | Your Squid integrator ID |
-| `FACTORY_ADDRESS` | `0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5` |
+**Production**: a Cloudflare Worker cron (`keeper/worker.ts`, schedule in `keeper/wrangler.toml`) runs the same keeper core every 5 minutes (`*/5 * * * *`).
 
-Set them under **Settings → Secrets and variables → Actions**. Scheduled workflows only run off the repository's **default branch** — make sure that's the branch containing `.github/workflows/keeper.yml`.
+`.github/workflows/keeper.yml` is a manual/backup path only (`workflow_dispatch`, no schedule — the cron trigger was deliberately disabled after GitHub Actions' schedule drifted 2.6–11.8h against its configured hourly run) — useful for a one-off run or debugging, not the primary automation. Requires `KEEPER_PRIVATE_KEY`, `SQUID_INTEGRATOR_ID`, and `FACTORY_ADDRESS` as repository secrets under **Settings → Secrets and variables → Actions**. Do not re-enable the schedule without first disabling the Cloudflare Worker cron — running both means two keepers racing on the same wallet.
 
 ---
 

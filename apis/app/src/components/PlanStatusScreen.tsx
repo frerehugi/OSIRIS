@@ -1,22 +1,26 @@
 import { useNavigate } from 'react-router-dom';
-import { usePlans, type PlanSummary, type TriggerPlanSummary, type VaultStatus, type TriggerPlanStatus } from '../hooks/usePlans';
+import { usePlans, type PlanSummary, type TriggerPlanSummary, type SendPlanSummary, type VaultStatus, type TriggerPlanStatus } from '../hooks/usePlans';
 import PlanCard from './PlanCard';
 import TriggerPlanCard from './TriggerPlanCard';
+import SendPlanCard from './SendPlanCard';
 
 /// Gemeinsames Gerüst für die drei Status-Unterordner (Active/Completed/
 /// Cancelled Plans) — nur Titel, Status-Filter und Leertexte unterscheiden
 /// sich zwischen ihnen, siehe ActivePlans.tsx/CompletedPlans.tsx/
-/// CancelledPlans.tsx.
+/// CancelledPlans.tsx. Send-Pläne nutzen VaultStatus (wie DCA), nicht ihren
+/// eigenen Status-Typ — siehe usePlans.ts, SendPlanSummary-Kommentar.
 
 interface PlanStatusScreenProps {
   title:            string;
   dcaStatuses:      VaultStatus[];
   triggerStatuses:  TriggerPlanStatus[];
+  sendStatuses:     VaultStatus[];
   emptyDca:         string;
   emptyTrigger:     string;
+  emptySend:        string;
 }
 
-export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, emptyDca, emptyTrigger }: PlanStatusScreenProps) {
+export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, sendStatuses, emptyDca, emptyTrigger, emptySend }: PlanStatusScreenProps) {
   const navigate = useNavigate();
   const {
     plans, plansLoading, plansError,
@@ -24,10 +28,13 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
     finishConfirmingAddress, setFinishConfirmingAddress, finishingAddress, finishError, finishPendingPlan,
     triggerPlans, triggerPlansLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,
+    sendPlans, sendPlansLoading, sendCancelError,
+    sendConfirmingAddress, setSendConfirmingAddress, sendCancellingAddress, confirmSendCancel,
   } = usePlans();
 
   const dcaFiltered: PlanSummary[] | null = plans?.filter((p) => dcaStatuses.includes(p.status)) ?? null;
   const triggerFiltered: TriggerPlanSummary[] = triggerPlans.filter((p) => triggerStatuses.includes(p.status));
+  const sendFiltered: SendPlanSummary[] = sendPlans.filter((p) => sendStatuses.includes(p.status));
 
   return (
     <div className="screen screen--sub">
@@ -82,6 +89,26 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
             onRequestCancel={() => setTriggerConfirmingAddress(plan.address)}
             onCancelCancel={() => setTriggerConfirmingAddress(null)}
             onConfirmCancel={() => confirmTriggerCancel(plan.address)}
+          />
+        ))}
+      </div>
+
+      <div className="section-label" style={{ marginTop: 8 }}>Send Plans</div>
+      {sendPlansLoading && <p className="plans-note">Loading your send plans…</p>}
+      {sendCancelError && <p className="createcode-error">{sendCancelError}</p>}
+      {!sendPlansLoading && sendFiltered.length === 0 && (
+        <p className="plans-note">{emptySend}</p>
+      )}
+      <div className="plan-list">
+        {sendFiltered.map((plan) => (
+          <SendPlanCard
+            key={plan.address}
+            plan={plan}
+            confirming={sendConfirmingAddress === plan.address}
+            cancelling={sendCancellingAddress === plan.address}
+            onRequestCancel={() => setSendConfirmingAddress(plan.address)}
+            onCancelCancel={() => setSendConfirmingAddress(null)}
+            onConfirmCancel={() => confirmSendCancel(plan.address)}
           />
         ))}
       </div>

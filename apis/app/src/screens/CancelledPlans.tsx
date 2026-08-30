@@ -6,8 +6,10 @@ export default function CancelledPlans() {
       title="Cancelled Plans"
       dcaStatuses={['cancelled']}
       triggerStatuses={['cancelled']}
+      sendStatuses={['cancelled']}
       emptyDca="No cancelled DCA plans."
       emptyTrigger="No cancelled trigger plans."
+      emptySend="No cancelled send plans."
     />
   );
 }

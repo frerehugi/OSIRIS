@@ -14,6 +14,7 @@ export {
   FACTORY_ADDRESS,
   TRIGGER_VAULT_FACTORY_ADDRESS,
   SEND_VAULT_FACTORY_ADDRESS,
+  ATTRIBUTION_TAG,
   type TokenInfo,
 } from '../../../src/config';
 

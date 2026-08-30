@@ -1,0 +1,12 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "APIS",
+  "description": "Agentic Powered Investment System — an MCP/REST agent for the Celo DeFi protocol OSIRIS. Proposes scheduled DCA buys, take-profit sell triggers, and multi-recipient sends on OSIRIS' vault contracts; every plan still requires the user's own signature in MiniPay before anything executes.",
+  "image": "https://apis.osirisapp.xyz/apis-icon-512.png",
+  "services": [
+    {
+      "name": "mcp",
+      "endpoint": "https://apis-backend.frerehugi.workers.dev"
+    }
+  ]
+}
