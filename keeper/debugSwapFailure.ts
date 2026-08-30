@@ -13,7 +13,7 @@ import { createPublicClient, http, BaseError, ContractFunctionRevertedError } fr
 import { celo } from "viem/chains";
 import { DCA_VAULT_ABI } from "../src/dcaVaultAbi";
 import { VAULT_ADDRESS } from "../src/config";
-import { getSquidRoute, type SquidRoute } from "./squidClient";
+import { getSquidRoute, getValidatedIntegratorId, type SquidRoute } from "./squidClient";
 
 const publicClient = createPublicClient({ chain: celo, transport: http() });
 
@@ -45,6 +45,8 @@ async function collectRoutes(vaultAddress: `0x${string}`): Promise<{
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "currentStep" }),
     publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "totalSteps" }),
   ]);
+
+  const integratorId = getValidatedIntegratorId();
 
   const configs = targetConfigs as Array<{ token: `0x${string}`; bps: number }>;
   const step = (currentStep as number) + 1;
@@ -79,7 +81,7 @@ async function collectRoutes(vaultAddress: `0x${string}`): Promise<{
 
     const attempt: TokenAttempt = { targetToken: config.token, bps: config.bps, amountIn, routeRequest };
     try {
-      attempt.route = await getSquidRoute(routeRequest);
+      attempt.route = await getSquidRoute(integratorId, routeRequest);
     } catch (err) {
       attempt.routeError = err;
     }

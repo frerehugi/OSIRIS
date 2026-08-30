@@ -95,8 +95,9 @@ export const OPENAPI_SPEC = {
           'Validates a DCA buy plan (and an optional conditional sell trigger) against the real OSIRIS contract ' +
           'constraints and compiles it into the exact parameters the APIS app needs. Does NOT execute anything — ' +
           "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
-          'On success, base64url-encode the JSON result (as a single line, no extra fields) and give that string to the ' +
-          'user as a "plan code" to paste into the APIS app\'s Confirm Plan screen.',
+          'On success, the response includes a ready-to-use `planCode` field — give the user that exact string, ' +
+          'verbatim and unmodified, as the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT ' +
+          'construct, re-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
         requestBody: {
           required: true,
           content: {
@@ -145,7 +146,7 @@ export const OPENAPI_SPEC = {
           },
         },
         responses: {
-          '200': { description: 'Compiled plan parameters and a human-readable summary.' },
+          '200': { description: 'Compiled plan parameters, a human-readable summary, and a ready-to-use `planCode` field — relay `planCode` verbatim to the user, do not construct it yourself.' },
           '400': { description: 'Invalid grant code, or the plan draft failed validation (see `errors`).' },
         },
       },
@@ -157,8 +158,11 @@ export const OPENAPI_SPEC = {
         description:
           'Validates a scheduled payout (one or more recipients, each with their own total amount, paid out in ' +
           "equal installments over time) against the real OSIRIS SendVault contract constraints. Does NOT execute " +
-          "anything. Requires a grant code with 'propose' access. For a single immediate transfer use /direct-send " +
-          'instead.',
+          "anything — the user still confirms and signs everything themselves in MiniPay. Requires a grant code " +
+          "with 'propose' access. For a single immediate transfer use /direct-send instead. On success, the " +
+          'response includes a ready-to-use `planCode` field — give the user that exact string, verbatim and ' +
+          'unmodified, as the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT construct, ' +
+          're-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
         requestBody: {
           required: true,
           content: {
@@ -188,7 +192,7 @@ export const OPENAPI_SPEC = {
           },
         },
         responses: {
-          '200': { description: 'Compiled send plan parameters and a human-readable summary.' },
+          '200': { description: 'Compiled send plan parameters, a human-readable summary, and a ready-to-use `planCode` field — relay `planCode` verbatim to the user, do not construct it yourself.' },
           '400': { description: 'Invalid grant code, or the plan draft failed validation (see `errors`).' },
         },
       },
@@ -199,7 +203,10 @@ export const OPENAPI_SPEC = {
         summary: 'Propose a single, immediate transfer',
         description:
           'Validates a one-off, immediate transfer of a token the user already holds — no vault, no keeper, no fee. ' +
-          "Requires a grant code with 'propose' access.",
+          "Requires a grant code with 'propose' access. On success, the response includes a ready-to-use " +
+          '`planCode` field — give the user that exact string, verbatim and unmodified, as the "plan code" to ' +
+          'paste into the APIS app\'s Confirm Plan screen. Do NOT construct, re-encode, or reconstruct this code ' +
+          'yourself from the other fields — copy `planCode` exactly as given.',
         requestBody: {
           required: true,
           content: {
@@ -218,7 +225,7 @@ export const OPENAPI_SPEC = {
           },
         },
         responses: {
-          '200': { description: 'Compiled transfer parameters and a human-readable summary.' },
+          '200': { description: 'Compiled transfer parameters, a human-readable summary, and a ready-to-use `planCode` field — relay `planCode` verbatim to the user, do not construct it yourself.' },
           '400': { description: 'Invalid grant code, or the draft failed validation (see `errors`).' },
         },
       },
@@ -252,7 +259,11 @@ export const OPENAPI_SPEC = {
         summary: 'Propose a new address book contact',
         description:
           'Validates a name/address pair and prepares it for the user to confirm. Does NOT save anything — the ' +
-          "entry is only written after the user confirms in the APIS app. Requires a grant code with 'propose' access.",
+          "entry is only written after the user confirms in the APIS app. Requires a grant code with 'propose' " +
+          'access. On success, the response includes a ready-to-use `contactCode` field — give the user that ' +
+          'exact string, verbatim and unmodified, as the "contact code" to paste into the APIS app\'s Address ' +
+          'Book screen. Do NOT construct, re-encode, or reconstruct this code yourself from the other fields — ' +
+          'copy `contactCode` exactly as given.',
         requestBody: {
           required: true,
           content: {
@@ -270,7 +281,7 @@ export const OPENAPI_SPEC = {
           },
         },
         responses: {
-          '200': { description: 'Validated name/address, ready to be confirmed in the app.' },
+          '200': { description: 'Validated name/address plus a ready-to-use `contactCode` field — relay `contactCode` verbatim to the user, do not construct it yourself.' },
           '400': { description: 'Invalid grant code, or the address is malformed.' },
         },
       },
