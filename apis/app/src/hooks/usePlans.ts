@@ -5,9 +5,10 @@ import {
   getUserVaults, readPlanStatus, cancelDcaPlan, runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
 } from '../../../../src/minipayWallet';
 import {
-  ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
+  ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS, type TokenInfo,
 } from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
+import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from '../sendVaultAbi';
 
 /// Gemeinsame Datenschicht für alle 4 "My Plans"-Unterordner (Active/
 /// Completed/Cancelled — My Purchases lädt separat, siehe Purchases.tsx).
@@ -144,6 +145,76 @@ export function triggerPillClass(status: TriggerPlanStatus): string {
   return status;
 }
 
+// ─── Send-Pläne (Multi-Empfänger-Payout, siehe SendVault.sol) ──────────────
+//
+// Gleiches Muster wie die Trigger-Pläne oben: eigene Factory
+// (SEND_VAULT_FACTORY_ADDRESS), komplett über wagmi/useReadContracts gelesen,
+// nicht über minipayWallet.ts. status folgt derselben pending/active/
+// cancelled/complete-Logik wie DCA-Pläne (initialized/cancelled/
+// currentStep>=totalSteps), deshalb Wiederverwendung von VaultStatus/
+// STATUS_LABEL statt eines eigenen Status-Typs.
+
+export interface SendPlanRecipient {
+  wallet:      `0x${string}`;
+  totalAmount: bigint;
+}
+
+export interface SendPlanSummary {
+  address:       `0x${string}`;
+  status:        VaultStatus;
+  tokenSymbol:   string;
+  tokenDecimals: number;
+  totalAmount:   bigint; // Summe über alle Empfänger
+  currentStep:   number;
+  totalSteps:    number;
+  recipients:    SendPlanRecipient[];
+}
+
+// Vault-Adresse liefert 6 Felder (siehe SEND_VAULT_ABI) — dieselbe Reihenfolge
+// wird beim Auslesen von useReadContracts' Ergebnis-Array wieder pro Vault
+// "entpackt" (siehe buildSendPlanContracts/parseSendPlanRow), gleiches Muster
+// wie TRIGGER_FIELDS oben.
+const SEND_FIELDS = ['token', 'totalSteps', 'currentStep', 'initialized', 'cancelled', 'getRecipients'] as const;
+
+function buildSendPlanContracts(vaultAddresses: readonly `0x${string}`[]) {
+  return vaultAddresses.flatMap((vaultAddress) =>
+    SEND_FIELDS.map((functionName) => ({ address: vaultAddress, abi: SEND_VAULT_ABI, functionName })),
+  );
+}
+
+function parseSendPlanRow(
+  vaultAddress: `0x${string}`,
+  results: readonly { status: 'success' | 'failure'; result?: unknown }[],
+): SendPlanSummary | null {
+  if (results.some((r) => r.status !== 'success')) return null;
+  const [token, totalStepsRaw, currentStepRaw, initialized, cancelled, recipients] =
+    results.map((r) => r.result) as [`0x${string}`, bigint, bigint, boolean, boolean, SendPlanRecipient[]];
+
+  const tokenInfo = ALL_TOKENS_BY_ADDRESS[token.toLowerCase()];
+  if (!tokenInfo) return null;
+
+  const totalSteps = Number(totalStepsRaw);
+  const currentStep = Number(currentStepRaw);
+  const totalAmount = recipients.reduce((sum, r) => sum + r.totalAmount, 0n);
+
+  let status: VaultStatus;
+  if (!initialized) status = 'pending';
+  else if (cancelled) status = 'cancelled';
+  else if (currentStep >= totalSteps) status = 'complete';
+  else status = 'active';
+
+  return {
+    address: vaultAddress,
+    status,
+    tokenSymbol: tokenInfo.symbol,
+    tokenDecimals: tokenInfo.decimals,
+    totalAmount,
+    currentStep,
+    totalSteps,
+    recipients,
+  };
+}
+
 export function usePlans() {
   const { address } = useConnection();
 
@@ -252,6 +323,52 @@ export function usePlans() {
     }
   };
 
+  // ── Send-Pläne (Multi-Empfänger-Payout, siehe SendVault.sol) — eigene
+  // Factory, gleiches Muster wie die Trigger-Pläne oben.
+  const { data: sendVaultListData, isLoading: sendVaultListLoading, refetch: refetchSendVaultList } = useReadContracts({
+    allowFailure: true,
+    contracts: address
+      ? [{ address: SEND_VAULT_FACTORY_ADDRESS, abi: SEND_VAULT_FACTORY_ABI, functionName: 'getVaults' as const, args: [address] as const }]
+      : [],
+  });
+  const sendVaultAddresses = sendVaultListData?.[0]?.status === 'success' ? (sendVaultListData[0].result as `0x${string}`[]) : [];
+
+  const { data: sendDetailData, isLoading: sendDetailsLoading, refetch: refetchSendDetails } = useReadContracts({
+    allowFailure: true,
+    contracts: buildSendPlanContracts(sendVaultAddresses),
+  });
+
+  const sendPlans = useMemo(() => {
+    if (!sendDetailData) return [];
+    const rows: SendPlanSummary[] = [];
+    sendVaultAddresses.forEach((vaultAddress, i) => {
+      const slice = sendDetailData.slice(i * SEND_FIELDS.length, (i + 1) * SEND_FIELDS.length);
+      const parsed = parseSendPlanRow(vaultAddress, slice);
+      if (parsed) rows.push(parsed);
+    });
+    return rows;
+  }, [sendVaultAddresses, sendDetailData]);
+
+  const [sendConfirmingAddress, setSendConfirmingAddress] = useState<`0x${string}` | null>(null);
+  const [sendCancellingAddress, setSendCancellingAddress] = useState<`0x${string}` | null>(null);
+  const [sendCancelError, setSendCancelError] = useState<string | null>(null);
+
+  const confirmSendCancel = async (vaultAddress: `0x${string}`) => {
+    if (!publicClient) return;
+    setSendConfirmingAddress(null);
+    setSendCancellingAddress(vaultAddress);
+    setSendCancelError(null);
+    try {
+      const hash = await writeContractAsync({ address: vaultAddress, abi: SEND_VAULT_ABI, functionName: 'cancelPlan' });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await Promise.all([refetchSendVaultList(), refetchSendDetails()]);
+    } catch (err) {
+      setSendCancelError(err instanceof Error ? err.message : 'Cancel failed. Please try again.');
+    } finally {
+      setSendCancellingAddress(null);
+    }
+  };
+
   // ── "Finish & close" für verwaiste, nie initialisierte DCA-Vaults ──────────
   //
   // Ein pending-Vault (initialized === false) kann NICHT über cancelPlan()
@@ -310,5 +427,8 @@ export function usePlans() {
 
     triggerPlans, triggerPlansLoading: vaultListLoading || triggerDetailsLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,
+
+    sendPlans, sendPlansLoading: sendVaultListLoading || sendDetailsLoading, sendCancelError,
+    sendConfirmingAddress, setSendConfirmingAddress, sendCancellingAddress, confirmSendCancel,
   };
 }
