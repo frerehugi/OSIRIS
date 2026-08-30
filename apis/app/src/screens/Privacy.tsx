@@ -31,7 +31,7 @@ export default function Privacy() {
         <div className="about-block">
           <h3>Access grants</h3>
           <p className="about-lede" style={{ fontSize: 13 }}>
-            The one-time code you generate in "Create New Code for Agent" is a self-contained, signed message —
+            The access code you generate in "Create New Code for Agent" is a self-contained, signed message —
             not a stored credential. APIS' backend never saves it anywhere; each time it's used, it only verifies
             the signature and expiry, then discards it. Whichever AI provider you paste it into (Anthropic,
             OpenAI, Google, xAI, or another) sees and handles that code according to their own privacy practices,

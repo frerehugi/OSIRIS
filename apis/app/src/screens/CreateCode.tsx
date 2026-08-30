@@ -152,7 +152,7 @@ export default function CreateCode() {
       {error && <p className="createcode-error">{error}</p>}
 
       <button type="button" className="btn-gold" onClick={generateCode} disabled={isPending || !address}>
-        {isPending ? 'Confirm in MiniPay…' : 'Generate one-time code'}
+        {isPending ? 'Confirm in MiniPay…' : 'Generate access code'}
       </button>
 
       {grantCode && (

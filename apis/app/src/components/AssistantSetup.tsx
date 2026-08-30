@@ -58,7 +58,7 @@ export default function AssistantSetup({ name, emoji, tagline, steps, copyLabel,
       {note && <p className="fee-note">{note}</p>}
 
       <p className="createcode-sub">
-        Once {name} is connected, come back here any time and generate a one-time code — that's what lets it
+        Once {name} is connected, come back here any time and generate an access code — that's what lets it
         actually see your wallet or propose a plan.
       </p>
 
