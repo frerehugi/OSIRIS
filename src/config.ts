@@ -154,3 +154,10 @@ export const INTERVAL_SECONDS: Record<"hourly" | "daily" | "weekly", number> = {
   daily:  86_400,
   weekly: 604_800,
 };
+
+// ─── Attribution Tag (ERC-8021) ────────────────────────────────────────────────
+// Von der celobuilders.xyz-Hackathon-Registrierung ausgegebener Code, aus dem
+// GitHub-Repo-Slug abgeleitet — noch NICHT der echte Wert. Ersetzen, sobald die
+// Registrierung abgeschlossen ist (siehe apis/app/src/screens/ConfirmPlan.tsx,
+// wo der Code an jede Vault-/Send-Transaktion angehängt wird).
+export const ATTRIBUTION_TAG = "celo_xxxxxxxx";
