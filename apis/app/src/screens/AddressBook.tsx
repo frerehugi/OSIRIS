@@ -57,6 +57,17 @@ function decodeContactCode(code: string): { name: string; address: string } {
   const normalized = code.trim().replace(/-/g, '+').replace(/_/g, '/');
   const parsed = JSON.parse(atob(normalized));
   if (!parsed?.valid || typeof parsed.name !== 'string' || typeof parsed.address !== 'string') {
+    // Missing `valid` but the name/address fields are otherwise present —
+    // most likely an AI assistant reconstructed the code by hand instead of
+    // relaying the backend's `contactCode` field verbatim (see
+    // ConfirmPlan.tsx's looksLikeFlattenedPayload() for the same class of
+    // issue with plan codes).
+    if (typeof parsed?.name === 'string' && typeof parsed?.address === 'string') {
+      throw new Error(
+        "This code is missing its outer wrapper — it looks like only part of the contact was copied. " +
+        "Ask your AI assistant to give you its `contactCode` field's value again, copied exactly as returned."
+      );
+    }
     throw new Error('This code does not look like a contact code.');
   }
   return { name: parsed.name, address: parsed.address };
@@ -107,8 +118,12 @@ export default function AddressBook() {
     setPending(null);
     try {
       setPending(decodeContactCode(codeInput));
-    } catch {
-      setCodeError('Could not read this code. Copy it exactly as it was given to you in the chat.');
+    } catch (err) {
+      setCodeError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not read this code. Copy it exactly as it was given to you in the chat.'
+      );
     }
   };
 

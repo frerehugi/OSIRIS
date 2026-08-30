@@ -37,6 +37,7 @@ import {
   VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS,
   TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS,
 } from "../src/config";
+import { getSquidRoute } from "./squidClient";
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
 // passend zu den RPC-Endpoints aus foundry.toml.
@@ -151,79 +152,25 @@ function createKeeperContext(env: Env) {
 }
 
 // ─── Squid-Route holen ────────────────────────────────────────────────────────
-
-interface SquidTransactionRequest {
-  target: `0x${string}`;
-  data:   `0x${string}`;
-}
-
-interface SquidEstimate {
-  toAmountMin: string;
-}
-
-interface SquidRoute {
-  transactionRequest: SquidTransactionRequest;
-  estimate:            SquidEstimate;
-}
+//
+// getSquidRoute() selbst kommt aus squidClient.ts (gemeinsam mit den
+// Debug-/Analyse-Skripten genutzt, siehe dortiger Kommentar) — dieser Kern
+// hält nur noch das keeper-spezifische Zusatzverhalten: den Mindestabstand
+// zwischen zwei Requests für unterschiedliche Zieltoken/Vaults (unabhängig
+// von squidClient.ts' eigenem Retry-Backoff bei einem einzelnen Request) und
+// den Sicherheitspuffer auf toAmountMin unten.
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Mindestabstand zwischen zwei Squid-Requests. Neu vergebene Integrator-IDs
-// haben teils ein sehr niedriges Rate-Limit (beobachtet: ~0.27 req/s ≈ 1 Request
-// alle 3.7s) — die eigenen "retry-after"-Header von Squid waren dabei zu klein,
-// um sich darauf zu verlassen, daher ein fester, konservativer Abstand plus
-// Retry-with-Backoff als zusätzliches Netz.
-const SQUID_REQUEST_SPACING_MS = 4_000;
-const SQUID_MAX_RETRIES = 5;
-
-async function getSquidRoute(integratorId: string, params: {
-  fromToken:   `0x${string}`;
-  toToken:     `0x${string}`;
-  fromAmount:  string;
-  fromAddress: `0x${string}`;
-  toAddress:   `0x${string}`;
-}): Promise<SquidRoute> {
-  for (let attempt = 1; attempt <= SQUID_MAX_RETRIES; attempt++) {
-    const response = await fetch("https://apiplus.squidrouter.com/v2/route", {
-      method: "POST",
-      headers: {
-        "x-integrator-id": integratorId,
-        "Content-Type":    "application/json",
-      },
-      body: JSON.stringify({
-        fromChain:   ACTIVE_CHAIN_ID,
-        toChain:     ACTIVE_CHAIN_ID, // Same-Chain-Swap innerhalb Celo
-        fromToken:   params.fromToken,
-        toToken:     params.toToken,
-        fromAmount:  params.fromAmount,
-        fromAddress: params.fromAddress, // = Vault: er ist msg.sender beim Router-Call
-        toAddress:   params.toAddress,   // = Owner: dorthin soll der Output fließen
-        slippage:      5,                // % — Contract erzwingt minAmountOut zusätzlich on-chain
-        quoteOnly:   false,              // echte, ausführbare Route inkl. Calldata
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json() as { route: SquidRoute };
-      return data.route;
-    }
-
-    const isRateLimit = response.status === 429;
-    if (!isRateLimit || attempt === SQUID_MAX_RETRIES) {
-      throw new Error(`Squid-Route fehlgeschlagen: ${response.status} ${await response.text()}`);
-    }
-
-    const backoffMs = SQUID_REQUEST_SPACING_MS * attempt; // 4s, 8s, 12s, 16s
-    console.warn(
-      `Squid: Rate-Limit (429) für ${params.toToken} — warte ${backoffMs}ms ` +
-      `(Versuch ${attempt}/${SQUID_MAX_RETRIES})`
-    );
-    await sleep(backoffMs);
-  }
-  throw new Error("Squid-Route: unerreichbar nach maximalen Versuchen.");
-}
+// Mindestabstand zwischen zwei Squid-Requests für unterschiedliche
+// Zieltoken/Vaults in dieser Datei (siehe Aufrufstellen unten) — unabhängig
+// von squidClient.ts' SQUID_REQUEST_SPACING_MS, das dort denselben Zweck für
+// dessen eigene Aufrufer erfüllt. Neu vergebene Integrator-IDs haben teils
+// ein sehr niedriges Rate-Limit (beobachtet: ~0.27 req/s ≈ 1 Request alle
+// 3.7s) — deshalb hier bewusst der höhere, empirisch ermittelte Wert.
+const KEEPER_ROUTE_REQUEST_SPACING_MS = 4_000;
 
 // ─── Sicherheitspuffer auf toAmountMin anwenden ───────────────────────────────
 
@@ -371,7 +318,7 @@ async function executeVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`)
 
   const configs = targetConfigs as Array<{ token: `0x${string}`; bps: number }>;
   for (let i = 0; i < configs.length; i++) {
-    if (i > 0) await sleep(SQUID_REQUEST_SPACING_MS); // Rate-Limit-Abstand zwischen Zieltoken
+    if (i > 0) await sleep(KEEPER_ROUTE_REQUEST_SPACING_MS); // Rate-Limit-Abstand zwischen Zieltoken
 
     const config = configs[i];
     const amountIn = (amountNet * BigInt(config.bps)) / 10_000n;

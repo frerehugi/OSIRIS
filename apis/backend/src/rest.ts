@@ -10,7 +10,7 @@
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import {
-  compilePlan, compileSendPlan, compileDirectSend, ADDRESS_RE,
+  compilePlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
   type PlanDraft, type SellTriggerDraft, type SendPlanDraft, type DirectSendDraft,
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
@@ -244,7 +244,8 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
     if (!ADDRESS_RE.test(body.address)) {
       return json({ valid: false, errors: [`'${body.address}' is not a valid wallet address (0x + 40 hex chars).`] }, 400);
     }
-    return json({ valid: true, name: body.name, address: body.address });
+    const compiled = { valid: true as const, name: body.name, address: body.address };
+    return json({ ...compiled, contactCode: encodePlanCode(compiled) });
   }
 
   // ── Adressbuch schreiben — NICHT von der KI aufrufbar (kein Grant-Feld,

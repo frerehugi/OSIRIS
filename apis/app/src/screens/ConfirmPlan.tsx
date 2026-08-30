@@ -110,11 +110,36 @@ function tokenForAddress(address: string): { symbol: string; decimals: number } 
   return ALL_TOKENS_BY_ADDRESS.get(address.toLowerCase()) ?? { symbol: `${address.slice(0, 6)}…`, decimals: 18 };
 }
 
+// Erkennt den Fall, dass ein Assistent statt des vollen, vom Backend
+// gelieferten planCode-Feldes (siehe apis/backend/src/planCompiler.ts,
+// encodePlanCode()) nur das innere setupPlanArgs/transferArgs-Objekt selbst
+// kodiert hat — ein realer, beobachteter Fehler (KI hat "das JSON-Ergebnis"
+// als "die eigentlichen Nutzdaten" statt der vollen Hülle interpretiert).
+// Gibt einen gezielten Hinweis statt der generischen Meldung, damit der
+// Nutzer weiß, dass NICHT ein Tippfehler beim Kopieren die Ursache ist,
+// sondern der Assistent den Code falsch konstruiert hat.
+function looksLikeFlattenedPayload(parsed: unknown): boolean {
+  if (typeof parsed !== 'object' || parsed === null) return false;
+  const p = parsed as Record<string, unknown>;
+  const looksLikeTransferArgs = typeof p.token === 'string' && typeof p.to === 'string' && typeof p.amount === 'string';
+  const looksLikeDcaSetupArgs = typeof p.inputToken === 'string' && Array.isArray(p.targetTokens);
+  const looksLikeSendSetupArgs = Array.isArray(p.recipients) && typeof p.duration === 'number';
+  return looksLikeTransferArgs || looksLikeDcaSetupArgs || looksLikeSendSetupArgs;
+}
+
 function decodePlanCode(code: string): ProposedPlan {
   const normalized = code.trim().replace(/-/g, '+').replace(/_/g, '/');
   const json = atob(normalized);
   const parsed = JSON.parse(json);
-  if (!parsed?.setupPlanArgs && !parsed?.transferArgs) throw new Error('This code does not look like a plan code.');
+  if (!parsed?.setupPlanArgs && !parsed?.transferArgs) {
+    if (looksLikeFlattenedPayload(parsed)) {
+      throw new Error(
+        "This code is missing its outer wrapper — it looks like only part of the plan was copied. " +
+        "Ask your AI assistant to give you its `planCode` field's value again, copied exactly as returned."
+      );
+    }
+    throw new Error('This code does not look like a plan code.');
+  }
   return parsed as ProposedPlan;
 }
 
@@ -150,8 +175,12 @@ export default function ConfirmPlan() {
     setPlan(null);
     try {
       setPlan(decodePlanCode(codeInput));
-    } catch {
-      setParseError('Could not read this code. Copy it exactly as it was given to you in the chat.');
+    } catch (err) {
+      setParseError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not read this code. Copy it exactly as it was given to you in the chat.'
+      );
     }
   };
 

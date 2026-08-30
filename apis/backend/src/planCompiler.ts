@@ -7,6 +7,21 @@
 import { parseUnits } from 'viem';
 import { INPUT_TOKENS, TARGET_TOKENS } from '../../../src/config';
 
+// ─── Plan-Code-Encoding ─────────────────────────────────────────────────────
+//
+// Berechnet den base64url-Code selbst, statt die aufrufende KI per
+// Tool-Beschreibung anzuweisen, "das JSON-Ergebnis" eigenhändig zu kodieren —
+// das Wort "Ergebnis" ist mehrdeutig genug, dass eine KI in der Praxis nur
+// das innere setupPlanArgs/transferArgs-Objekt statt der vollen Hülle
+// (inkl. valid/summary) kodiert hat, was ConfirmPlan.tsx's decodePlanCode()
+// dann mit "Could not read this code" ablehnt (siehe Chat: realer Bugreport
+// mit Screenshot). Gleicher Algorithmus wie CreateCode.tsx für Grant-Codes:
+// btoa(JSON) → URL-sicher gemacht (+/  → -_, Padding entfernt). Die KI muss
+// dieses Feld nur noch unverändert an den Nutzer weiterreichen.
+export function encodePlanCode(payload: unknown): string {
+  return btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 const MAX_TARGETS = 10;
 const BPS_DENOMINATOR = 10_000;
 
@@ -84,6 +99,10 @@ export interface CompiledPlan {
       expiresAt:    number; // 0 = zeitlich unbegrenzt
     };
   };
+  // Fertig kodierter "plan code" für die APIS-App — siehe encodePlanCode()
+  // oben. Die aufrufende KI reicht diesen Wert nur unverändert weiter, statt
+  // ihn selbst zu konstruieren.
+  planCode: string;
 }
 
 export interface InvalidPlan {
@@ -210,7 +229,7 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
       (compiledTriggerSell.setupPlanArgs.expiresAt === 0 ? '.' : ` — expires ${new Date(compiledTriggerSell.setupPlanArgs.expiresAt * 1000).toISOString()}.`)
     : '';
 
-  return {
+  const compiled: Omit<CompiledPlan, 'planCode'> = {
     valid: true,
     summary: buySummary + sellSummary,
     setupPlanArgs: {
@@ -224,6 +243,7 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     },
     triggerSell: compiledTriggerSell,
   };
+  return { ...compiled, planCode: encodePlanCode(compiled) };
 }
 
 // ─── Send-Pläne (SendVault) ─────────────────────────────────────────────────
@@ -269,6 +289,8 @@ export interface CompiledSendPlan {
     interval:                 number; // Sekunden
     firstExecutionTimestamp:  number;
   };
+  // Siehe CompiledPlan.planCode.
+  planCode: string;
 }
 
 export function compileSendPlan(draft: SendPlanDraft): CompiledSendPlan | InvalidPlan {
@@ -336,7 +358,7 @@ export function compileSendPlan(draft: SendPlanDraft): CompiledSendPlan | Invali
     `Send: ${totalAmountHuman} ${draft.token} total to ${resolvedRecipients.length} ` +
     `recipient${resolvedRecipients.length === 1 ? '' : 's'}, split evenly over ${draft.duration} ${draft.interval} ${payoutWord} each.`;
 
-  return {
+  const compiled: Omit<CompiledSendPlan, 'planCode'> = {
     valid: true,
     summary,
     setupPlanArgs: {
@@ -347,6 +369,7 @@ export function compileSendPlan(draft: SendPlanDraft): CompiledSendPlan | Invali
       firstExecutionTimestamp,
     },
   };
+  return { ...compiled, planCode: encodePlanCode(compiled) };
 }
 
 // ─── Einmaliger Direkt-Send (kein Vault) ─────────────────────────────────────
@@ -370,6 +393,8 @@ export interface CompiledDirectSend {
     to:     `0x${string}`;
     amount: string;
   };
+  // Siehe CompiledPlan.planCode.
+  planCode: string;
 }
 
 export function compileDirectSend(draft: DirectSendDraft): CompiledDirectSend | InvalidPlan {
@@ -394,7 +419,7 @@ export function compileDirectSend(draft: DirectSendDraft): CompiledDirectSend | 
 
   if (errors.length > 0) return { valid: false, errors };
 
-  return {
+  const compiled: Omit<CompiledDirectSend, 'planCode'> = {
     valid: true,
     summary: `Send ${draft.amount} ${draft.token} to ${draft.to}, once, right away.`,
     transferArgs: {
@@ -403,4 +428,5 @@ export function compileDirectSend(draft: DirectSendDraft): CompiledDirectSend | 
       amount: amountRaw.toString(),
     },
   };
+  return { ...compiled, planCode: encodePlanCode(compiled) };
 }
