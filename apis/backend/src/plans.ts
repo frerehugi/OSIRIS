@@ -14,7 +14,7 @@ import type { ApisPublicClient } from './client';
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from '../../../src/dcaVaultAbi';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../../../src/triggerVaultAbi';
 import {
-  FACTORY_ADDRESS, OLD_FACTORY_ADDRESS, TRIGGER_VAULT_FACTORY_ADDRESS,
+  ALL_FACTORY_ADDRESSES, TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
   INPUT_TOKENS, TARGET_TOKENS, type TokenInfo,
 } from '../../../src/config';
 
@@ -44,14 +44,17 @@ interface DcaPlanSummary {
 }
 
 async function readDcaVaults(publicClient: ApisPublicClient, owner: `0x${string}`): Promise<`0x${string}`[]> {
-  const [current, legacy] = await Promise.all(
-    [FACTORY_ADDRESS, OLD_FACTORY_ADDRESS].map((factoryAddress) =>
+  // Alle bekannten Factory-Generationen (siehe ALL_FACTORY_ADDRESSES-Kommentar
+  // in config.ts) — sonst verschwindet ein Plan aus einer älteren Migration
+  // aus der Sicht der APIS-KI, obwohl er on-chain weiter existiert.
+  const perFactory = await Promise.all(
+    ALL_FACTORY_ADDRESSES.map((factoryAddress) =>
       publicClient.readContract({
         address: factoryAddress, abi: DCA_VAULT_FACTORY_ABI, functionName: 'getVaults', args: [owner],
       }) as Promise<`0x${string}`[]>,
     ),
   );
-  return [...new Set([...current, ...legacy])];
+  return [...new Set(perFactory.flat())];
 }
 
 async function readDcaPlan(publicClient: ApisPublicClient, vaultAddress: `0x${string}`): Promise<DcaPlanSummary> {
@@ -93,9 +96,16 @@ interface TriggerPlanSummary {
 }
 
 async function readTriggerVaults(publicClient: ApisPublicClient, owner: `0x${string}`): Promise<`0x${string}`[]> {
-  return publicClient.readContract({
-    address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults', args: [owner],
-  }) as Promise<`0x${string}`[]>;
+  // Aktuelle + alte Factory (siehe OLD_TRIGGER_VAULT_FACTORY_ADDRESS-Kommentar
+  // in config.ts) — gleicher Grund wie readDcaVaults() oben.
+  const perFactory = await Promise.all(
+    [TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS].map((factoryAddress) =>
+      publicClient.readContract({
+        address: factoryAddress, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults', args: [owner],
+      }) as Promise<`0x${string}`[]>,
+    ),
+  );
+  return [...new Set(perFactory.flat())];
 }
 
 async function readTriggerPlan(publicClient: ApisPublicClient, vaultAddress: `0x${string}`): Promise<TriggerPlanSummary | null> {

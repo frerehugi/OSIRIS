@@ -5,7 +5,8 @@ import {
   getUserVaults, readPlanStatus, cancelDcaPlan, runInBatches, RPC_BATCH_SIZE, resolveInputTokenSymbol,
 } from '../../../../src/minipayWallet';
 import {
-  ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
+  ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS,
+  TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
 } from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
 
@@ -208,13 +209,23 @@ export function usePlans() {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
 
+  // Aktuelle + alte Factory abfragen (siehe OLD_TRIGGER_VAULT_FACTORY_ADDRESS
+  // in config.ts) — sonst verschwindet ein vor der B3-Migration erstellter
+  // Trigger-Plan komplett aus "My Plans", obwohl er on-chain weiter existiert.
   const { data: vaultListData, isLoading: vaultListLoading, refetch: refetchVaultList } = useReadContracts({
     allowFailure: true,
     contracts: address
-      ? [{ address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults' as const, args: [address] as const }]
+      ? [
+          { address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults' as const, args: [address] as const },
+          { address: OLD_TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults' as const, args: [address] as const },
+        ]
       : [],
   });
-  const triggerVaultAddresses = vaultListData?.[0]?.status === 'success' ? (vaultListData[0].result as `0x${string}`[]) : [];
+  const triggerVaultAddresses = [...new Set(
+    (vaultListData ?? [])
+      .filter((r) => r.status === 'success')
+      .flatMap((r) => r.result as `0x${string}`[])
+  )];
 
   const { data: triggerDetailData, isLoading: triggerDetailsLoading, refetch: refetchTriggerDetails } = useReadContracts({
     allowFailure: true,

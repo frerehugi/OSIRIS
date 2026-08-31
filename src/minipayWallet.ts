@@ -12,8 +12,9 @@ import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, ERC20_ABI } from "./dcaVaultAbi";
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from "./triggerVaultAbi";
 import {
   FACTORY_ADDRESS,
-  OLD_FACTORY_ADDRESS,
+  ALL_FACTORY_ADDRESSES,
   TRIGGER_VAULT_FACTORY_ADDRESS,
+  OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
@@ -212,12 +213,13 @@ export async function runInBatches<T, R>(
 
 export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
   const { publicClient } = getClients();
-  // Beide Factories abfragen (siehe OLD_FACTORY_ADDRESS in config.ts) — sonst
-  // verschwinden Vaults, die vor dem Gebuehren-Deploy ueber die alte Factory
+  // ALLE bekannten Factory-Generationen abfragen (siehe ALL_FACTORY_ADDRESSES
+  // in config.ts) — sonst verschwinden Vaults, die über eine ältere Factory
   // erstellt wurden, komplett aus der App (My Plans, My Purchases), obwohl
-  // sie on-chain weiter existieren.
-  const [current, legacy] = await Promise.all(
-    [FACTORY_ADDRESS, OLD_FACTORY_ADDRESS].map((factoryAddress) =>
+  // sie on-chain weiter existieren. Nicht nur die zwei letzten Generationen:
+  // bei jeder weiteren Migration würde sonst genau das wieder passieren.
+  const perFactory = await Promise.all(
+    ALL_FACTORY_ADDRESSES.map((factoryAddress) =>
       withRetry(() => publicClient.readContract({
         address: factoryAddress,
         abi:     DCA_VAULT_FACTORY_ABI,
@@ -226,7 +228,7 @@ export async function getUserVaults(ownerAddress: `0x${string}`): Promise<`0x${s
       })) as Promise<`0x${string}`[]>
     )
   );
-  return [...new Set([...current, ...legacy])];
+  return [...new Set(perFactory.flat())];
 }
 
 // ─── Target-Arrays bauen ──────────────────────────────────────────────────────
@@ -432,10 +434,14 @@ export async function cancelDcaPlan(
 //      gerade antwortet, und bleibt auch dann korrekt, wenn sich Limits in
 //      Zukunft ändern.
 //   2. Block 0 bis "latest" wäre auf Celo Mainnet >70 Mio. Blöcke, viel mehr
-//      als nötig — getUserVaults() liefert ohnehin nur Vaults der aktuellen
-//      FACTORY_ADDRESS (siehe dort), also reicht als unterer Rand deren
-//      Deploy-Block. Der wird per Binärsuche auf getCode() einmalig ermittelt
-//      und für die Dauer der Session gecacht (ändert sich nie).
+//      als nötig — getUserVaults() liefert Vaults über ALLE bekannten
+//      Factory-Generationen (ALL_FACTORY_ADDRESSES, siehe config.ts), also
+//      reicht als unterer Rand der Deploy-Block der ÄLTESTEN Generation
+//      (ALL_FACTORY_ADDRESSES[0]) — nicht der aktuellen FACTORY_ADDRESS,
+//      sonst würde die Swap-Historie älterer Vaults beim eth_getLogs-Scan
+//      stillschweigend abgeschnitten. Der wird per Binärsuche auf getCode()
+//      einmalig ermittelt und für die Dauer der Session gecacht (ändert sich
+//      nie).
 
 const INITIAL_LOG_BLOCK_RANGE = 5_000n; // Startpunkt, orientiert an forno's bekanntem Limit
 const MIN_LOG_BLOCK_RANGE     = 1n;      // Untergrenze — irgendwann muss auch 1 Block reichen
@@ -477,7 +483,7 @@ async function getFactoryDeployBlock(
   publicClient: ReturnType<typeof getClients>["publicClient"],
 ): Promise<bigint> {
   if (factoryDeployBlockCache === null) {
-    factoryDeployBlockCache = await findDeploymentBlock(publicClient, FACTORY_ADDRESS);
+    factoryDeployBlockCache = await findDeploymentBlock(publicClient, ALL_FACTORY_ADDRESSES[0]);
   }
   return factoryDeployBlockCache;
 }
@@ -766,12 +772,21 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
 
 export async function getUserTriggerVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
   const { publicClient } = getClients();
-  return await withRetry(() => publicClient.readContract({
-    address: TRIGGER_VAULT_FACTORY_ADDRESS,
-    abi:     TRIGGER_VAULT_FACTORY_ABI,
-    functionName: "getVaults",
-    args: [ownerAddress],
-  })) as `0x${string}`[];
+  // Beide Factories abfragen (aktuelle + OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
+  // siehe config.ts) — gleicher Grund wie getUserVaults() (DCA) oben: sonst
+  // verschwindet ein vor der B3-Migration erstellter Trigger-Plan komplett
+  // aus der App, obwohl er on-chain weiter existiert und noch ausführbar ist.
+  const perFactory = await Promise.all(
+    [TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS].map((factoryAddress) =>
+      withRetry(() => publicClient.readContract({
+        address: factoryAddress,
+        abi:     TRIGGER_VAULT_FACTORY_ABI,
+        functionName: "getVaults",
+        args: [ownerAddress],
+      })) as Promise<`0x${string}`[]>
+    )
+  );
+  return [...new Set(perFactory.flat())];
 }
 
 // ─── Trigger-Plan submitten ─────────────────────────────────────────────────────

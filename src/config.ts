@@ -25,20 +25,54 @@ export const VAULT_ADDRESS       = "0x22541bDAf712920330F2d0FC26D1Ac807e914FDc" 
 export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
 
 // ─── Factory (EIP-1167-Clones) ────────────────────────────────────────────────
-export const FACTORY_ADDRESS               = "0xba148255d757912442A97f87c50DD2F65FBab7E0" as `0x${string}`;
-export const OLD_FACTORY_ADDRESS            = "0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411" as `0x${string}`;
-export const VAULT_IMPLEMENTATION_ADDRESS  = "0xeB05629ABB85f6aa23044e6a85708477E43b87fd" as `0x${string}`;
+//
+// Plan 2 B1 (Fee-Snapshot + minFee-Cap + setGlobalKeeper()): neue Factory +
+// Implementation deployt + auf Celoscan verifiziert am 31.08.2026. Alte
+// Factory bleibt als OLD_FACTORY_ADDRESS erhalten (bereits laufende Pläne
+// dort sind von B1 nicht betroffen, siehe SECURITY.md) — OLD_FACTORY_ADDRESS
+// selbst rückt dafür eine Generation weiter (die davor war bereits abgelöst).
+export const FACTORY_ADDRESS               = "0xa6B66110b3593B5D32f4229CA5398611959149C5" as `0x${string}`;
+export const OLD_FACTORY_ADDRESS            = "0xba148255d757912442A97f87c50DD2F65FBab7E0" as `0x${string}`;
+export const VAULT_IMPLEMENTATION_ADDRESS  = "0x02213a74a725C15EBbbC1212777b5b20C73B01E8" as `0x${string}`;
+
+// Diese Migration ist bereits die ZWEITE für DcaVaultFactory (nach dem
+// ursprünglichen Gebühren-Mechanismus-Deploy) — mit nur FACTORY_ADDRESS/
+// OLD_FACTORY_ADDRESS (2 Slots) würde die allererste Generation
+// (0x28f5E38C..., wo laut minipayWallet.ts/plans.ts bereits vor B1 noch
+// aktive Pläne lagen) beim nächsten Rotieren komplett aus der App
+// verschwinden — kein Fund-Loss, aber ein Nutzer sähe seinen laufenden Plan
+// plötzlich nicht mehr. ALL_FACTORY_ADDRESSES trägt deshalb JEDE bekannte
+// Generation (älteste zuerst); getUserVaults() (minipayWallet.ts) und
+// readDcaVaults() (apis/backend/src/plans.ts) fragen ab jetzt diese Liste ab
+// statt nur zwei Adressen. Bei der nächsten Migration hier ergänzen, nie
+// ersetzen.
+export const ALL_FACTORY_ADDRESSES: readonly `0x${string}`[] = [
+  "0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411", // Generation 1 (ursprünglicher Gebühren-Mechanismus-Deploy)
+  "0xba148255d757912442A97f87c50DD2F65FBab7E0", // Generation 2 (= OLD_FACTORY_ADDRESS oben)
+  "0xa6B66110b3593B5D32f4229CA5398611959149C5", // Generation 3 (Plan 2 B1, aktuell = FACTORY_ADDRESS oben)
+];
 
 // TriggerVaultFactory — Price-Trigger-Erweiterung neben DcaVaultFactory
-// (siehe script/DeployTriggerVaultFactory.s.sol). Deployt + auf Celoscan
-// verifiziert am 25.08.2026 (TriggerVault-Implementation:
-// 0x10FC1B7BF6d2c8e429f40C7536c35303D1CdF3D9).
-export const TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
+// (siehe script/DeployTriggerVaultFactory.s.sol).
+//
+// Plan 2 B3 (Fee-Snapshot + Slippage-Floor + Richtungs-Invariante): neue
+// Factory + Implementation deployt + verifiziert am 31.08.2026
+// (TriggerVault-Implementation: 0x8E3f4496303A2cC1C348Fca072EFc02aF587795f).
+// Alte Factory bleibt als OLD_TRIGGER_VAULT_FACTORY_ADDRESS erhalten — dort
+// bereits laufende Pläne bekommen KEINEN Slippage-Floor (Phase-B-Schutz gilt
+// nur für neu erstellte Pläne, siehe SECURITY.md).
+export const TRIGGER_VAULT_FACTORY_ADDRESS = "0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625" as `0x${string}`;
+export const OLD_TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
 
 // SendVaultFactory — Auszahlungs-Erweiterung neben DcaVaultFactory/
-// TriggerVaultFactory. Deployt + auf Celo Mainnet verifiziert am 27.08.2026
-// (SendVault-Implementation: 0x09B4bCA1f8C2103b6469F77C0035dA82100DaCCB).
-export const SEND_VAULT_FACTORY_ADDRESS = "0x1d7a157Bb1823482039B4B3037fb1737B1F2750A" as `0x${string}`;
+// TriggerVaultFactory.
+//
+// Plan 2 B2 (Fee-Snapshot + minFee-Cap + setGlobalKeeper()): neue Factory +
+// Implementation deployt + verifiziert am 31.08.2026 (SendVault-
+// Implementation: 0x2de1279b086cC0c642B8CFdbb702e014a81605d). Alte Factory
+// bleibt als OLD_SEND_VAULT_FACTORY_ADDRESS erhalten.
+export const SEND_VAULT_FACTORY_ADDRESS = "0x4d63381b9b742683b92971d672018Ec5d82DA002" as `0x${string}`;
+export const OLD_SEND_VAULT_FACTORY_ADDRESS = "0x1d7a157Bb1823482039B4B3037fb1737B1F2750A" as `0x${string}`;
 
 // ─── Token-Interface ──────────────────────────────────────────────────────────
 export interface TokenInfo {
