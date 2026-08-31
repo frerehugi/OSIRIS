@@ -640,15 +640,20 @@ contract TriggerVaultTest is Test {
     }
 
     function test_setFee_revertsIfMinFeeExceedsCap() public {
+        // MAX_MIN_FEE() vorab lesen: als Inline-Argument wäre es selbst ein
+        // External Call und würde das einmalige vm.expectRevert()/vm.prank()
+        // der eigentlichen setFee()-Zeile "verbrauchen".
+        uint256 cap = factory.MAX_MIN_FEE();
         vm.prank(admin);
         vm.expectRevert(TriggerVaultFactory.MinFeeTooHigh.selector);
-        factory.setFee(100, factory.MAX_MIN_FEE() + 1);
+        factory.setFee(100, cap + 1);
     }
 
     function test_setFee_allowsExactMinFeeCap() public {
+        uint256 cap = factory.MAX_MIN_FEE();
         vm.prank(admin);
-        factory.setFee(100, factory.MAX_MIN_FEE());
-        assertEq(factory.minFee(), factory.MAX_MIN_FEE());
+        factory.setFee(100, cap);
+        assertEq(factory.minFee(), cap);
     }
 
     function test_constructor_setsDefaultMaxSlippageBps() public view {
@@ -662,15 +667,17 @@ contract TriggerVaultTest is Test {
     }
 
     function test_setMaxSlippageBps_revertsAboveCap() public {
+        uint16 cap = factory.MAX_SLIPPAGE_BPS_CAP();
         vm.prank(admin);
         vm.expectRevert(TriggerVaultFactory.SlippageBpsTooHigh.selector);
-        factory.setMaxSlippageBps(factory.MAX_SLIPPAGE_BPS_CAP() + 1);
+        factory.setMaxSlippageBps(cap + 1);
     }
 
     function test_setMaxSlippageBps_allowsExactCap() public {
+        uint16 cap = factory.MAX_SLIPPAGE_BPS_CAP();
         vm.prank(admin);
-        factory.setMaxSlippageBps(factory.MAX_SLIPPAGE_BPS_CAP());
-        assertEq(factory.maxSlippageBps(), factory.MAX_SLIPPAGE_BPS_CAP());
+        factory.setMaxSlippageBps(cap);
+        assertEq(factory.maxSlippageBps(), cap);
     }
 
     function test_setMaxSlippageBps_revertsForNonAdmin() public {

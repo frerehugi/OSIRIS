@@ -108,17 +108,30 @@ contract SendVaultFactory {
     // off-chain gegen den aktuellen Kurs auf ~$0,009 berechnet, siehe Hinweis
     // oben. Kein Address(0)-Check auf `token nötig: ein falsch gesetzter
     // minFee für ein nie genutztes Token ist folgenlos. Decimals werden live
-    // per try/catch abgefragt, um den Cap zu skalieren (siehe
-    // MAX_MIN_FEE_WHOLE_UNITS) — bewusst NICHT als Pflicht-Call: ein Token
-    // ohne (Standard-)decimals()-Funktion (oder eine Platzhalter-Adresse ohne
-    // Code, z.B. für einen noch nicht gelisteten Token) darf weiterhin
-    // konfiguriert werden, nur eben ohne den zusätzlichen Cap.
+    // abgefragt, um den Cap zu skalieren (siehe MAX_MIN_FEE_WHOLE_UNITS) —
+    // bewusst NICHT als Pflicht-Call: ein Token ohne Code (z.B. eine
+    // Platzhalter-Adresse für einen noch nicht gelisteten Token) darf
+    // weiterhin konfiguriert werden, nur eben ohne den zusätzlichen Cap.
+    //
+    // extcodesize-Check VOR dem Call, nicht nur try/catch: ein Call auf eine
+    // Adresse ohne Code liefert leere Returndata zurück (EVM-Verhalten, kein
+    // Solidity-Fehler) — der anschließende ABI-Decode-Versuch auf `uint8`
+    // schlägt zwar fehl, das wird aber NICHT von einem bloßen `catch {}`
+    // abgefangen (in dieser Konfiguration empirisch mit Foundry verifiziert),
+    // sondern reißt den gesamten Aufruf unkontrolliert ab. Der Guard hier
+    // verhindert den Call für code-lose Adressen von vornherein; try/catch
+    // bleibt als Absicherung für Tokens mit Code, deren decimals() aus
+    // anderen Gründen revertiert oder fehlt.
     function setMinFee(address _token, uint256 _minFee) external onlyAdmin {
-        try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
-            if (_minFee > MAX_MIN_FEE_WHOLE_UNITS * (10 ** decimals)) revert MinFeeTooHigh();
-        } catch {
-            // decimals() nicht verfügbar — Cap kann nicht skaliert werden,
-            // wird für dieses Token übersprungen.
+        uint256 codeSize;
+        assembly { codeSize := extcodesize(_token) }
+        if (codeSize > 0) {
+            try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
+                if (_minFee > MAX_MIN_FEE_WHOLE_UNITS * (10 ** decimals)) revert MinFeeTooHigh();
+            } catch {
+                // decimals() nicht verfügbar — Cap kann nicht skaliert werden,
+                // wird für dieses Token übersprungen.
+            }
         }
         minFeeByToken[_token] = _minFee;
         emit MinFeeUpdated(_token, _minFee);

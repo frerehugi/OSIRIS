@@ -138,15 +138,21 @@ contract DcaVaultFactoryTest is Test {
     }
 
     function test_setFee_revertsIfMinFeeExceedsCap() public {
+        // MAX_MIN_FEE() vorab in eine Variable lesen: als Inline-Argument
+        // wäre es selbst ein External Call und würde den einmaligen
+        // vm.expectRevert()/vm.prank() der eigentlichen setFee()-Zeile
+        // "verbrauchen" (Foundry wirkt nur auf den NÄCHSTEN Call).
+        uint256 cap = factory.MAX_MIN_FEE();
         vm.prank(admin);
         vm.expectRevert(DcaVaultFactory.MinFeeTooHigh.selector);
-        factory.setFee(100, factory.MAX_MIN_FEE() + 1);
+        factory.setFee(100, cap + 1);
     }
 
     function test_setFee_allowsExactMinFeeCap() public {
+        uint256 cap = factory.MAX_MIN_FEE();
         vm.prank(admin);
-        factory.setFee(100, factory.MAX_MIN_FEE());
-        assertEq(factory.minFee(), factory.MAX_MIN_FEE());
+        factory.setFee(100, cap);
+        assertEq(factory.minFee(), cap);
     }
 
     // ─── setAdmin Tests ──────────────────────────────────────────────────────
