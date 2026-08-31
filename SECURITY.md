@@ -21,10 +21,12 @@ Honest snapshot, not a claim of completeness:
 - **No formal, independent third-party audit has been completed yet.** This is
   explicitly a pre-audit priority (see the open contract-level findings below).
 - **No bug bounty program exists yet.**
-- Test coverage: 177 Foundry unit tests across five suites (`test/*.t.sol`), covering
+- Test coverage: 226 Foundry unit tests across five suites (`test/*.t.sol`), covering
   setup validation, execution, slippage/router/failure guards, cancellation, expiry,
-  fee-on-transfer handling, and factory clone creation. Mostly unit tests — one fuzz
-  test, no invariant tests yet.
+  fee-on-transfer handling, factory clone creation, fee-snapshot behavior, `minFee`
+  ceilings, keeper rotation, and (for `TriggerVault`) exact slippage-floor boundary
+  tests and the direction-invariant guards described below. Mostly unit tests — one
+  fuzz test, no invariant tests yet.
 - `npm audit --omit=dev` across the three JS/TS packages (root, `apis/backend`,
   `apis/app`) currently reports no known production-dependency vulnerabilities — that's
   a point-in-time check, not a substitute for a real audit.
@@ -46,27 +48,73 @@ wallet that was the admin before) — the timelock adds delay and public visibil
 does not by itself remove single-key risk from *proposing* a change. A move to a
 multisig proposer is a separate, later item.
 
+## Fee-snapshot, `minFee` ceiling, and keeper rotation — live for all three vault types
+
+As of **31.08.2026**, `DcaVaultFactory`, `SendVaultFactory`, and `TriggerVaultFactory`
+were redeployed (new implementation + new factory each, admin set directly to the
+Timelock above at deploy time — no intermediate EOA-admin window) with:
+
+- **Fee snapshot**: `feeBps`/`minFee` (and, for `TriggerVault`, `maxSlippageBps`) are
+  read once at plan setup and frozen for that plan's lifetime, instead of being read
+  live at every execution. A subsequent admin fee change — even a legitimate,
+  timelocked one — now only applies to plans created after it; an already-funded plan
+  keeps the terms it was set up under.
+- **Absolute `minFee` ceiling**: on top of the existing 5% `feeBps` cap, `minFee` (a
+  fixed token amount, not a percentage) now has a hard ceiling too, so it can no
+  longer be raised to a level that would functionally confiscate a small tranche.
+- **`setGlobalKeeper()`**: the keeper address is no longer immutable per factory — if
+  the keeper key is lost or compromised, the admin (Timelock, 48h delay) can point new
+  vaults at a new keeper without a contract redeploy. This only affects vaults created
+  after the change; existing vaults keep their own frozen keeper set at
+  `initialize()`, with the owner's own `setKeeper()` remaining the per-vault recovery
+  path.
+- **`TriggerVault` only — on-chain slippage floor + direction invariant**:
+  `setupPlan()` now requires `watchToken` to be one of the two held/output legs and
+  `triggerAbove` to match which leg is held, restricting new plans to the two
+  directions (dip-buy, take-profit-sell) the app actually offers. The non-watched leg
+  must be on a new admin-maintained stablecoin allowlist. `execute()` now rejects a
+  keeper-supplied `minAmountOut` below a floor derived from the plan's own
+  `triggerPrice` and a capped `maxSlippageBps` tolerance — this bounds, but does not
+  eliminate (still no price oracle), how unfavorable a price a compromised or
+  malfunctioning keeper can execute at.
+
+Current addresses:
+
+| Vault type | Factory | Implementation |
+|---|---|---|
+| DCA | `0xa6B66110b3593B5D32f4229CA5398611959149C5` | `0x02213a74a725C15EBbbC1212777b5b20C73B01E8` |
+| Send | `0x4d63381b9b742683b92971d672018Ec5d82DA002` | `0x2de1279b086cC0c642B8CFdbb702e014a81605d` |
+| Trigger | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` |
+
+**Important limitation**: this protection applies only to plans created on the new
+factories above. EIP-1167 clones delegate permanently to the implementation address
+their factory deployed them with — there is no proxy-admin upgrade path. Any plan
+still open on an older factory generation (tracked as `OLD_FACTORY_ADDRESS` /
+`OLD_SEND_VAULT_FACTORY_ADDRESS` / `OLD_TRIGGER_VAULT_FACTORY_ADDRESS` in
+`src/config.ts`) keeps running on the old, unprotected terms for the rest of its
+life — live fee reads, no `minFee` ceiling, and for `TriggerVault`, no slippage floor
+at all. Owners of an open plan on an old `TriggerVaultFactory` who want the new floor
+need to cancel and recreate their plan.
+
 ## Known, tracked risk areas
 
 These are real, already-identified architectural trust assumptions and open findings —
 tracked openly rather than hidden:
 
-- **Fee administration (in progress)**: even with the timelock above, `minFee`
-  currently has no absolute ceiling and is read live at every execution, so an
-  already-funded plan's fee terms can still change after the fact (with 48h notice).
-  The proper fix — snapshotting each plan's fee at setup time, plus an absolute `minFee`
-  ceiling — is in progress, rolled out per vault type (DcaVault first, then SendVault,
-  then TriggerVault), each deployed and observed separately rather than all at once.
-- **Keeper trust for trigger plans**: `TriggerVault` stores `triggerPrice`/`triggerAbove`
-  on-chain but does not verify them against a price oracle — the keeper decides
-  off-chain whether to execute, and `minAmountOut` is keeper-supplied (only checked
-  `> 0` on-chain). A compromised or malfunctioning keeper can execute at an unfavorable
-  price. An on-chain floor derived from the vault's own `triggerPrice` (bounding, not
-  eliminating, this risk) is planned as part of the TriggerVault fee-snapshot rollout.
-- **Single keeper key**: the global keeper address is immutable per factory. If its key
-  is lost or compromised, existing vault owners must authorize a new keeper themselves
-  (`setKeeper()`, per-vault). A `setGlobalKeeper()` capability for new vaults going
-  forward is planned alongside the fee-snapshot rollout above.
+- **Fee administration (addressed for new plans)**: fee-snapshot and an absolute
+  `minFee` ceiling are live for all three vault types as of 31.08.2026 — see the
+  section above. Plans still open on an older factory generation are unaffected by
+  this fix and remain on the old, live-read, uncapped terms.
+- **Keeper trust for trigger plans (bounded, not eliminated)**: `TriggerVault` still
+  has no price oracle — the keeper decides off-chain whether/when to execute. New
+  plans now get an on-chain slippage floor derived from the plan's own `triggerPrice`
+  (see the section above), which bounds how unfavorable a price a compromised or
+  malfunctioning keeper can execute at, but doesn't eliminate the underlying trust
+  assumption. Plans on the old `TriggerVaultFactory` have no floor at all.
+- **Single keeper key (mitigated for new vaults)**: `setGlobalKeeper()` now lets the
+  admin (Timelock) rotate the keeper for vaults created going forward without a
+  contract redeploy — see the section above. Existing vaults still freeze their
+  keeper at creation; their owner's own `setKeeper()` remains the recovery path.
 - **Access grants are not single-use**: an APIS access-grant code is valid, reusable,
   for its full chosen access window (up to 30 days) and read/propose-only — it cannot
   move funds or sign anything on its own. There is currently no way to revoke one early
