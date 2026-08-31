@@ -23,6 +23,7 @@ contract DcaVaultFactoryTest is Test {
     event VaultCreated(address indexed owner, address indexed vault);
     event FeeUpdated(uint16 feeBps, uint256 minFee);
     event AdminUpdated(address indexed admin);
+    event GlobalKeeperUpdated(address indexed globalKeeper);
 
     function setUp() public {
         vaultImplementation = new DcaVault();
@@ -136,6 +137,18 @@ contract DcaVaultFactoryTest is Test {
         assertEq(factory.feeBps(), 500);
     }
 
+    function test_setFee_revertsIfMinFeeExceedsCap() public {
+        vm.prank(admin);
+        vm.expectRevert(DcaVaultFactory.MinFeeTooHigh.selector);
+        factory.setFee(100, factory.MAX_MIN_FEE() + 1);
+    }
+
+    function test_setFee_allowsExactMinFeeCap() public {
+        vm.prank(admin);
+        factory.setFee(100, factory.MAX_MIN_FEE());
+        assertEq(factory.minFee(), factory.MAX_MIN_FEE());
+    }
+
     // ─── setAdmin Tests ──────────────────────────────────────────────────────
 
     function test_setAdmin_success() public {
@@ -164,6 +177,56 @@ contract DcaVaultFactoryTest is Test {
         factory.setAdmin(address(0));
     }
 
+    // ─── setGlobalKeeper Tests ───────────────────────────────────────────────
+
+    function test_setGlobalKeeper_success() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+        assertEq(factory.globalKeeper(), newKeeper);
+    }
+
+    function test_setGlobalKeeper_emitsEvent() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.expectEmit(true, false, false, false);
+        emit GlobalKeeperUpdated(newKeeper);
+
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+    }
+
+    function test_setGlobalKeeper_revertsIfNotAdmin() public {
+        vm.prank(alice);
+        vm.expectRevert(DcaVaultFactory.NotAdmin.selector);
+        factory.setGlobalKeeper(makeAddr("newKeeper"));
+    }
+
+    function test_setGlobalKeeper_revertsOnZeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(DcaVaultFactory.InvalidAddress.selector);
+        factory.setGlobalKeeper(address(0));
+    }
+
+    function test_setGlobalKeeper_affectsNewVaultsOnly() public {
+        // Vault A entsteht mit dem alten Keeper, kopiert ihn einmalig in sein
+        // eigenes isKeeper-Mapping (initialize()).
+        vm.prank(alice);
+        address vaultA = factory.createVault();
+
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        vm.prank(bob);
+        address vaultB = factory.createVault();
+
+        assertTrue(DcaVault(vaultA).isKeeper(globalKeeper));
+        assertFalse(DcaVault(vaultA).isKeeper(newKeeper));
+
+        assertTrue(DcaVault(vaultB).isKeeper(newKeeper));
+        assertFalse(DcaVault(vaultB).isKeeper(globalKeeper));
+    }
+
     // ─── feeInfo Tests ───────────────────────────────────────────────────────
 
     function test_feeInfo_returnsCorrectValues() public view {
@@ -171,6 +234,15 @@ contract DcaVaultFactoryTest is Test {
         assertEq(feeBps, 99);
         assertEq(minFee, 20_000);
         assertEq(treasury, globalKeeper);
+    }
+
+    function test_feeInfo_treasuryReflectsRotatedKeeperLive() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        (, , address treasury) = factory.feeInfo();
+        assertEq(treasury, newKeeper);
     }
 
     function test_createVault_emitsEvent() public {

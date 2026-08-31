@@ -20,7 +20,15 @@ contract DcaVaultFactory {
 
     address public immutable vaultImplementation;
     address public immutable squidRouter;
-    address public immutable globalKeeper;
+
+    // Absolute Obergrenze für minFee — unabhängig vom prozentualen feeBps-Cap
+    // (500 = 5 %, siehe setFee()). minFee ist ein fixer Token-Betrag, keine
+    // Prozentzahl, und wurde ohne diese Grenze live bei jeder Ausführung
+    // gelesen (siehe DcaVault.executeStep()) — ohne Cap könnte ein Admin ihn
+    // beliebig hoch setzen und eine bereits finanzierte Tranche faktisch
+    // konfiszieren. Wert geht von 6-Decimal-Stablecoins aus (aktuell einzige
+    // nutzbaren Input-Token, siehe src/config.ts INPUT_TOKENS).
+    uint256 public constant MAX_MIN_FEE = 5_000_000; // 5 USDC/USDT (6 Decimals)
 
     // ── State ─────────────────────────────────────────────────────────────────
     //
@@ -28,8 +36,16 @@ contract DcaVaultFactory {
     // minFee (Floor greift bei sehr kleinen Tranchen). Treasury ist bewusst
     // KEIN separates Wallet, sondern globalKeeper selbst — deckt dessen
     // Gas-Kosten direkt aus den Gebühreneinnahmen.
+    //
+    // globalKeeper ist NICHT mehr immutable (siehe setGlobalKeeper()) — bei
+    // Verlust/Kompromittierung des Keeper-Schlüssels kann der Admin einen
+    // neuen Keeper für alle NEU erstellten Vaults hinterlegen. Bereits
+    // laufende Vaults kopieren ihren Keeper einmalig bei initialize() in ihr
+    // eigenes isKeeper-Mapping und bleiben davon unberührt — deren eigener
+    // owner bleibt per vault.setKeeper() der Recovery-Pfad (unverändert).
 
     address public admin;
+    address public globalKeeper;
     uint16  public feeBps;
     uint256 public minFee;
 
@@ -41,12 +57,14 @@ contract DcaVaultFactory {
     error InvalidAddress();
     error NotAdmin();
     error FeeTooHigh();
+    error MinFeeTooHigh();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
     event VaultCreated(address indexed owner, address indexed vault);
     event FeeUpdated(uint16 feeBps, uint256 minFee);
     event AdminUpdated(address indexed admin);
+    event GlobalKeeperUpdated(address indexed globalKeeper);
 
     // ── Modifier ─────────────────────────────────────────────────────────────
 
@@ -76,6 +94,7 @@ contract DcaVaultFactory {
 
     function setFee(uint16 _feeBps, uint256 _minFee) external onlyAdmin {
         if (_feeBps > 500) revert FeeTooHigh(); // 5 % Hard-Cap
+        if (_minFee > MAX_MIN_FEE) revert MinFeeTooHigh();
         feeBps = _feeBps;
         minFee = _minFee;
         emit FeeUpdated(_feeBps, _minFee);
@@ -85,6 +104,12 @@ contract DcaVaultFactory {
         if (_admin == address(0)) revert InvalidAddress();
         admin = _admin;
         emit AdminUpdated(_admin);
+    }
+
+    function setGlobalKeeper(address _globalKeeper) external onlyAdmin {
+        if (_globalKeeper == address(0)) revert InvalidAddress();
+        globalKeeper = _globalKeeper;
+        emit GlobalKeeperUpdated(_globalKeeper);
     }
 
     // ── feeInfo ──────────────────────────────────────────────────────────────

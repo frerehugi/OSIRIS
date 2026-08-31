@@ -55,6 +55,21 @@ export const DCA_VAULT_ABI = [
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
+  // Nur auf Vaults der Fee-Snapshot-Implementation vorhanden (setupPlan()
+  // friert feeBps/minFee einmalig ein) — bei älteren Vaults (die zwar schon
+  // factory()/feeInfo() kennen, aber die Gebühr noch live lesen) revertet der
+  // Call; der Keeper nutzt das als Unterscheidungsmerkmal (siehe
+  // executeVaultStep()).
+  {
+    type: "function", name: "snapshotFeeBps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "function", name: "snapshotMinFee",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
   {
     type: "function", name: "initialized",
     stateMutability: "view", inputs: [],

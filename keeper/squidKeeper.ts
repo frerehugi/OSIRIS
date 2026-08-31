@@ -290,26 +290,45 @@ async function executeVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`)
     : (trancheAmount as bigint);
 
   // ── Gebühr spiegeln ──────────────────────────────────────────────────────
-  // Der Contract zieht bei Vaults der neuen Factory vor dem Swap eine Gebühr
-  // ab (feeInfo() auf der Factory) — der Keeper muss denselben Netto-Betrag
-  // an Squid melden, sonst approved der Contract weniger, als die Squid-
-  // Calldata abziehen will, und der Swap-Call revertet mit SwapFailed().
-  // Legacy-Vaults (alte Factory-Implementation) haben keinen factory()-
-  // Getter — der Call revertet dann einfach, amountNet bleibt = gross.
+  // Der Contract zieht vor dem Swap eine Gebühr ab — der Keeper muss
+  // denselben Netto-Betrag an Squid melden, sonst approved der Contract
+  // weniger, als die Squid-Calldata abziehen will, und der Swap-Call
+  // revertet mit SwapFailed(). Drei Vault-Generationen sind im Umlauf:
+  //   1. Fee-Snapshot-Implementation (snapshotFeeBps()/snapshotMinFee()
+  //      vorhanden): Contract rechnet mit dem bei setupPlan() eingefrorenen
+  //      Wert, nicht mit der aktuellen Factory-Gebühr — genau diesen Wert
+  //      lesen, sonst kann eine spätere Admin-Fee-Änderung die Off-Chain-
+  //      Schätzung vom On-Chain-Ist-Wert abweichen lassen.
+  //   2. Ältere Vaults der Gebühren-Factory (factory()/feeInfo() vorhanden,
+  //      aber kein Snapshot): Contract liest die Gebühr weiterhin live von
+  //      der Factory — hier ist factory.feeInfo() weiterhin korrekt.
+  //   3. Echte Legacy-Vaults (kein factory()): keine Gebühr, amountNet = gross.
   let amountNet = amountForThisStep;
   try {
-    const vaultFactory = await ctx.publicClient.readContract({
-      address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "factory",
-    }) as `0x${string}`;
-    const [feeBps, minFee] = await ctx.publicClient.readContract({
-      address: vaultFactory, abi: DCA_VAULT_FACTORY_ABI, functionName: "feeInfo",
-    }) as [number, bigint, `0x${string}`];
+    const [snapFeeBps, snapMinFee] = await Promise.all([
+      ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "snapshotFeeBps" }),
+      ctx.publicClient.readContract({ address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "snapshotMinFee" }),
+    ]) as [number, bigint];
 
-    let feeAmount = (amountForThisStep * BigInt(feeBps)) / 10_000n;
-    if (feeAmount < minFee) feeAmount = minFee;
+    let feeAmount = (amountForThisStep * BigInt(snapFeeBps)) / 10_000n;
+    if (feeAmount < snapMinFee) feeAmount = snapMinFee;
     amountNet = amountForThisStep - feeAmount;
   } catch {
-    // Kein factory()/feeInfo() auffindbar — Legacy-Vault, keine Gebühr.
+    // Kein snapshotFeeBps()/snapshotMinFee() auffindbar — ältere Implementation.
+    try {
+      const vaultFactory = await ctx.publicClient.readContract({
+        address: vaultAddress, abi: DCA_VAULT_ABI, functionName: "factory",
+      }) as `0x${string}`;
+      const [feeBps, minFee] = await ctx.publicClient.readContract({
+        address: vaultFactory, abi: DCA_VAULT_FACTORY_ABI, functionName: "feeInfo",
+      }) as [number, bigint, `0x${string}`];
+
+      let feeAmount = (amountForThisStep * BigInt(feeBps)) / 10_000n;
+      if (feeAmount < minFee) feeAmount = minFee;
+      amountNet = amountForThisStep - feeAmount;
+    } catch {
+      // Kein factory()/feeInfo() auffindbar — echtes Legacy-Vault, keine Gebühr.
+    }
   }
 
   const routers:       `0x${string}`[] = [];

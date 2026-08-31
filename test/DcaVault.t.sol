@@ -579,6 +579,67 @@ contract DcaVaultTest is Test {
         vault.executeStep(routers, minOut, callData);
     }
 
+    // ─── Fee-Snapshot Tests ──────────────────────────────────────────────────
+
+    function test_setupPlan_snapshotsCurrentFactoryFee() public {
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, block.timestamp + 1 hours);
+
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMinFee(), DEFAULT_MIN_FEE);
+    }
+
+    function test_executeStep_ignoresFeeHikeAfterSetup() public {
+        // Plan wird zu den Default-Konditionen (99 bps / 20_000 Floor)
+        // finanziert. Danach hebt der Admin feeBps/minFee drastisch an — der
+        // Snapshot aus setupPlan() muss executeStep() davon abschirmen.
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+
+        vm.prank(admin);
+        vaultFactory.setFee(500, 5_000_000); // 5 % / 5 USDC Floor (neuer Cap)
+
+        vm.warp(firstExecution);
+
+        uint256 expectedFee = _feeFor(TRANCHE_AMOUNT); // weiterhin auf Basis des Snapshots
+        assertEq(expectedFee, 99_000);
+
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
+
+        uint256 keeperBalanceBefore = usdc.balanceOf(globalKeeper);
+
+        vm.prank(owner);
+        vault.executeStep(routers, minOut, callData);
+
+        assertEq(usdc.balanceOf(globalKeeper), keeperBalanceBefore + expectedFee);
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMinFee(), DEFAULT_MIN_FEE);
+    }
+
+    function test_executeStep_sendsFeeToRotatedKeeper() public {
+        // Treasury (Fee-Empfänger) bleibt bewusst live an globalKeeper
+        // gekoppelt statt gesnapshottet — eine Keeper-Rotation nach dem
+        // Snapshot-Zeitpunkt muss trotzdem greifen.
+        address newKeeper = makeAddr("newKeeper");
+        uint256 firstExecution = block.timestamp + 1 hours;
+        _approveAndSetup(TOTAL_AMOUNT, DURATION, INTERVAL, firstExecution);
+
+        vm.prank(admin);
+        vaultFactory.setGlobalKeeper(newKeeper);
+
+        vm.warp(firstExecution);
+
+        uint256 expectedFee = _feeFor(TRANCHE_AMOUNT);
+        (address[] memory routers, uint256[] memory minOut, bytes[] memory callData) =
+            _executeStepArgs(_netOfFee(TRANCHE_AMOUNT), 1e18, 1e18);
+
+        vm.prank(owner);
+        vault.executeStep(routers, minOut, callData);
+
+        assertEq(usdc.balanceOf(newKeeper), expectedFee);
+        assertEq(usdc.balanceOf(globalKeeper), 0);
+    }
+
     // ─── cancelPlan Tests ────────────────────────────────────────────────────
 
     function test_cancelPlan_returnsTokens() public {

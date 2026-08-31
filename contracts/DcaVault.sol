@@ -88,6 +88,13 @@ contract DcaVault is ReentrancyGuard {
     uint32  public currentStep;
     uint256 public nextExecutionTimestamp;
 
+    // Einmalig aus factory.feeInfo() gelesen und in setupPlan() eingefroren.
+    // executeStep() rechnet ab hier mit diesen Werten statt einer Live-Abfrage
+    // der Factory — ein Admin, der feeBps/minFee nach der Finanzierung eines
+    // Plans ändert, wirkt damit nur noch auf künftig neu erstellte Pläne.
+    uint16  public snapshotFeeBps;
+    uint256 public snapshotMinFee;
+
     TargetConfig[]           private targetConfigs;
     mapping(address => bool) public  isKeeper;
     mapping(address => bool) public  approvedRouters;
@@ -257,6 +264,10 @@ contract DcaVault is ReentrancyGuard {
         nextExecutionTimestamp = _firstExecutionTimestamp;
         initialized            = true;
 
+        (uint16 feeBpsNow, uint256 minFeeNow, ) = IDcaVaultFactory(factory).feeInfo();
+        snapshotFeeBps = feeBpsNow;
+        snapshotMinFee = minFeeNow;
+
         // Token-Transfer mit Fee-on-Transfer-Schutz
         uint256 balanceBefore = inputToken.balanceOf(address(this));
         inputToken.safeTransferFrom(owner, address(this), _totalAmount);
@@ -340,12 +351,15 @@ contract DcaVault is ReentrancyGuard {
         if (vaultBalance < amountForThisStep) revert InsufficientVaultBalance();
 
         // ── Gebühr abziehen ─────────────────────────────────────────────────
-        // Prozentual auf den Tranchenbetrag, mindestens minFee (Floor greift
-        // bei sehr kleinen Tranchen). Geht direkt an die Keeper-Wallet
-        // (treasury), deckt so unmittelbar deren Gas-Kosten.
-        (uint16 feeBps, uint256 minFee, address treasury) = IDcaVaultFactory(factory).feeInfo();
-        uint256 feeAmount = (amountForThisStep * feeBps) / BPS_DENOMINATOR;
-        if (feeAmount < minFee) feeAmount = minFee;
+        // Prozentual auf den Tranchenbetrag, mindestens snapshotMinFee (Floor
+        // greift bei sehr kleinen Tranchen). Beide Werte kommen aus dem Fee-
+        // Snapshot von setupPlan() (siehe dort) statt einer Live-Abfrage der
+        // Factory — nur die Treasury-Adresse (Auszahlungsziel, keine
+        // Betragsangabe) wird weiterhin live gelesen. Geht direkt an die
+        // Keeper-Wallet (treasury), deckt so unmittelbar deren Gas-Kosten.
+        (, , address treasury) = IDcaVaultFactory(factory).feeInfo();
+        uint256 feeAmount = (amountForThisStep * snapshotFeeBps) / BPS_DENOMINATOR;
+        if (feeAmount < snapshotMinFee) feeAmount = snapshotMinFee;
         if (feeAmount >= amountForThisStep) revert FeeExceedsAmount();
 
         inputToken.safeTransfer(treasury, feeAmount);
