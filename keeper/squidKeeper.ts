@@ -77,6 +77,17 @@ export interface Env {
   SQUID_INTEGRATOR_ID:    string;
   FACTORY_ADDRESSES?:     string;
   FACTORY_ADDRESS?:       string;
+  // Komma-getrennte Liste zusätzlicher SendVaultFactory-Adressen, gleiches
+  // Muster wie FACTORY_ADDRESSES oben (siehe dortigen Kommentar) — für den
+  // Fall eines künftigen SendVaultFactory-Upgrades. Optional: fehlt die
+  // Variable, nutzt der Keeper weiterhin ausschließlich
+  // SEND_VAULT_FACTORY_ADDRESS aus src/config.ts (unverändertes Verhalten).
+  SEND_VAULT_FACTORY_ADDRESSES?: string;
+  // Gleiches Muster für TriggerVaultFactory (siehe SEND_VAULT_FACTORY_ADDRESSES-
+  // Kommentar) — insbesondere für die Fee-Snapshot/Slippage-Floor-Migration
+  // relevant, damit bestehende Trigger-Pläne auf der alten Factory nach dem
+  // Wechsel auf eine neue TRIGGER_VAULT_FACTORY_ADDRESS weiter ausgeführt werden.
+  TRIGGER_VAULT_FACTORY_ADDRESSES?: string;
   KEEPER_REFUEL_THRESHOLD?: string;
   KEEPER_REFUEL_PCT_BPS?:   string;
 }
@@ -128,6 +139,24 @@ function createKeeperContext(env: Env) {
   }
   const factoryAddresses = rawFactories.split(",").map((address) => address.trim() as `0x${string}`);
 
+  // SendVaultFactory-Adressen: optionales Env-Override, sonst Fallback auf
+  // den einzelnen, statisch konfigurierten SEND_VAULT_FACTORY_ADDRESS-Wert
+  // aus src/config.ts (siehe Env.SEND_VAULT_FACTORY_ADDRESSES-Kommentar).
+  // ZERO_ADDRESS (noch kein Deploy) wird herausgefiltert statt einen
+  // sinnlosen RPC-Read gegen address(0) zu versuchen.
+  const sendVaultFactoryAddresses = (
+    env.SEND_VAULT_FACTORY_ADDRESSES
+      ? env.SEND_VAULT_FACTORY_ADDRESSES.split(",").map((address) => address.trim() as `0x${string}`)
+      : [SEND_VAULT_FACTORY_ADDRESS]
+  ).filter((address) => address !== ZERO_ADDRESS);
+
+  // TriggerVaultFactory-Adressen: gleiches Fallback-Prinzip wie oben.
+  const triggerVaultFactoryAddresses = (
+    env.TRIGGER_VAULT_FACTORY_ADDRESSES
+      ? env.TRIGGER_VAULT_FACTORY_ADDRESSES.split(",").map((address) => address.trim() as `0x${string}`)
+      : [TRIGGER_VAULT_FACTORY_ADDRESS]
+  ).filter((address) => address !== ZERO_ADDRESS);
+
   // forno.celo.org (viems Default-Endpunkt für Celo) fällt unter Last öfter
   // mit einem undifferenzierten Netzwerkfehler aus (siehe src/minipayWallet.ts,
   // dort dasselbe Problem beim Frontend) — fallback() wechselt bei einem
@@ -148,7 +177,11 @@ function createKeeperContext(env: Env) {
   const refuelThreshold = parseUnits(env.KEEPER_REFUEL_THRESHOLD ?? "5", 6); // 5 USD-Äquivalent
   const refuelPercentBps = BigInt(env.KEEPER_REFUEL_PCT_BPS ?? "4000");     // 40 %
 
-  return { account, walletClient, publicClient, integratorId, factoryAddresses, refuelThreshold, refuelPercentBps };
+  return {
+    account, walletClient, publicClient, integratorId,
+    factoryAddresses, sendVaultFactoryAddresses, triggerVaultFactoryAddresses,
+    refuelThreshold, refuelPercentBps,
+  };
 }
 
 // ─── Squid-Route holen ────────────────────────────────────────────────────────
@@ -402,9 +435,31 @@ async function readTriggerVaultState(ctx: KeeperContext, vaultAddress: `0x${stri
 // wird der Balance-Zuwachs gemessen).
 
 async function executeTriggerVaultStep(ctx: KeeperContext, vault: TriggerVaultState) {
-  const [feeBps, minFee] = await ctx.publicClient.readContract({
-    address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "feeInfo",
-  }) as [number, bigint, `0x${string}`];
+  // Gleiche Snapshot-vor-Live-Reihenfolge wie executeVaultStep() (DCA) oben —
+  // siehe dortigen Kommentar für die ausführliche Begründung: Vaults der
+  // Fee-Snapshot-Implementation rechnen mit dem bei setupPlan() eingefrorenen
+  // Wert, nicht mit der aktuellen Factory-Gebühr.
+  let feeBps: number;
+  let minFee: bigint;
+  try {
+    [feeBps, minFee] = await Promise.all([
+      ctx.publicClient.readContract({ address: vault.address, abi: TRIGGER_VAULT_ABI, functionName: "snapshotFeeBps" }),
+      ctx.publicClient.readContract({ address: vault.address, abi: TRIGGER_VAULT_ABI, functionName: "snapshotMinFee" }),
+    ]) as [number, bigint];
+  } catch {
+    // Ältere Implementation ohne snapshotFeeBps()/snapshotMinFee() — Contract
+    // liest die Gebühr weiterhin live von der Factory. Die eigene factory()-
+    // Adresse des Vaults verwenden (nicht die aktuell konfigurierte
+    // TRIGGER_VAULT_FACTORY_ADDRESS) — bei mehreren im Umlauf befindlichen
+    // Factory-Generationen (siehe triggerVaultFactoryAddresses) muss das
+    // exakt die Factory sein, von der dieser Vault selbst erzeugt wurde.
+    const vaultFactory = await ctx.publicClient.readContract({
+      address: vault.address, abi: TRIGGER_VAULT_ABI, functionName: "factory",
+    }) as `0x${string}`;
+    [feeBps, minFee] = await ctx.publicClient.readContract({
+      address: vaultFactory, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "feeInfo",
+    }) as [number, bigint, `0x${string}`];
+  }
 
   // Vault-Bestand statt eines gecachten amount lesen — muss identisch sein
   // (der Vault hält exakt den bei setupPlan() eingezahlten Betrag bis zur
@@ -583,10 +638,11 @@ async function autoRefuelCelo(ctx: KeeperContext): Promise<void> {
   }
 }
 
-// Noch nicht deployt (siehe script/DeployTriggerVaultFactory.s.sol) — solange
-// TRIGGER_VAULT_FACTORY_ADDRESS in src/config.ts der Platzhalter ist,
-// überspringt der Zyklus den Trigger-Teil komplett statt gegen die
-// Nulladresse zu lesen.
+// Für Factory-Adressen, die noch nicht deployt sind (Platzhalter in
+// src/config.ts, z.B. TRIGGER_VAULT_FACTORY_ADDRESS vor dem ersten Deploy) —
+// wird beim Aufbau von sendVaultFactoryAddresses/triggerVaultFactoryAddresses
+// herausgefiltert statt gegen die Nulladresse zu lesen (siehe
+// createKeeperContext()).
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // ─── Trigger-Pläne: Ausführungs-Zyklus ─────────────────────────────────────────
@@ -595,15 +651,23 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 // (Squid-Rate-Limit + Nonce-Verwaltung der Keeper-Wallet).
 
 async function runTriggerVaultCycle(ctx: KeeperContext): Promise<KeeperCycleResult[]> {
-  if (TRIGGER_VAULT_FACTORY_ADDRESS === ZERO_ADDRESS) {
-    console.info("Keeper: TRIGGER_VAULT_FACTORY_ADDRESS noch nicht deployt — überspringe Trigger-Pläne.");
+  if (ctx.triggerVaultFactoryAddresses.length === 0) {
+    console.info("Keeper: keine TriggerVaultFactory-Adresse konfiguriert — überspringe Trigger-Pläne.");
     return [];
   }
 
-  const allVaults = await ctx.publicClient.readContract({
-    address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "getAllVaults",
-  }) as `0x${string}`[];
-  console.info(`Keeper: ${allVaults.length} Trigger-Vault(s) insgesamt.`);
+  // Mehrere Factory-Adressen möglich (siehe triggerVaultFactoryAddresses-
+  // Kommentar in createKeeperContext()) — Vaults aus allen zusammenführen,
+  // gleiches Prinzip wie runSendVaultCycle()/getAllVaultAddresses() (DCA).
+  const perFactoryVaults = await Promise.all(
+    ctx.triggerVaultFactoryAddresses.map((factoryAddress) =>
+      ctx.publicClient.readContract({
+        address: factoryAddress, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: "getAllVaults",
+      }) as Promise<`0x${string}`[]>
+    )
+  );
+  const allVaults = [...new Set(perFactoryVaults.flat())];
+  console.info(`Keeper: ${allVaults.length} Trigger-Vault(s) insgesamt (Factories: ${ctx.triggerVaultFactoryAddresses.join(", ")}).`);
 
   const executableVaults = await findExecutableTriggerVaults(ctx, allVaults);
   const results: KeeperCycleResult[] = [];
@@ -700,15 +764,25 @@ async function executeSendVaultStep(ctx: KeeperContext, vaultAddress: `0x${strin
 // Squid-Aufrufen keine Rolle, aber die Nonce-Reihenfolge schon).
 
 async function runSendVaultCycle(ctx: KeeperContext): Promise<KeeperCycleResult[]> {
-  if (SEND_VAULT_FACTORY_ADDRESS === ZERO_ADDRESS) {
-    console.info("Keeper: SEND_VAULT_FACTORY_ADDRESS noch nicht deployt — überspringe Send-Pläne.");
+  if (ctx.sendVaultFactoryAddresses.length === 0) {
+    console.info("Keeper: keine SendVaultFactory-Adresse konfiguriert — überspringe Send-Pläne.");
     return [];
   }
 
-  const allVaults = await ctx.publicClient.readContract({
-    address: SEND_VAULT_FACTORY_ADDRESS, abi: SEND_VAULT_FACTORY_ABI, functionName: "getAllVaults",
-  }) as `0x${string}`[];
-  console.info(`Keeper: ${allVaults.length} Send-Vault(s) insgesamt.`);
+  // Mehrere Factory-Adressen möglich (siehe sendVaultFactoryAddresses-
+  // Kommentar in createKeeperContext()) — Vaults aus allen zusammenführen,
+  // damit ein künftiges SendVaultFactory-Upgrade bestehende Pläne auf der
+  // alten Factory nicht unsichtbar macht (gleiches Prinzip wie
+  // getAllVaultAddresses() für DCA).
+  const perFactoryVaults = await Promise.all(
+    ctx.sendVaultFactoryAddresses.map((factoryAddress) =>
+      ctx.publicClient.readContract({
+        address: factoryAddress, abi: SEND_VAULT_FACTORY_ABI, functionName: "getAllVaults",
+      }) as Promise<`0x${string}`[]>
+    )
+  );
+  const allVaults = [...new Set(perFactoryVaults.flat())];
+  console.info(`Keeper: ${allVaults.length} Send-Vault(s) insgesamt (Factories: ${ctx.sendVaultFactoryAddresses.join(", ")}).`);
 
   const executableVaults = await findExecutableSendVaults(ctx, allVaults);
   const results: KeeperCycleResult[] = [];

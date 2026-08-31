@@ -35,6 +35,18 @@ export const SEND_VAULT_ABI = [
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
   },
+  // Nur auf Vaults der Fee-Snapshot-Implementation vorhanden — siehe
+  // dcaVaultAbi.ts' gleichnamige Getter für die ausführliche Begründung.
+  {
+    type: "function", name: "snapshotFeeBps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "function", name: "snapshotMinFee",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
   {
     type: "function", name: "initialized",
     stateMutability: "view", inputs: [],
@@ -351,6 +363,13 @@ export const SEND_VAULT_FACTORY_ABI = [
     outputs: [],
   },
   {
+    type: "function",
+    name: "setGlobalKeeper",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_globalKeeper", type: "address" }],
+    outputs: [],
+  },
+  {
     type: "event", name: "VaultCreated",
     inputs: [
       { name: "owner", type: "address", indexed: true },
@@ -372,7 +391,12 @@ export const SEND_VAULT_FACTORY_ABI = [
     type: "event", name: "AdminUpdated",
     inputs: [{ name: "admin", type: "address", indexed: true }],
   },
+  {
+    type: "event", name: "GlobalKeeperUpdated",
+    inputs: [{ name: "globalKeeper", type: "address", indexed: true }],
+  },
   { type: "error", name: "InvalidAddress", inputs: [] },
   { type: "error", name: "NotAdmin",       inputs: [] },
   { type: "error", name: "FeeTooHigh",     inputs: [] },
+  { type: "error", name: "MinFeeTooHigh",  inputs: [] },
 ] as const;

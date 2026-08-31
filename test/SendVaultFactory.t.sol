@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {SendVault} from "../contracts/SendVault.sol";
 import {SendVaultFactory} from "../contracts/SendVaultFactory.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
 
 /// @notice Test-Suite für SendVaultFactory.
 ///
@@ -25,6 +26,7 @@ contract SendVaultFactoryTest is Test {
     event FeeUpdated(uint16 feeBps);
     event MinFeeUpdated(address indexed token, uint256 minFee);
     event AdminUpdated(address indexed admin);
+    event GlobalKeeperUpdated(address indexed globalKeeper);
 
     function setUp() public {
         vaultImplementation = new SendVault();
@@ -181,10 +183,53 @@ contract SendVaultFactoryTest is Test {
     function test_setMinFee_allowsZeroAddressToken() public {
         // Bewusst kein address(0)-Check (siehe Kommentar in SendVaultFactory.sol) —
         // ein falsch gesetzter minFee für ein nie genutztes Token ist folgenlos.
+        // decimals() auf address(0) hat keinen Code -> der Cap wird für diese
+        // Adresse übersprungen (try/catch), der rohe Wert bleibt trotzdem setzbar.
         vm.prank(admin);
         factory.setMinFee(address(0), 1);
         (, uint256 minFee,) = factory.feeInfo(address(0));
         assertEq(minFee, 1);
+    }
+
+    function test_setMinFee_skipsCapForTokenWithoutDecimals() public {
+        // usdc/wbtc sind reine makeAddr()-Platzhalter ohne Contract-Code —
+        // decimals() reverted, der Cap greift bewusst nicht (siehe try/catch
+        // in SendVaultFactory.setMinFee()).
+        vm.prank(admin);
+        factory.setMinFee(usdc, type(uint256).max);
+        (, uint256 minFee,) = factory.feeInfo(usdc);
+        assertEq(minFee, type(uint256).max);
+    }
+
+    function test_setMinFee_revertsIfExceedsDecimalsScaledCap() public {
+        MockERC20 realUsdc = new MockERC20("USD Coin", "USDC", 6);
+        vm.prank(admin);
+        vm.expectRevert(SendVaultFactory.MinFeeTooHigh.selector);
+        factory.setMinFee(address(realUsdc), 5_000_001); // > 5 * 10^6 (5 volle USDC)
+    }
+
+    function test_setMinFee_allowsExactDecimalsScaledCap() public {
+        MockERC20 realUsdc = new MockERC20("USD Coin", "USDC", 6);
+        uint256 cap = factory.MAX_MIN_FEE_WHOLE_UNITS() * 1e6;
+
+        vm.prank(admin);
+        factory.setMinFee(address(realUsdc), cap);
+
+        (, uint256 minFee,) = factory.feeInfo(address(realUsdc));
+        assertEq(minFee, cap);
+    }
+
+    function test_setMinFee_capScalesWithTokenDecimals() public {
+        // 18-Decimal-Token: derselbe "5 volle Einheiten"-Cap erlaubt einen
+        // viel größeren Rohwert als bei einem 6-Decimal-Token.
+        MockERC20 weth = new MockERC20("Wrapped ETH", "WETH", 18);
+        uint256 cap = factory.MAX_MIN_FEE_WHOLE_UNITS() * 1e18;
+
+        vm.startPrank(admin);
+        factory.setMinFee(address(weth), cap);
+        vm.expectRevert(SendVaultFactory.MinFeeTooHigh.selector);
+        factory.setMinFee(address(weth), cap + 1);
+        vm.stopPrank();
     }
 
     // ─── setAdmin ────────────────────────────────────────────────────────────
@@ -214,11 +259,67 @@ contract SendVaultFactoryTest is Test {
         factory.setAdmin(address(0));
     }
 
+    // ─── setGlobalKeeper ─────────────────────────────────────────────────────
+
+    function test_setGlobalKeeper_success() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+        assertEq(factory.globalKeeper(), newKeeper);
+    }
+
+    function test_setGlobalKeeper_emitsEvent() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.expectEmit(true, false, false, false);
+        emit GlobalKeeperUpdated(newKeeper);
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+    }
+
+    function test_setGlobalKeeper_revertsIfNotAdmin() public {
+        vm.prank(alice);
+        vm.expectRevert(SendVaultFactory.NotAdmin.selector);
+        factory.setGlobalKeeper(makeAddr("newKeeper"));
+    }
+
+    function test_setGlobalKeeper_revertsOnZeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(SendVaultFactory.InvalidAddress.selector);
+        factory.setGlobalKeeper(address(0));
+    }
+
+    function test_setGlobalKeeper_affectsNewVaultsOnly() public {
+        vm.prank(alice);
+        address vaultA = factory.createVault();
+
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        vm.prank(bob);
+        address vaultB = factory.createVault();
+
+        assertTrue(SendVault(vaultA).isKeeper(globalKeeper));
+        assertFalse(SendVault(vaultA).isKeeper(newKeeper));
+
+        assertTrue(SendVault(vaultB).isKeeper(newKeeper));
+        assertFalse(SendVault(vaultB).isKeeper(globalKeeper));
+    }
+
     // ─── feeInfo ─────────────────────────────────────────────────────────────
 
     function test_feeInfo_returnsTreasuryAsGlobalKeeper() public view {
         (uint16 feeBps,, address treasury) = factory.feeInfo(usdc);
         assertEq(feeBps, 49);
         assertEq(treasury, globalKeeper);
+    }
+
+    function test_feeInfo_treasuryReflectsRotatedKeeperLive() public {
+        address newKeeper = makeAddr("newKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        (, , address treasury) = factory.feeInfo(usdc);
+        assertEq(treasury, newKeeper);
     }
 }

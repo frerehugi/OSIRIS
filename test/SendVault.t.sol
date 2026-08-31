@@ -352,6 +352,53 @@ contract SendVaultTest is Test {
         assertEq(usdc.balanceOf(keeper), fee); // treasury == globalKeeper
     }
 
+    function test_setupPlan_snapshotsCurrentFactoryFee() public {
+        SendVault.RecipientPlan[] memory recipients = _singleRecipient(bob, 100e6);
+        (SendVault vault,) = _createVaultWithPlan(recipients, 10, 1 days);
+
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMinFee(), DEFAULT_MIN_FEE);
+    }
+
+    function test_executeStep_ignoresFeeHikeAfterSetup() public {
+        SendVault.RecipientPlan[] memory recipients = _singleRecipient(bob, 100e6);
+        (SendVault vault,) = _createVaultWithPlan(recipients, 10, 1 days);
+
+        vm.startPrank(admin);
+        factory.setFee(500);
+        factory.setMinFee(address(usdc), 5_000_000);
+        vm.stopPrank();
+
+        uint256 tranche = 10e6;
+        uint256 fee = _feeFor(tranche); // weiterhin auf Basis des Snapshots
+
+        vm.prank(keeper);
+        vault.executeStep();
+
+        assertEq(usdc.balanceOf(bob), tranche - fee);
+        assertEq(usdc.balanceOf(keeper), fee);
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMinFee(), DEFAULT_MIN_FEE);
+    }
+
+    function test_executeStep_sendsFeeToRotatedKeeper() public {
+        address newKeeper = makeAddr("newKeeper");
+        SendVault.RecipientPlan[] memory recipients = _singleRecipient(bob, 100e6);
+        (SendVault vault,) = _createVaultWithPlan(recipients, 10, 1 days);
+
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        uint256 tranche = 10e6;
+        uint256 fee = _feeFor(tranche);
+
+        vm.prank(owner);
+        vault.executeStep();
+
+        assertEq(usdc.balanceOf(newKeeper), fee);
+        assertEq(usdc.balanceOf(keeper), 0);
+    }
+
     function test_executeStep_advancesNextExecutionTimestamp() public {
         SendVault.RecipientPlan[] memory recipients = _singleRecipient(bob, 100e6);
         (SendVault vault,) = _createVaultWithPlan(recipients, 10, 1 days);

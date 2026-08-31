@@ -89,6 +89,23 @@ export const TRIGGER_VAULT_ABI = [
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
+  // Nur auf Vaults der Fee-Snapshot-Implementation vorhanden — siehe
+  // dcaVaultAbi.ts' gleichnamige Getter für die ausführliche Begründung.
+  {
+    type: "function", name: "snapshotFeeBps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "function", name: "snapshotMinFee",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function", name: "snapshotMaxSlippageBps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
   {
     type: "function", name: "isKeeper",
     stateMutability: "view",
@@ -232,6 +249,10 @@ export const TRIGGER_VAULT_ABI = [
   { type: "error", name: "SlippageExceeded",         inputs: [] },
   { type: "error", name: "FeeExceedsAmount",         inputs: [] },
   { type: "error", name: "Expired",                  inputs: [] },
+  { type: "error", name: "InvalidWatchToken",        inputs: [] },
+  { type: "error", name: "InvalidDirection",         inputs: [] },
+  { type: "error", name: "StablecoinRequired",       inputs: [] },
+  { type: "error", name: "MinOutBelowFloor",         inputs: [] },
 ] as const;
 
 // ─── TriggerVaultFactory ABI ──────────────────────────────────────────────────
@@ -268,6 +289,17 @@ export const TRIGGER_VAULT_FACTORY_ABI = [
     type: "function", name: "admin",
     stateMutability: "view", inputs: [],
     outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function", name: "maxSlippageBps",
+    stateMutability: "view", inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "function", name: "isStablecoin",
+    stateMutability: "view",
+    inputs:  [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
   },
   {
     type: "function",
@@ -326,6 +358,30 @@ export const TRIGGER_VAULT_FACTORY_ABI = [
     outputs: [],
   },
   {
+    type: "function",
+    name: "setGlobalKeeper",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_globalKeeper", type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setStablecoin",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token",   type: "address" },
+      { name: "allowed", type: "bool"    },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setMaxSlippageBps",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_maxSlippageBps", type: "uint16" }],
+    outputs: [],
+  },
+  {
     type: "event", name: "VaultCreated",
     inputs: [
       { name: "owner", type: "address", indexed: true },
@@ -343,7 +399,24 @@ export const TRIGGER_VAULT_FACTORY_ABI = [
     type: "event", name: "AdminUpdated",
     inputs: [{ name: "admin", type: "address", indexed: true }],
   },
-  { type: "error", name: "InvalidAddress", inputs: [] },
-  { type: "error", name: "NotAdmin",       inputs: [] },
-  { type: "error", name: "FeeTooHigh",     inputs: [] },
+  {
+    type: "event", name: "GlobalKeeperUpdated",
+    inputs: [{ name: "globalKeeper", type: "address", indexed: true }],
+  },
+  {
+    type: "event", name: "StablecoinUpdated",
+    inputs: [
+      { name: "token",   type: "address", indexed: true  },
+      { name: "allowed", type: "bool",    indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "MaxSlippageBpsUpdated",
+    inputs: [{ name: "maxSlippageBps", type: "uint16", indexed: false }],
+  },
+  { type: "error", name: "InvalidAddress",     inputs: [] },
+  { type: "error", name: "NotAdmin",           inputs: [] },
+  { type: "error", name: "FeeTooHigh",         inputs: [] },
+  { type: "error", name: "MinFeeTooHigh",      inputs: [] },
+  { type: "error", name: "SlippageBpsTooHigh", inputs: [] },
 ] as const;

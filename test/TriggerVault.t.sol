@@ -6,6 +6,7 @@ import {TriggerVault} from "../contracts/TriggerVault.sol";
 import {TriggerVaultFactory} from "../contracts/TriggerVaultFactory.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockSquidRouter} from "./mocks/MockSquidRouter.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Test-Suite für TriggerVault + TriggerVaultFactory (APIS).
 ///
@@ -28,6 +29,7 @@ contract TriggerVaultTest is Test {
     uint16  constant DEFAULT_FEE_BPS = 99;
     uint256 constant DEFAULT_MIN_FEE = 35_000;
     uint256 constant DEFAULT_TRIGGER_PRICE = 65_000e8;
+    uint16  constant DEFAULT_MAX_SLIPPAGE_BPS = 200; // 2 %, siehe TriggerVaultFactory-Konstruktor
 
     function setUp() public {
         usdc   = new MockERC20("USD Coin",    "USDC", 6);
@@ -36,6 +38,12 @@ contract TriggerVaultTest is Test {
 
         implementation = new TriggerVault();
         factory = new TriggerVaultFactory(address(implementation), address(router), keeper, admin);
+
+        // usdc ist in beiden Richtungen (Buy/Sell) das Stablecoin-Bein — die
+        // neue Allowlist muss es kennen, sonst revertet jedes setupPlan() mit
+        // StablecoinRequired() (siehe TriggerVault.setupPlan()).
+        vm.prank(admin);
+        factory.setStablecoin(address(usdc), true);
 
         usdc.mint(owner, 1_000e6);
         wbtc.mint(address(router), 10e8);
@@ -48,17 +56,38 @@ contract TriggerVaultTest is Test {
         return fee < DEFAULT_MIN_FEE ? DEFAULT_MIN_FEE : fee;
     }
 
+    // Spiegelt TriggerVault._slippageFloor() exakt (gleiche mulDiv-Kette),
+    // damit Tests die On-Chain-Grenze exakt statt approximativ treffen können.
+    function _expectedBuyFloor(uint256 amountIn, uint256 price, uint8 dh, uint8 doo, uint16 maxSlippageBps)
+        internal pure returns (uint256)
+    {
+        uint256 slippageFactor = 10_000 - maxSlippageBps;
+        uint256 usdValue = Math.mulDiv(amountIn, 1e8, 10 ** dh);
+        return Math.mulDiv(usdValue, (10 ** doo) * slippageFactor, price * 10_000);
+    }
+
+    function _expectedSellFloor(uint256 amountIn, uint256 price, uint8 dh, uint8 doo, uint16 maxSlippageBps)
+        internal pure returns (uint256)
+    {
+        uint256 slippageFactor = 10_000 - maxSlippageBps;
+        uint256 usdValue = Math.mulDiv(amountIn, price, 10 ** dh);
+        return Math.mulDiv(usdValue, (10 ** doo) * slippageFactor, 1e8 * 10_000);
+    }
+
     function _createVault() internal returns (TriggerVault vault) {
         vm.prank(owner);
         vault = TriggerVault(factory.createVault());
     }
 
+    // Buy-Plan: heldToken=Stablecoin, watchToken=outputToken=Zieltoken,
+    // triggerAbove=false ("kaufen, wenn der Preis fällt") — siehe neue
+    // Richtungs-Invariante in TriggerVault.setupPlan().
     function _createBuyVaultWithPlan(uint256 amt, uint256 expiresAt) internal returns (TriggerVault vault) {
         vault = _createVault();
         vm.prank(owner);
         usdc.approve(address(vault), amt);
         vm.prank(owner);
-        vault.setupPlan(address(usdc), address(wbtc), address(wbtc), amt, true, DEFAULT_TRIGGER_PRICE, expiresAt);
+        vault.setupPlan(address(usdc), address(wbtc), address(wbtc), amt, false, DEFAULT_TRIGGER_PRICE, expiresAt);
     }
 
     // ─── Factory: createVault ────────────────────────────────────────────────
@@ -122,7 +151,7 @@ contract TriggerVaultTest is Test {
         assertEq(vault.outputToken(), address(wbtc));
         assertEq(vault.watchToken(), address(wbtc));
         assertEq(vault.amount(), AMOUNT);
-        assertTrue(vault.triggerAbove());
+        assertFalse(vault.triggerAbove());
         assertEq(vault.triggerPrice(), DEFAULT_TRIGGER_PRICE);
         assertEq(vault.expiresAt(), 0);
     }
@@ -176,6 +205,54 @@ contract TriggerVaultTest is Test {
         uint256 expiry = block.timestamp + 30 days;
         TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, expiry);
         assertEq(vault.expiresAt(), expiry);
+    }
+
+    // ─── setupPlan: Richtungs-Invariante + Stablecoin-Allowlist (neu) ────────
+
+    function test_setupPlan_revertsIfWatchTokenIsNeitherLeg() public {
+        MockERC20 other = new MockERC20("Other", "OTH", 18);
+        TriggerVault vault = _createVault();
+        vm.prank(owner);
+        vm.expectRevert(TriggerVault.InvalidWatchToken.selector);
+        vault.setupPlan(address(usdc), address(wbtc), address(other), AMOUNT, false, DEFAULT_TRIGGER_PRICE, 0);
+    }
+
+    function test_setupPlan_revertsOnMismatchedDirection_buyWithTriggerAbove() public {
+        // Buy (heldToken=Stablecoin, watchToken=outputToken) MUSS triggerAbove=false haben.
+        TriggerVault vault = _createVault();
+        vm.prank(owner);
+        vm.expectRevert(TriggerVault.InvalidDirection.selector);
+        vault.setupPlan(address(usdc), address(wbtc), address(wbtc), AMOUNT, true, DEFAULT_TRIGGER_PRICE, 0);
+    }
+
+    function test_setupPlan_revertsOnMismatchedDirection_sellWithoutTriggerAbove() public {
+        // Sell (heldToken=watchToken=Zieltoken) MUSS triggerAbove=true haben.
+        wbtc.mint(owner, 1e8);
+        TriggerVault vault = _createVault();
+        vm.prank(owner);
+        vm.expectRevert(TriggerVault.InvalidDirection.selector);
+        vault.setupPlan(address(wbtc), address(usdc), address(wbtc), 1e8, false, DEFAULT_TRIGGER_PRICE, 0);
+    }
+
+    function test_setupPlan_revertsIfNonWatchLegNotStablecoin() public {
+        // wbtc ist auf der Factory nicht als Stablecoin gelistet — ein
+        // "Buy"-Plan mit wbtc als heldToken (statt usdc) muss revertieren.
+        MockERC20 otherTarget = new MockERC20("Other Target", "OTGT", 18);
+        otherTarget.mint(address(router), 1_000e18);
+        TriggerVault vault = _createVault();
+        vm.prank(owner);
+        wbtc.approve(address(vault), 1e8);
+        wbtc.mint(owner, 1e8);
+        vm.prank(owner);
+        vm.expectRevert(TriggerVault.StablecoinRequired.selector);
+        vault.setupPlan(address(wbtc), address(otherTarget), address(otherTarget), 1e8, false, DEFAULT_TRIGGER_PRICE, 0);
+    }
+
+    function test_setupPlan_snapshotsFeeAndSlippageBps() public {
+        TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMinFee(), DEFAULT_MIN_FEE);
+        assertEq(vault.snapshotMaxSlippageBps(), factory.maxSlippageBps());
     }
 
     // ─── cancel ───────────────────────────────────────────────────────────────
@@ -334,9 +411,15 @@ contract TriggerVaultTest is Test {
     function test_execute_revertsOnSwapFailure() public {
         TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
         router.setShouldFail(true);
+        uint256 fee = _feeFor(AMOUNT);
+        // minAmountOut muss über dem neuen On-Chain-Slippage-Floor liegen
+        // (siehe _slippageFloor()-Tests unten), sonst revertet der Aufruf
+        // schon vorher mit MinOutBelowFloor() statt den eigentlich getesteten
+        // SwapFailed()-Pfad zu erreichen.
+        uint256 minAmountOut = 500_000;
         vm.prank(keeper);
         vm.expectRevert(TriggerVault.SwapFailed.selector);
-        vault.execute(address(router), 1, abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), 1, address(wbtc), 1, owner));
+        vault.execute(address(router), minAmountOut, abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), AMOUNT - fee, address(wbtc), minAmountOut, owner));
     }
 
     function test_execute_keeperNeedsPerVaultApproval() public {
@@ -370,6 +453,98 @@ contract TriggerVaultTest is Test {
         vm.prank(keeper);
         vault.execute(address(secondRouter), 1_000_000, callData);
         assertTrue(vault.executed());
+    }
+
+    // ─── execute: On-Chain-Slippage-Floor ────────────────────────────────────
+
+    function test_execute_revertsIfMinAmountOutBelowFloor() public {
+        TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
+        uint256 fee = _feeFor(AMOUNT);
+        uint256 netIn = AMOUNT - fee;
+        uint256 floor = _expectedBuyFloor(netIn, DEFAULT_TRIGGER_PRICE, 6, 8, DEFAULT_MAX_SLIPPAGE_BPS);
+        assertGt(floor, 0); // sonst wäre dieser Test wirkungslos
+
+        bytes memory callData = abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), netIn, address(wbtc), floor - 1, owner);
+        vm.prank(keeper);
+        vm.expectRevert(TriggerVault.MinOutBelowFloor.selector);
+        vault.execute(address(router), floor - 1, callData);
+    }
+
+    function test_execute_succeedsExactlyAtFloor() public {
+        TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
+        uint256 fee = _feeFor(AMOUNT);
+        uint256 netIn = AMOUNT - fee;
+        uint256 floor = _expectedBuyFloor(netIn, DEFAULT_TRIGGER_PRICE, 6, 8, DEFAULT_MAX_SLIPPAGE_BPS);
+
+        bytes memory callData = abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), netIn, address(wbtc), floor, owner);
+        vm.prank(keeper);
+        vault.execute(address(router), floor, callData);
+        assertTrue(vault.executed());
+    }
+
+    function test_execute_sellDirection_revertsIfMinAmountOutBelowFloor() public {
+        wbtc.mint(owner, 1e8);
+        usdc.mint(address(router), 100_000e6);
+
+        TriggerVault vault = _createVault();
+        vm.prank(owner);
+        wbtc.approve(address(vault), 1e8);
+        vm.prank(owner);
+        vault.setupPlan(address(wbtc), address(usdc), address(wbtc), 1e8, true, 75_000e8, 0);
+
+        uint256 fee = _feeFor(1e8);
+        uint256 netIn = 1e8 - fee;
+        uint256 floor = _expectedSellFloor(netIn, 75_000e8, 8, 6, DEFAULT_MAX_SLIPPAGE_BPS);
+        assertGt(floor, 0);
+
+        bytes memory callData = abi.encodeWithSelector(MockSquidRouter.swap.selector, address(wbtc), netIn, address(usdc), floor - 1, owner);
+        vm.prank(keeper);
+        vm.expectRevert(TriggerVault.MinOutBelowFloor.selector);
+        vault.execute(address(router), floor - 1, callData);
+    }
+
+    // ─── execute: Fee-/Slippage-Snapshot ──────────────────────────────────────
+
+    function test_execute_ignoresFeeAndSlippageBpsChangeAfterSetup() public {
+        TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
+
+        vm.startPrank(admin);
+        factory.setFee(500, 5_000_000);      // deutlich höhere Gebühr
+        factory.setMaxSlippageBps(2_000);    // deutlich großzügigere Toleranz
+        vm.stopPrank();
+
+        uint256 fee = _feeFor(AMOUNT); // weiterhin auf Basis des alten Snapshots (99 bps)
+        uint256 netIn = AMOUNT - fee;
+        uint256 floor = _expectedBuyFloor(netIn, DEFAULT_TRIGGER_PRICE, 6, 8, DEFAULT_MAX_SLIPPAGE_BPS);
+
+        bytes memory callData = abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), netIn, address(wbtc), floor, owner);
+
+        uint256 keeperBalanceBefore = usdc.balanceOf(keeper);
+        vm.prank(keeper);
+        vault.execute(address(router), floor, callData);
+
+        assertEq(usdc.balanceOf(keeper), keeperBalanceBefore + fee);
+        assertEq(vault.snapshotFeeBps(), DEFAULT_FEE_BPS);
+        assertEq(vault.snapshotMaxSlippageBps(), DEFAULT_MAX_SLIPPAGE_BPS);
+    }
+
+    function test_execute_sendsFeeToRotatedKeeper() public {
+        address newKeeper = makeAddr("newTriggerKeeper");
+        TriggerVault vault = _createBuyVaultWithPlan(AMOUNT, 0);
+
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        uint256 fee = _feeFor(AMOUNT);
+        uint256 netIn = AMOUNT - fee;
+        uint256 floor = _expectedBuyFloor(netIn, DEFAULT_TRIGGER_PRICE, 6, 8, DEFAULT_MAX_SLIPPAGE_BPS);
+        bytes memory callData = abi.encodeWithSelector(MockSquidRouter.swap.selector, address(usdc), netIn, address(wbtc), floor, owner);
+
+        vm.prank(owner);
+        vault.execute(address(router), floor, callData);
+
+        assertEq(usdc.balanceOf(newKeeper), fee);
+        assertEq(usdc.balanceOf(keeper), 0);
     }
 
     // ─── canExecute ──────────────────────────────────────────────────────────
@@ -450,5 +625,96 @@ contract TriggerVaultTest is Test {
         vm.prank(admin);
         factory.setAdmin(newAdmin);
         assertEq(factory.admin(), newAdmin);
+    }
+
+    function test_setFee_revertsIfMinFeeExceedsCap() public {
+        vm.prank(admin);
+        vm.expectRevert(TriggerVaultFactory.MinFeeTooHigh.selector);
+        factory.setFee(100, factory.MAX_MIN_FEE() + 1);
+    }
+
+    function test_setFee_allowsExactMinFeeCap() public {
+        vm.prank(admin);
+        factory.setFee(100, factory.MAX_MIN_FEE());
+        assertEq(factory.minFee(), factory.MAX_MIN_FEE());
+    }
+
+    function test_constructor_setsDefaultMaxSlippageBps() public view {
+        assertEq(factory.maxSlippageBps(), DEFAULT_MAX_SLIPPAGE_BPS);
+    }
+
+    function test_setMaxSlippageBps_success() public {
+        vm.prank(admin);
+        factory.setMaxSlippageBps(500);
+        assertEq(factory.maxSlippageBps(), 500);
+    }
+
+    function test_setMaxSlippageBps_revertsAboveCap() public {
+        vm.prank(admin);
+        vm.expectRevert(TriggerVaultFactory.SlippageBpsTooHigh.selector);
+        factory.setMaxSlippageBps(factory.MAX_SLIPPAGE_BPS_CAP() + 1);
+    }
+
+    function test_setMaxSlippageBps_allowsExactCap() public {
+        vm.prank(admin);
+        factory.setMaxSlippageBps(factory.MAX_SLIPPAGE_BPS_CAP());
+        assertEq(factory.maxSlippageBps(), factory.MAX_SLIPPAGE_BPS_CAP());
+    }
+
+    function test_setMaxSlippageBps_revertsForNonAdmin() public {
+        vm.prank(hacker);
+        vm.expectRevert(TriggerVaultFactory.NotAdmin.selector);
+        factory.setMaxSlippageBps(500);
+    }
+
+    function test_setStablecoin_success() public {
+        MockERC20 dai = new MockERC20("Dai", "DAI", 18);
+        assertFalse(factory.isStablecoin(address(dai)));
+        vm.prank(admin);
+        factory.setStablecoin(address(dai), true);
+        assertTrue(factory.isStablecoin(address(dai)));
+    }
+
+    function test_setStablecoin_revertsForNonAdmin() public {
+        vm.prank(hacker);
+        vm.expectRevert(TriggerVaultFactory.NotAdmin.selector);
+        factory.setStablecoin(address(wbtc), true);
+    }
+
+    // ─── setGlobalKeeper ─────────────────────────────────────────────────────
+
+    function test_setGlobalKeeper_success() public {
+        address newKeeper = makeAddr("newTriggerKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+        assertEq(factory.globalKeeper(), newKeeper);
+    }
+
+    function test_setGlobalKeeper_revertsIfNotAdmin() public {
+        vm.prank(hacker);
+        vm.expectRevert(TriggerVaultFactory.NotAdmin.selector);
+        factory.setGlobalKeeper(makeAddr("newTriggerKeeper"));
+    }
+
+    function test_setGlobalKeeper_revertsOnZeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(TriggerVaultFactory.InvalidAddress.selector);
+        factory.setGlobalKeeper(address(0));
+    }
+
+    function test_setGlobalKeeper_affectsNewVaultsOnly() public {
+        TriggerVault vaultA = _createVault();
+
+        address newKeeper = makeAddr("newTriggerKeeper");
+        vm.prank(admin);
+        factory.setGlobalKeeper(newKeeper);
+
+        TriggerVault vaultB = _createVault();
+
+        assertTrue(vaultA.isKeeper(keeper));
+        assertFalse(vaultA.isKeeper(newKeeper));
+
+        assertTrue(vaultB.isKeeper(newKeeper));
+        assertFalse(vaultB.isKeeper(keeper));
     }
 }

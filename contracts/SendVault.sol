@@ -86,6 +86,13 @@ contract SendVault is ReentrancyGuard {
     uint256 public interval;
     uint256 public nextExecutionTimestamp;
 
+    // Einmalig aus factory.feeInfo(token) gelesen und in setupPlan()
+    // eingefroren — siehe DcaVault.snapshotFeeBps/-MinFee für die
+    // ausführliche Begründung. executeStep() rechnet ab hier mit diesen
+    // Werten statt einer Live-Abfrage der Factory.
+    uint16  public snapshotFeeBps;
+    uint256 public snapshotMinFee;
+
     RecipientPlan[]           private recipientPlans;
     mapping(address => bool)  public  isKeeper;
 
@@ -218,6 +225,10 @@ contract SendVault is ReentrancyGuard {
         nextExecutionTimestamp  = _firstExecutionTimestamp;
         initialized             = true;
 
+        (uint16 feeBpsNow, uint256 minFeeNow, ) = ISendVaultFactory(factory).feeInfo(_token);
+        snapshotFeeBps = feeBpsNow;
+        snapshotMinFee = minFeeNow;
+
         // Fee-on-Transfer-Schutz, identisch zu DcaVault/TriggerVault/
         // SterntalerVault.setupPlan().
         uint256 balanceBefore = token.balanceOf(address(this));
@@ -301,9 +312,12 @@ contract SendVault is ReentrancyGuard {
         if (amountForThisStep == 0) revert NothingToExecute();
 
         // ── Gebühr ────────────────────────────────────────────────────────
-        (uint16 feeBps, uint256 minFee, address treasury) = ISendVaultFactory(factory).feeInfo(address(token));
-        uint256 feeAmount = (amountForThisStep * feeBps) / BPS_DENOMINATOR;
-        if (feeAmount < minFee) feeAmount = minFee;
+        // feeBps/minFee kommen aus dem Snapshot von setupPlan() (siehe dort)
+        // statt einer Live-Abfrage — nur die Treasury-Adresse wird weiterhin
+        // live gelesen (siehe DcaVault.executeStep() für die Begründung).
+        (, , address treasury) = ISendVaultFactory(factory).feeInfo(address(token));
+        uint256 feeAmount = (amountForThisStep * snapshotFeeBps) / BPS_DENOMINATOR;
+        if (feeAmount < snapshotMinFee) feeAmount = snapshotMinFee;
         if (feeAmount >= amountForThisStep) revert FeeExceedsAmount();
 
         token.safeTransfer(treasury, feeAmount);

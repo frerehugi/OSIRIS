@@ -2,13 +2,20 @@
 pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Minimal-Interface auf die Factory — nur der für die Gebühr
-///         benötigte Wert, exakt wie IDcaVaultFactory in DcaVault.sol.
+/// @notice Minimal-Interface auf die Factory — Gebühr (wie IDcaVaultFactory
+///         in DcaVault.sol) plus die beiden neuen Guards für den On-Chain-
+///         Slippage-Floor: isStablecoin() (Allowlist für das nicht
+///         beobachtete Bein, siehe setupPlan()) und maxSlippageBps()
+///         (Toleranz für den Floor, siehe execute()).
 interface ITriggerVaultFactory {
     function feeInfo() external view returns (uint16 feeBps, uint256 minFee, address treasury);
+    function isStablecoin(address token) external view returns (bool);
+    function maxSlippageBps() external view returns (uint16);
 }
 
 // ─── Architektur ──────────────────────────────────────────────────────────────
@@ -56,6 +63,16 @@ contract TriggerVault is ReentrancyGuard {
     uint256 public triggerPrice;
     uint256 public expiresAt; // 0 = zeitlich unbegrenzt
 
+    // Einmalig aus der Factory gelesen und in setupPlan() eingefroren — siehe
+    // DcaVault.snapshotFeeBps/-MinFee für die ausführliche Begründung.
+    // snapshotMaxSlippageBps schützt zusätzlich den On-Chain-Slippage-Floor
+    // (siehe execute()) selbst davor, dass eine spätere Admin-Lockerung der
+    // Toleranz einen bereits finanzierten Plan schlechter absichert, als der
+    // Owner bei der Einrichtung erwarten durfte.
+    uint16  public snapshotFeeBps;
+    uint256 public snapshotMinFee;
+    uint16  public snapshotMaxSlippageBps;
+
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public approvedRouters;
 
@@ -79,6 +96,10 @@ contract TriggerVault is ReentrancyGuard {
     error SlippageExceeded();
     error FeeExceedsAmount();
     error Expired();
+    error InvalidWatchToken();
+    error InvalidDirection();
+    error StablecoinRequired();
+    error MinOutBelowFloor();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
@@ -147,6 +168,26 @@ contract TriggerVault is ReentrancyGuard {
     // anders als ConditionalSellOrder.createOrder() (das nichts einzieht) hält
     // dieser Vault die Mittel selbst in Verwahrung, bis execute() oder
     // cancel() aufgerufen wird.
+    //
+    // ── Richtungs-Invariante (neu) ───────────────────────────────────────────
+    // Ein On-Chain-Slippage-Floor (siehe execute()) lässt sich ohne Preis-
+    // Orakel nur für genau 2 der 4 möglichen Kombinationen sinnvoll herleiten:
+    // Buy (heldToken=Stablecoin, watchToken=outputToken=Zieltoken,
+    // triggerAbove=false — "kaufen, wenn der Preis fällt") und Sell
+    // (heldToken=watchToken=Zieltoken, outputToken=Stablecoin,
+    // triggerAbove=true — "verkaufen, wenn der Preis steigt"). Für die
+    // beiden anderen Kombinationen (Breakout-Buy, Stop-Loss-Sell) läge der
+    // reale Preis bei Ausführung erwartbar UNTERHALB eines naiven Floors —
+    // die App bietet diese ohnehin nicht an (siehe planCompiler.ts,
+    // TriggerPlanCard.tsx: Stop-Loss ist bewusst discontinued). Deshalb hier
+    // hart erzwungen statt nur dokumentiert:
+    //   1. watchToken muss eines der beiden gehaltenen/ausgegebenen Token sein.
+    //   2. triggerAbove muss exakt dem Fall entsprechen, ob heldToken das
+    //      beobachtete (== Sell) oder das nicht beobachtete (== Buy) Bein ist.
+    //   3. Das jeweils ANDERE Bein (nicht watchToken) muss auf der Factory als
+    //      Stablecoin gelistet sein — ohne diesen zweiten Preis-Anker (aktuell
+    //      nur Konvention, nicht erzwungen) hätte der Floor keine verlässliche
+    //      USD-Basis.
 
     function setupPlan(
         address _heldToken,
@@ -165,6 +206,12 @@ contract TriggerVault is ReentrancyGuard {
         if (_triggerPrice == 0) revert InvalidTriggerPrice();
         if (_expiresAt != 0 && _expiresAt < block.timestamp) revert InvalidTimestamp();
 
+        if (_watchToken != _heldToken && _watchToken != _outputToken) revert InvalidWatchToken();
+        if (_triggerAbove != (_watchToken == _heldToken)) revert InvalidDirection();
+
+        address nonWatchLeg = (_watchToken == _heldToken) ? _outputToken : _heldToken;
+        if (!ITriggerVaultFactory(factory).isStablecoin(nonWatchLeg)) revert StablecoinRequired();
+
         heldToken    = IERC20(_heldToken);
         outputToken  = _outputToken;
         watchToken   = _watchToken;
@@ -173,6 +220,11 @@ contract TriggerVault is ReentrancyGuard {
         triggerPrice = _triggerPrice;
         expiresAt    = _expiresAt;
         initialized  = true;
+
+        (uint16 feeBpsNow, uint256 minFeeNow, ) = ITriggerVaultFactory(factory).feeInfo();
+        snapshotFeeBps         = feeBpsNow;
+        snapshotMinFee         = minFeeNow;
+        snapshotMaxSlippageBps = ITriggerVaultFactory(factory).maxSlippageBps();
 
         // Token-Transfer mit Fee-on-Transfer-Schutz, wie DcaVault.setupPlan().
         uint256 balanceBefore = heldToken.balanceOf(address(this));
@@ -220,14 +272,28 @@ contract TriggerVault is ReentrancyGuard {
 
         uint256 vaultBalance = heldToken.balanceOf(address(this));
 
-        (uint16 feeBps, uint256 minFee, address treasury) = ITriggerVaultFactory(factory).feeInfo();
-        uint256 feeAmount = (vaultBalance * feeBps) / 10_000;
-        if (feeAmount < minFee) feeAmount = minFee;
+        // feeBps/minFee kommen aus dem Snapshot von setupPlan() (siehe dort)
+        // statt einer Live-Abfrage — nur die Treasury-Adresse wird weiterhin
+        // live gelesen (siehe DcaVault.executeStep() für die Begründung).
+        (, , address treasury) = ITriggerVaultFactory(factory).feeInfo();
+        uint256 feeAmount = (vaultBalance * snapshotFeeBps) / 10_000;
+        if (feeAmount < snapshotMinFee) feeAmount = snapshotMinFee;
         if (feeAmount >= vaultBalance) revert FeeExceedsAmount();
 
         heldToken.safeTransfer(treasury, feeAmount);
         uint256 amountIn = vaultBalance - feeAmount;
         emit FeeCharged(feeAmount, treasury);
+
+        // ── On-Chain-Slippage-Floor ──────────────────────────────────────────
+        // Der Keeper bestimmt minAmountOut heute frei — ein kompromittierter/
+        // fehlerhafter Keeper könnte praktisch zu jedem Preis ausführen. Der
+        // Floor bindet minAmountOut an triggerPrice (das On-Chain-Äquivalent
+        // eines Preis-Orakels für diesen Plan) mit snapshotMaxSlippageBps
+        // Toleranz nach unten — kein Ersatz für ein echtes Orakel, aber eine
+        // harte Obergrenze für den Schaden. Nur für die beiden von setupPlan()
+        // erzwungenen Richtungen definiert (siehe dortiger Kommentar), daher
+        // hier ohne weitere Fallunterscheidung sicher berechenbar.
+        if (minAmountOut < _slippageFloor(amountIn)) revert MinOutBelowFloor();
 
         heldToken.forceApprove(router, amountIn);
 
@@ -242,6 +308,41 @@ contract TriggerVault is ReentrancyGuard {
 
         executed = true;
         emit TriggerExecuted(amountIn, amountOut);
+    }
+
+    // ── _slippageFloor ───────────────────────────────────────────────────────
+    //
+    // Leitet den minimal akzeptablen Output aus triggerPrice her (8-dezimales
+    // USD-Fixpoint, wie Chainlink/Squid). Dh/Do = Decimals von heldToken/
+    // outputToken (live per IERC20Metadata abgefragt statt angenommen — echte
+    // Werte sind gemischt, 6/8/18 je nach Token). Zwei Fälle, exakt
+    // symmetrisch zu den beiden von setupPlan() erzwungenen Richtungen:
+    //   Sell (triggerAbove, heldToken=Zieltoken): USD-Wert von amountIn über
+    //     triggerPrice, dann in outputToken-Einheiten (Stablecoin) umgerechnet.
+    //   Buy (!triggerAbove, heldToken=Stablecoin): USD-Wert von amountIn
+    //     (≈1:1), dann durch triggerPrice in outputToken-Einheiten (Zieltoken)
+    //     umgerechnet.
+    // Math.mulDiv (statt naivem a*b*c/d) vermeidet Overflow bei 18-Dezimal-
+    // Token und realistischen Beträgen; in zwei Schritten verkettet, da
+    // mulDiv nur zwei Multiplikanden und einen Divisor auf einmal nimmt.
+
+    uint256 private constant PRICE_DENOMINATOR = 1e8;
+    uint256 private constant BPS_DENOMINATOR   = 10_000;
+
+    function _slippageFloor(uint256 amountIn) internal view returns (uint256) {
+        uint8 decimalsHeld = IERC20Metadata(address(heldToken)).decimals();
+        uint8 decimalsOut  = IERC20Metadata(outputToken).decimals();
+        uint256 slippageFactor = BPS_DENOMINATOR - snapshotMaxSlippageBps;
+
+        if (triggerAbove) {
+            // Sell: heldToken = Zieltoken (== watchToken), outputToken = Stablecoin.
+            uint256 usdValue = Math.mulDiv(amountIn, triggerPrice, 10 ** decimalsHeld);
+            return Math.mulDiv(usdValue, (10 ** decimalsOut) * slippageFactor, PRICE_DENOMINATOR * BPS_DENOMINATOR);
+        } else {
+            // Buy: heldToken = Stablecoin, outputToken = Zieltoken (== watchToken).
+            uint256 usdValue = Math.mulDiv(amountIn, PRICE_DENOMINATOR, 10 ** decimalsHeld);
+            return Math.mulDiv(usdValue, (10 ** decimalsOut) * slippageFactor, triggerPrice * BPS_DENOMINATOR);
+        }
     }
 
     // ── cancel ───────────────────────────────────────────────────────────────

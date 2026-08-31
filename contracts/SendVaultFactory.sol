@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SendVault} from "./SendVault.sol";
 
 /// @notice Erzeugt für jeden Send-Plan einen eigenen SendVault als günstigen
@@ -20,7 +21,16 @@ contract SendVaultFactory {
     // ── Immutables ────────────────────────────────────────────────────────────
 
     address public immutable vaultImplementation;
-    address public immutable globalKeeper;
+
+    // Absolute Obergrenze für minFeeByToken, decimals-skaliert: höchstens 5
+    // volle Token-Einheiten (ermittelt live über IERC20Metadata.decimals()),
+    // analog zu DcaVaultFactory.MAX_MIN_FEE (dort 5 USDC/USDT, 6 Decimals).
+    // Da SendVault beliebige MiniPay-Token ohne Preis-Orakel unterstützt,
+    // bildet das keinen exakten Dollar-Betrag über alle Token hinweg ab —
+    // schützt aber wie dort davor, dass ein Admin minFeeByToken beliebig
+    // hoch setzt und eine bereits finanzierte Auszahlungstranche faktisch
+    // konfisziert.
+    uint256 public constant MAX_MIN_FEE_WHOLE_UNITS = 5;
 
     // ── State ─────────────────────────────────────────────────────────────────
     //
@@ -36,8 +46,14 @@ contract SendVaultFactory {
     //
     // Treasury ist wie bei DcaVaultFactory/TriggerVaultFactory bewusst KEIN
     // separates Wallet, sondern globalKeeper selbst.
+    //
+    // globalKeeper ist NICHT mehr immutable (siehe setGlobalKeeper()) —
+    // gleiche Begründung wie DcaVaultFactory: neue Vaults übernehmen ihn bei
+    // initialize(), bestehende Vaults bleiben unberührt auf ihrem
+    // eingefrorenen Keeper (owner-eigenes setKeeper() bleibt Recovery-Pfad).
 
     address public admin;
+    address public globalKeeper;
     uint16  public feeBps;
     mapping(address => uint256) public minFeeByToken;
 
@@ -49,6 +65,7 @@ contract SendVaultFactory {
     error InvalidAddress();
     error NotAdmin();
     error FeeTooHigh();
+    error MinFeeTooHigh();
 
     // ── Events ───────────────────────────────────────────────────────────────
 
@@ -56,6 +73,7 @@ contract SendVaultFactory {
     event FeeUpdated(uint16 feeBps);
     event MinFeeUpdated(address indexed token, uint256 minFee);
     event AdminUpdated(address indexed admin);
+    event GlobalKeeperUpdated(address indexed globalKeeper);
 
     // ── Modifier ─────────────────────────────────────────────────────────────
 
@@ -89,8 +107,19 @@ contract SendVaultFactory {
     // _minFee in der Raw-Einheit von `token` (dessen Decimals) — vom Admin
     // off-chain gegen den aktuellen Kurs auf ~$0,009 berechnet, siehe Hinweis
     // oben. Kein Address(0)-Check auf `token nötig: ein falsch gesetzter
-    // minFee für ein nie genutztes Token ist folgenlos.
+    // minFee für ein nie genutztes Token ist folgenlos. Decimals werden live
+    // per try/catch abgefragt, um den Cap zu skalieren (siehe
+    // MAX_MIN_FEE_WHOLE_UNITS) — bewusst NICHT als Pflicht-Call: ein Token
+    // ohne (Standard-)decimals()-Funktion (oder eine Platzhalter-Adresse ohne
+    // Code, z.B. für einen noch nicht gelisteten Token) darf weiterhin
+    // konfiguriert werden, nur eben ohne den zusätzlichen Cap.
     function setMinFee(address _token, uint256 _minFee) external onlyAdmin {
+        try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
+            if (_minFee > MAX_MIN_FEE_WHOLE_UNITS * (10 ** decimals)) revert MinFeeTooHigh();
+        } catch {
+            // decimals() nicht verfügbar — Cap kann nicht skaliert werden,
+            // wird für dieses Token übersprungen.
+        }
         minFeeByToken[_token] = _minFee;
         emit MinFeeUpdated(_token, _minFee);
     }
@@ -99,6 +128,12 @@ contract SendVaultFactory {
         if (_admin == address(0)) revert InvalidAddress();
         admin = _admin;
         emit AdminUpdated(_admin);
+    }
+
+    function setGlobalKeeper(address _globalKeeper) external onlyAdmin {
+        if (_globalKeeper == address(0)) revert InvalidAddress();
+        globalKeeper = _globalKeeper;
+        emit GlobalKeeperUpdated(_globalKeeper);
     }
 
     // ── feeInfo ──────────────────────────────────────────────────────────────
