@@ -1,0 +1,107 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS Trigger Vault",
+    "contract": {
+      "factory": {
+        "deployEvent": "VaultCreated(address indexed owner, address indexed vault)",
+        "deployments": [
+          {
+            "chainId": 42220,
+            "address": "0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "setupPlan(address _heldToken, address _outputToken, address _watchToken, uint256 _amount, bool _triggerAbove, uint256 _triggerPrice, uint256 _expiresAt)": {
+        "intent": "Create a price-trigger buy/sell plan",
+        "fields": [
+          {
+            "path": "_heldToken",
+            "label": "Deposit token",
+            "format": "addressName"
+          },
+          {
+            "path": "_outputToken",
+            "label": "Receive token",
+            "format": "addressName"
+          },
+          {
+            "path": "_watchToken",
+            "label": "Watched token",
+            "format": "addressName"
+          },
+          {
+            "path": "_amount",
+            "label": "Amount",
+            "format": "tokenAmount",
+            "params": {
+              "tokenPath": "_heldToken"
+            }
+          },
+          {
+            "path": "_triggerAbove",
+            "label": "Trigger when price rises above target",
+            "format": "raw"
+          },
+          {
+            "path": "_triggerPrice",
+            "label": "Target price (USD, 8 decimals)",
+            "format": "raw"
+          },
+          {
+            "path": "_expiresAt",
+            "label": "Expires at (0 = no expiry)",
+            "format": "raw"
+          }
+        ]
+      },
+      "execute(address router, uint256 minAmountOut, bytes swapCalldata)": {
+        "intent": "Execute this trigger plan's swap"
+      },
+      "cancel()": {
+        "intent": "Cancel this trigger plan and withdraw the deposited balance"
+      },
+      "setKeeper(address keeper, bool allowed)": {
+        "intent": "Authorize or revoke an executor for this vault",
+        "fields": [
+          {
+            "path": "keeper",
+            "label": "Executor address",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Authorized",
+            "format": "raw"
+          }
+        ]
+      },
+      "setRouter(address router, bool allowed)": {
+        "intent": "Approve or revoke a swap router for this vault",
+        "fields": [
+          {
+            "path": "router",
+            "label": "Router address",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Approved",
+            "format": "raw"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS Trigger Vault Factory",
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 42220,
+          "address": "0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625"
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "createVault()": {
+        "intent": "Create a new price-trigger plan vault"
+      },
+      "setFee(uint16 _feeBps, uint256 _minFee)": {
+        "intent": "Update the trigger plan fee (admin, behind a 48h timelock)",
+        "fields": [
+          {
+            "path": "_feeBps",
+            "label": "Fee (basis points, 100 = 1%)",
+            "format": "raw"
+          },
+          {
+            "path": "_minFee",
+            "label": "Minimum fee (smallest unit of the held token)",
+            "format": "raw"
+          }
+        ]
+      },
+      "setAdmin(address _admin)": {
+        "intent": "Transfer factory admin rights",
+        "fields": [
+          {
+            "path": "_admin",
+            "label": "New admin",
+            "format": "addressName"
+          }
+        ]
+      },
+      "setGlobalKeeper(address _globalKeeper)": {
+        "intent": "Set the default executor for new trigger vaults",
+        "fields": [
+          {
+            "path": "_globalKeeper",
+            "label": "New executor",
+            "format": "addressName"
+          }
+        ]
+      },
+      "setStablecoin(address token, bool allowed)": {
+        "intent": "Update the allowed stablecoin list for trigger plans (admin, behind a 48h timelock)",
+        "fields": [
+          {
+            "path": "token",
+            "label": "Token",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Allowed",
+            "format": "raw"
+          }
+        ]
+      },
+      "setMaxSlippageBps(uint16 _maxSlippageBps)": {
+        "intent": "Update the maximum allowed execution slippage tolerance",
+        "fields": [
+          {
+            "path": "_maxSlippageBps",
+            "label": "Max slippage (basis points, 100 = 1%)",
+            "format": "raw"
+          }
+        ]
+      }
+    }
+  }
+}

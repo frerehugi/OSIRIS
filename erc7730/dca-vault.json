@@ -1,0 +1,107 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS DCA Vault",
+    "contract": {
+      "factory": {
+        "deployEvent": "VaultCreated(address indexed owner, address indexed vault)",
+        "deployments": [
+          {
+            "chainId": 42220,
+            "address": "0xa6B66110b3593B5D32f4229CA5398611959149C5"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "setupPlan(address _inputToken, uint256 _totalAmount, uint32 _duration, uint256 _interval, uint256 _firstExecutionTimestamp, address[] _targetTokens, uint16[] _targetBps)": {
+        "intent": "Start a recurring buy (DCA) plan",
+        "fields": [
+          {
+            "path": "_inputToken",
+            "label": "Pay with",
+            "format": "addressName"
+          },
+          {
+            "path": "_totalAmount",
+            "label": "Total amount",
+            "format": "tokenAmount",
+            "params": {
+              "tokenPath": "_inputToken"
+            }
+          },
+          {
+            "path": "_duration",
+            "label": "Number of purchases",
+            "format": "raw"
+          },
+          {
+            "path": "_interval",
+            "label": "Time between purchases (seconds)",
+            "format": "raw"
+          },
+          {
+            "path": "_firstExecutionTimestamp",
+            "label": "First purchase at",
+            "format": "date"
+          },
+          {
+            "path": "_targetTokens",
+            "label": "Buy these tokens",
+            "format": "raw"
+          },
+          {
+            "path": "_targetBps",
+            "label": "Allocation (basis points, 10000 = 100%)",
+            "format": "raw"
+          }
+        ]
+      },
+      "executeStep(address[] routers, uint256[] minAmountsOut, bytes[] squidCallData)": {
+        "intent": "Execute the next scheduled DCA purchase"
+      },
+      "cancelPlan()": {
+        "intent": "Cancel this DCA plan and withdraw the remaining balance"
+      },
+      "setKeeper(address keeper, bool allowed)": {
+        "intent": "Authorize or revoke an executor for this vault",
+        "fields": [
+          {
+            "path": "keeper",
+            "label": "Executor address",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Authorized",
+            "format": "raw"
+          }
+        ]
+      },
+      "setRouter(address router, bool allowed)": {
+        "intent": "Approve or revoke a swap router for this vault",
+        "fields": [
+          {
+            "path": "router",
+            "label": "Router address",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Approved",
+            "format": "raw"
+          }
+        ]
+      }
+    }
+  }
+}

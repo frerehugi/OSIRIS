@@ -1,0 +1,76 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS Send Vault Factory",
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 42220,
+          "address": "0x4d63381b9b742683b92971d672018Ec5d82DA002"
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "createVault()": {
+        "intent": "Create a new scheduled payout vault"
+      },
+      "setFee(uint16 _feeBps)": {
+        "intent": "Update the payout plan fee (admin, behind a 48h timelock)",
+        "fields": [
+          {
+            "path": "_feeBps",
+            "label": "Fee (basis points, 100 = 1%)",
+            "format": "raw"
+          }
+        ]
+      },
+      "setMinFee(address _token, uint256 _minFee)": {
+        "intent": "Update the minimum fee for a token (admin, behind a 48h timelock)",
+        "fields": [
+          {
+            "path": "_token",
+            "label": "Token",
+            "format": "addressName"
+          },
+          {
+            "path": "_minFee",
+            "label": "Minimum fee",
+            "format": "tokenAmount",
+            "params": {
+              "tokenPath": "_token"
+            }
+          }
+        ]
+      },
+      "setAdmin(address _admin)": {
+        "intent": "Transfer factory admin rights",
+        "fields": [
+          {
+            "path": "_admin",
+            "label": "New admin",
+            "format": "addressName"
+          }
+        ]
+      },
+      "setGlobalKeeper(address _globalKeeper)": {
+        "intent": "Set the default executor for new payout vaults",
+        "fields": [
+          {
+            "path": "_globalKeeper",
+            "label": "New executor",
+            "format": "addressName"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS DCA Vault Factory",
+    "contract": {
+      "deployments": [
+        {
+          "chainId": 42220,
+          "address": "0xa6B66110b3593B5D32f4229CA5398611959149C5"
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "createVault()": {
+        "intent": "Create a new DCA plan vault"
+      },
+      "setFee(uint16 _feeBps, uint256 _minFee)": {
+        "intent": "Update the DCA plan fee (admin, behind a 48h timelock)",
+        "fields": [
+          {
+            "path": "_feeBps",
+            "label": "Fee (basis points, 100 = 1%)",
+            "format": "raw"
+          },
+          {
+            "path": "_minFee",
+            "label": "Minimum fee (smallest unit of the input token)",
+            "format": "raw"
+          }
+        ]
+      },
+      "setAdmin(address _admin)": {
+        "intent": "Transfer factory admin rights",
+        "fields": [
+          {
+            "path": "_admin",
+            "label": "New admin",
+            "format": "addressName"
+          }
+        ]
+      },
+      "setGlobalKeeper(address _globalKeeper)": {
+        "intent": "Set the default executor for new DCA vaults",
+        "fields": [
+          {
+            "path": "_globalKeeper",
+            "label": "New executor",
+            "format": "addressName"
+          }
+        ]
+      }
+    }
+  }
+}

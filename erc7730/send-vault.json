@@ -1,0 +1,79 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "OSIRIS Send Vault",
+    "contract": {
+      "factory": {
+        "deployEvent": "VaultCreated(address indexed owner, address indexed vault)",
+        "deployments": [
+          {
+            "chainId": 42220,
+            "address": "0x4d63381b9b742683b92971d672018Ec5d82DA002"
+          }
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "owner": "OSIRIS",
+    "info": {
+      "url": "https://osirisapp.xyz",
+      "deploymentDate": "2026-08-31T00:00:00Z"
+    }
+  },
+  "display": {
+    "formats": {
+      "setupPlan(address _token, (address wallet, uint256 totalAmount)[] _recipients, uint32 _duration, uint256 _interval, uint256 _firstExecutionTimestamp)": {
+        "intent": "Start a scheduled payout plan to multiple recipients",
+        "fields": [
+          {
+            "path": "_token",
+            "label": "Pay with",
+            "format": "addressName"
+          },
+          {
+            "path": "_recipients",
+            "label": "Recipients",
+            "format": "raw"
+          },
+          {
+            "path": "_duration",
+            "label": "Number of payouts",
+            "format": "raw"
+          },
+          {
+            "path": "_interval",
+            "label": "Time between payouts (seconds)",
+            "format": "raw"
+          },
+          {
+            "path": "_firstExecutionTimestamp",
+            "label": "First payout at",
+            "format": "date"
+          }
+        ]
+      },
+      "executeStep()": {
+        "intent": "Execute the next scheduled payout"
+      },
+      "cancelPlan()": {
+        "intent": "Cancel this payout plan and withdraw the remaining balance"
+      },
+      "setKeeper(address keeper, bool allowed)": {
+        "intent": "Authorize or revoke an executor for this vault",
+        "fields": [
+          {
+            "path": "keeper",
+            "label": "Executor address",
+            "format": "addressName"
+          },
+          {
+            "path": "allowed",
+            "label": "Authorized",
+            "format": "raw"
+          }
+        ]
+      }
+    }
+  }
+}
