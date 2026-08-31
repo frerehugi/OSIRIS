@@ -37,13 +37,13 @@ contract TriggerVaultTest is Test {
         router = new MockSquidRouter();
 
         implementation = new TriggerVault();
-        factory = new TriggerVaultFactory(address(implementation), address(router), keeper, admin);
 
-        // usdc ist in beiden Richtungen (Buy/Sell) das Stablecoin-Bein — die
-        // neue Allowlist muss es kennen, sonst revertet jedes setupPlan() mit
-        // StablecoinRequired() (siehe TriggerVault.setupPlan()).
-        vm.prank(admin);
-        factory.setStablecoin(address(usdc), true);
+        // usdc ist in beiden Richtungen (Buy/Sell) das Stablecoin-Bein — wird
+        // ATOMAR im Konstruktor freigeschaltet (siehe TriggerVaultFactory),
+        // sonst revertet jedes setupPlan() mit StablecoinRequired().
+        address[] memory initialStablecoins = new address[](1);
+        initialStablecoins[0] = address(usdc);
+        factory = new TriggerVaultFactory(address(implementation), address(router), keeper, admin, initialStablecoins);
 
         usdc.mint(owner, 1_000e6);
         wbtc.mint(address(router), 10e8);
@@ -111,19 +111,31 @@ contract TriggerVaultTest is Test {
     }
 
     function test_constructor_revertsOnZeroAddresses() public {
+        address[] memory noStablecoins = new address[](0);
         vm.expectRevert(TriggerVaultFactory.InvalidAddress.selector);
-        new TriggerVaultFactory(address(0), address(router), keeper, admin);
+        new TriggerVaultFactory(address(0), address(router), keeper, admin, noStablecoins);
         vm.expectRevert(TriggerVaultFactory.InvalidAddress.selector);
-        new TriggerVaultFactory(address(implementation), address(0), keeper, admin);
+        new TriggerVaultFactory(address(implementation), address(0), keeper, admin, noStablecoins);
         vm.expectRevert(TriggerVaultFactory.InvalidAddress.selector);
-        new TriggerVaultFactory(address(implementation), address(router), address(0), admin);
+        new TriggerVaultFactory(address(implementation), address(router), address(0), admin, noStablecoins);
         vm.expectRevert(TriggerVaultFactory.InvalidAddress.selector);
-        new TriggerVaultFactory(address(implementation), address(router), keeper, address(0));
+        new TriggerVaultFactory(address(implementation), address(router), keeper, address(0), noStablecoins);
     }
 
     function test_constructor_setsDefaultFee() public view {
         assertEq(factory.feeBps(), DEFAULT_FEE_BPS);
         assertEq(factory.minFee(), DEFAULT_MIN_FEE);
+    }
+
+    function test_constructor_whitelistsInitialStablecoins() public {
+        assertTrue(factory.isStablecoin(address(usdc)));
+        assertFalse(factory.isStablecoin(address(wbtc)));
+    }
+
+    function test_constructor_worksWithEmptyStablecoinList() public {
+        address[] memory noStablecoins = new address[](0);
+        TriggerVaultFactory f = new TriggerVaultFactory(address(implementation), address(router), keeper, admin, noStablecoins);
+        assertFalse(f.isStablecoin(address(usdc)));
     }
 
     // ─── initialize guard ────────────────────────────────────────────────────

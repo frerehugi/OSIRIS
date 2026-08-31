@@ -263,10 +263,11 @@ export const TRIGGER_VAULT_FACTORY_ABI = [
   {
     type: "constructor",
     inputs: [
-      { name: "_vaultImplementation", type: "address" },
-      { name: "_squidRouter",         type: "address" },
-      { name: "_globalKeeper",        type: "address" },
-      { name: "_admin",               type: "address" },
+      { name: "_vaultImplementation", type: "address"   },
+      { name: "_squidRouter",         type: "address"   },
+      { name: "_globalKeeper",        type: "address"   },
+      { name: "_admin",               type: "address"   },
+      { name: "_initialStablecoins",  type: "address[]" },
     ],
     stateMutability: "nonpayable",
   },

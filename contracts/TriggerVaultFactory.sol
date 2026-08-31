@@ -88,8 +88,24 @@ contract TriggerVaultFactory {
     //
     // feeBps/minFee starten identisch zu ConditionalSellOrder/OSIRIS-Floor
     // (99 bps, 0,035 USDC/USDT bei 6 Decimals = 35_000).
+    //
+    // _initialStablecoins wird ATOMAR im selben Deploy freigeschaltet, statt
+    // den Admin auf einen separaten setStablecoin()-Aufruf nach dem Deploy zu
+    // verweisen: läuft _admin bereits auf dem Phase-A-Timelock (empfohlen,
+    // siehe DeployTriggerVaultFactory.s.sol), bräuchte ein nachträglicher
+    // setStablecoin()-Aufruf den vollen 48h-Zyklus — die frisch deployte
+    // Factory wäre bis dahin für JEDES setupPlan() unbenutzbar
+    // (StablecoinRequired(), siehe TriggerVault.setupPlan()). Kein
+    // Address(0)-Check auf die Liste nötig — address(0) würde ohnehin nie als
+    // heldToken/outputToken akzeptiert (siehe TriggerVault.setupPlan()).
 
-    constructor(address _vaultImplementation, address _squidRouter, address _globalKeeper, address _admin) {
+    constructor(
+        address _vaultImplementation,
+        address _squidRouter,
+        address _globalKeeper,
+        address _admin,
+        address[] memory _initialStablecoins
+    ) {
         if (
             _vaultImplementation == address(0) ||
             _squidRouter         == address(0) ||
@@ -103,6 +119,12 @@ contract TriggerVaultFactory {
         feeBps                = 99;
         minFee                 = 35_000;
         maxSlippageBps         = 200; // 2 % Default-Toleranz für den Slippage-Floor
+
+        for (uint256 i = 0; i < _initialStablecoins.length; ) {
+            isStablecoin[_initialStablecoins[i]] = true;
+            emit StablecoinUpdated(_initialStablecoins[i], true);
+            unchecked { ++i; }
+        }
     }
 
     // ── Admin-Funktionen ─────────────────────────────────────────────────────

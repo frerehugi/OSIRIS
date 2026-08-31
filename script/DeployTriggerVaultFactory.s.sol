@@ -28,14 +28,14 @@ import {TriggerVaultFactory} from "../contracts/TriggerVaultFactory.sol";
 ///                            Wallet. Adresse vor dem Deploy verifizieren,
 ///                            nicht blind aus SECURITY.md kopieren.
 ///
-/// WICHTIG nach dem Deploy, VOR dem ersten setupPlan(): setStablecoin(token,
-/// true) für jedes Stablecoin-Bein aufrufen, das Trigger-Pläne nutzen sollen
-/// (aktuell USDC/USDT, siehe src/config.ts INPUT_TOKENS) — ohne mindestens
-/// einen gelisteten Stablecoin revertiert JEDES setupPlan() mit
-/// StablecoinRequired() (siehe TriggerVault.setupPlan()). Läuft ADMIN_ADDRESS
-/// bereits auf den Timelock, braucht das den vollen 48h-Zyklus — vor dem
-/// finalen Cutover einplanen, nicht erst wenn der erste Nutzer einen Plan
-/// anlegen will.
+/// USDC/USDT werden ATOMAR im selben Deploy als Stablecoin-Bein freigeschaltet
+/// (siehe TriggerVaultFactory-Konstruktor) — kein separater Aufruf nötig. Das
+/// ist bewusst so: läuft ADMIN_ADDRESS bereits auf dem Timelock, würde ein
+/// nachträglicher setStablecoin()-Aufruf den vollen 48h-Zyklus brauchen, und
+/// die Factory wäre bis dahin für JEDES setupPlan() unbenutzbar
+/// (StablecoinRequired()). Ein zusätzliches Stablecoin (z.B. cUSD, sobald
+/// Squid es unterstützt) kann später jederzeit per setStablecoin() über den
+/// Admin nachgezogen werden.
 
 contract DeployTriggerVaultFactory is Script {
 
@@ -49,6 +49,12 @@ contract DeployTriggerVaultFactory is Script {
     // (siehe TriggerVaultFactory.feeInfo()).
     address constant GLOBAL_KEEPER = 0x02069c8AfceC69622c0F1C5316735042A86BC6fA;
 
+    // Quelle: src/config.ts INPUT_TOKENS (mainnet) — die beiden aktuell auf
+    // Mainnet nutzbaren Stablecoins (cUSD ist dort aktuell von Squid nicht
+    // geroutet, siehe Kommentar in config.ts, deshalb hier bewusst nicht dabei).
+    address constant USDC_MAINNET = 0xcebA9300f2b948710d2653dD7B07f33A8B32118C;
+    address constant USDT_MAINNET = 0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e;
+
     function run() external {
         require(
             block.chainid == 42220,
@@ -58,11 +64,17 @@ contract DeployTriggerVaultFactory is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address admin = vm.envAddress("ADMIN_ADDRESS");
 
+        address[] memory initialStablecoins = new address[](2);
+        initialStablecoins[0] = USDC_MAINNET;
+        initialStablecoins[1] = USDT_MAINNET;
+
         console2.log("=== OSIRIS TriggerVaultFactory Deploy (Fee-Snapshot + Slippage-Floor) ===");
         console2.log("Chain ID:      ", block.chainid);
         console2.log("Squid Router:  ", SQUID_ROUTER_MAINNET);
         console2.log("Global Keeper: ", GLOBAL_KEEPER);
         console2.log("Admin:         ", admin);
+        console2.log("Stablecoins:   ", USDC_MAINNET);
+        console2.log("               ", USDT_MAINNET);
 
         vm.startBroadcast(deployerKey);
 
@@ -71,7 +83,8 @@ contract DeployTriggerVaultFactory is Script {
             address(implementation),
             SQUID_ROUTER_MAINNET,
             GLOBAL_KEEPER,
-            admin
+            admin,
+            initialStablecoins
         );
 
         vm.stopBroadcast();
@@ -85,7 +98,5 @@ contract DeployTriggerVaultFactory is Script {
         console2.log("   verschieben, neue Adresse als TRIGGER_VAULT_FACTORY_ADDRESS eintragen.");
         console2.log("2. TRIGGER_VAULT_FACTORY_ADDRESSES (Keeper-Secret, kommagetrennt) um die neue");
         console2.log("   Adresse ERGAENZEN statt ersetzen, sonst verliert der Keeper bestehende Plaene.");
-        console2.log("3. setStablecoin(usdc, true) / setStablecoin(usdt, true) aufrufen (siehe");
-        console2.log("   Kommentar oben) -- ohne das schlaegt jedes setupPlan() fehl.");
     }
 }
