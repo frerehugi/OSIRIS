@@ -22,7 +22,7 @@ export const SQUID_ROUTER_MAINNET = "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
 // nachgezogen, siehe keeper/squidKeeper.ts). Neue Pläne entstehen ab jetzt
 // ausschließlich über FACTORY_ADDRESS.createVault().
 export const VAULT_ADDRESS       = "0x22541bDAf712920330F2d0FC26D1Ac807e914FDc" as `0x${string}`;
-export const SQUID_INTEGRATOR_ID = "minipay-osiris-xxxxxxxx"; // bei Squid beantragen
+export const SQUID_INTEGRATOR_ID = "osiris-4467319c-aa33-4ae8-86ff-cd0cb431033f";
 
 // ─── Factory (EIP-1167-Clones) ────────────────────────────────────────────────
 //
