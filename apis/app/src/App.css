@@ -751,6 +751,12 @@ h1 {
   color: var(--text-muted);
 }
 
+.sell-sub--muted {
+  padding-top: 2px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 /* Identisch zu OSIRIS' .tile (siehe src/App.css). */
 .sell-card {
   margin: 0 18px;

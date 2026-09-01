@@ -39,6 +39,11 @@ export default function TriggerPlanCard({ plan, confirming, cancelling, onReques
       <p className="sell-sub">
         Triggers {plan.direction === 'buy' ? 'at or below' : 'at or above'} ${plan.triggerPriceUsd.toLocaleString()} · {formatExpiry(plan.expiresAt)}
       </p>
+      {plan.status === 'active' && (
+        <p className="sell-sub sell-sub--muted">
+          Checked against the live swap quote price, which can briefly differ from the chart above.
+        </p>
+      )}
 
       {(plan.status === 'active' || plan.status === 'expired') && (
         confirming ? (
