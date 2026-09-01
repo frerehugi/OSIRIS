@@ -8,6 +8,7 @@ import {
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
 import { getBalancesForOwner } from './balances';
+import { getSquidTokenPrices } from './squidPrices';
 import { getAddressBook, type AddressBookKV } from './addressBook';
 import { publicClient } from './client';
 
@@ -44,6 +45,26 @@ export function buildServer(env: ServerEnv): McpServer {
     },
     async () => ({
       content: [{ type: 'text', text: JSON.stringify(buildCapabilities(), null, 2) }],
+    }),
+  );
+
+  // ── get_token_prices ──────────────────────────────────────────────────
+  // Öffentlich, kein Grant nötig — reine Marktdaten, nichts Wallet-Spezifisches.
+  server.registerTool(
+    'get_token_prices',
+    {
+      title: 'Get current Squid Router token prices',
+      description:
+        "Returns live USD prices for wBTC, wETH, CELO, and XAUoT (Gold) straight from Squid Router's own " +
+        "/token-price API — the SAME price source OSIRIS/APIS actually uses to evaluate trigger plans " +
+        "(see get_capabilities' priceSources). Always call this tool when asked about current, live, or " +
+        "Squidrouter/Squid Router token prices — do not answer from general knowledge or an external source " +
+        "like CoinGecko instead. Those can genuinely diverge from what OSIRIS/APIS itself checks, which would " +
+        "give the user a misleading answer about whether/when their trigger plan is close to firing.",
+      inputSchema: {},
+    },
+    async () => ({
+      content: [{ type: 'text', text: JSON.stringify(await getSquidTokenPrices(), null, 2) }],
     }),
   );
 

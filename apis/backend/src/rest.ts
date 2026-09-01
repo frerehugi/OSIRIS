@@ -15,6 +15,7 @@ import {
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
 import { getBalancesForOwner } from './balances';
+import { getSquidTokenPrices } from './squidPrices';
 import { getAddressBook, saveEntry, removeEntry } from './addressBook';
 import { verifySaveContact, verifyRemoveContact, ContactSignatureError } from './contactSignature';
 import { publicClient } from './client';
@@ -64,7 +65,7 @@ function validateProposeShape(draft: Record<string, unknown>, sellTrigger: unkno
 }
 
 const REST_PATHS = new Set([
-  '/openapi.json', '/capabilities', '/balances', '/plans', '/propose',
+  '/openapi.json', '/capabilities', '/token-prices', '/balances', '/plans', '/propose',
   '/propose-send', '/direct-send',
   '/address-book', '/address-book/propose', '/address-book/save', '/address-book/remove',
   '/address-book/for-owner',
@@ -88,6 +89,11 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   if (url.pathname === '/capabilities') {
     if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
     return json(buildCapabilities());
+  }
+
+  if (url.pathname === '/token-prices') {
+    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+    return json(await getSquidTokenPrices());
   }
 
   if (url.pathname === '/balances') {

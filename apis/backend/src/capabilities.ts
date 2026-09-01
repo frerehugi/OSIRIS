@@ -81,7 +81,11 @@ export function buildCapabilities() {
     // Quelle statt pro-Token-Feed-IDs ohne Live-Verifikation) — der Eintrag
     // hier hätte der KI fälschlich Quellenvielfalt vorgegaukelt, die es nicht gibt.
     priceSources: [
-      { id: 'squid-token-price', label: 'Squid /v2/token-price', onChain: false, covers: ['wBTC', 'wETH', 'CELO', 'XAUoT'] },
+      {
+        id: 'squid-token-price', label: 'Squid /v2/token-price', onChain: false,
+        covers: ['wBTC', 'wETH', 'CELO', 'XAUoT'],
+        note: 'Fetch a live price via get_token_prices (MCP) or GET /token-prices (REST) — do not substitute an external source like CoinGecko, it can genuinely diverge from this one.',
+      },
     ],
 
     accessGrant: {

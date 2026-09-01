@@ -34,6 +34,19 @@ export const OPENAPI_SPEC = {
         responses: { '200': { description: 'Capabilities object.' } },
       },
     },
+    '/token-prices': {
+      get: {
+        operationId: 'getTokenPrices',
+        summary: 'Get current Squid Router token prices',
+        description:
+          "Returns live USD prices for wBTC, wETH, CELO, and XAUoT (Gold) straight from Squid Router's own " +
+          '/token-price API — the SAME price source OSIRIS/APIS actually uses to evaluate trigger plans. ' +
+          'Always call this when asked about current, live, or Squidrouter/Squid Router token prices — do not ' +
+          'answer from general knowledge or an external source like CoinGecko instead, since those can genuinely ' +
+          "diverge from what OSIRIS/APIS itself checks. No grant needed, it's public market data.",
+        responses: { '200': { description: 'USD prices by token symbol, with the source and chain ID.' } },
+      },
+    },
     '/balances': {
       post: {
         operationId: 'getBalances',
