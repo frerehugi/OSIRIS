@@ -1862,9 +1862,7 @@ export default function App() {
             </span>
             <span className="new-plan-tile__chev">›</span>
           </button>
-          {(visiblePlans.length > 0 || visibleTriggerPlans.length > 0) && (
-            <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
-          )}
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
         </section>
       </Card>
     );
