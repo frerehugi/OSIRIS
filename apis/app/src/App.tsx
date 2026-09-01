@@ -3,6 +3,7 @@ import { useConnection } from 'wagmi';
 import Landing from './screens/Landing';
 import Home from './screens/Home';
 import Holdings from './screens/Holdings';
+import TokenPrices from './screens/TokenPrices';
 import Plans from './screens/Plans';
 import ActivePlans from './screens/ActivePlans';
 import CompletedPlans from './screens/CompletedPlans';
@@ -64,6 +65,10 @@ export default function App() {
       <Route
         path="/holdings"
         element={<RequireConnection><Holdings /></RequireConnection>}
+      />
+      <Route
+        path="/token-prices"
+        element={<RequireConnection><TokenPrices /></RequireConnection>}
       />
       <Route
         path="/address-book"

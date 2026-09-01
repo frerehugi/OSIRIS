@@ -19,6 +19,7 @@ export {
 } from '../../../src/config';
 
 export { ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from '../../../src/dcaVaultAbi';
+export { fetchTokenPriceUsd } from '../../../src/squidPrice';
 
 // Einzige Stelle, an der die APIS-App selbst (nicht die KI) den Backend-
 // Worker aufruft — bisher rein für die KI/REST-Schicht gedacht (siehe

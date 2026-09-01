@@ -7,6 +7,7 @@ import {
   type SubmitDcaPlanPhase, type PurchaseEvent, type SubmitTriggerPlanPhase,
 } from './minipayWallet';
 import { TARGET_TOKENS, INPUT_TOKENS as INPUT_TOKEN_INFO, INTERVAL_SECONDS } from './config';
+import { fetchTokenPriceUsd } from './squidPrice';
 import {
   TOKENS,
   WEEKDAYS,
@@ -80,7 +81,7 @@ type View =
   | 'connect' | 'vaultList' | 'wizard' | 'success' | 'purchases' | 'about' | 'terms' | 'privacy'
   | 'newPlanChoice' | 'triggerDirection' | 'triggerCoin' | 'triggerDetailsBuy' | 'triggerDetailsSell'
   | 'triggerSummary' | 'triggerSuccess'
-  | 'plansHub' | 'plansActive' | 'plansCompleted' | 'plansCancelled' | 'holdings';
+  | 'plansHub' | 'plansActive' | 'plansCompleted' | 'plansCancelled' | 'holdings' | 'squidPrices';
 
 const SUBMIT_PHASE_LABEL: Record<SubmitDcaPlanPhase, string> = {
   'creating-vault':   '⏳ Creating vault...',
@@ -246,6 +247,9 @@ function getCancelledAt(vaultAddress: string): number | null {
 
 const TOKEN_ICONS: Record<TokenType, string> = { wBTC: '₿', wETH: 'Ξ', CELO: 'C', XAUoT: '🥇' };
 const TOKEN_LABELS: Record<TokenType, string> = { wBTC: 'wBTC', wETH: 'wETH', CELO: 'CELO', XAUoT: 'Gold' };
+
+// ─── Squid Token Prices — Anzeigereihenfolge ────────────────────────────────
+const SQUID_PRICE_TOKENS: readonly TokenType[] = ['XAUoT', 'wBTC', 'wETH', 'CELO'];
 
 // ─── My Holdings — Zieltoken + Stablecoins in einer Liste ──────────────────────
 type HoldingToken = 'USDC' | 'USDT' | TokenType;
@@ -590,6 +594,9 @@ export default function App() {
 
   const [holdings, setHoldings]         = useState<Partial<Record<HoldingToken, bigint>>>({});
   const [holdingsLoading, setHoldingsLoading] = useState(false);
+  // null = Preis-Lookup für dieses Token fehlgeschlagen, undefined = noch nicht geladen.
+  const [squidPrices, setSquidPrices]         = useState<Partial<Record<TokenType, number | null>>>({});
+  const [squidPricesLoading, setSquidPricesLoading] = useState(false);
 
   const [formData, setFormData]       = useState<DcaPlanState>(() => createInitialFormState());
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -862,6 +869,30 @@ export default function App() {
       console.error('Loading holdings failed', error);
     } finally {
       setHoldingsLoading(false);
+    }
+  };
+
+  // Lädt bei jedem Öffnen frisch, jedes Token unabhängig (ein fehlschlagender
+  // Squid-Lookup soll nicht den ganzen Screen leer lassen) — gleiches
+  // Isolationsmuster wie der Preis-Check-Loop im Keeper (siehe
+  // keeper/squidKeeper.ts, findExecutableTriggerVaults()).
+  const openSquidPrices = async () => {
+    setView('squidPrices');
+    setSquidPricesLoading(true);
+    try {
+      const entries = await Promise.all(
+        SQUID_PRICE_TOKENS.map(async (token) => {
+          try {
+            return [token, await fetchTokenPriceUsd(TARGET_TOKENS[token].address)] as const;
+          } catch (error) {
+            console.error(`Loading Squid price for ${token} failed`, error);
+            return [token, null] as const;
+          }
+        }),
+      );
+      setSquidPrices(Object.fromEntries(entries));
+    } finally {
+      setSquidPricesLoading(false);
     }
   };
 
@@ -1392,6 +1423,13 @@ export default function App() {
               </span>
               <span className="menu-item__chev" aria-hidden="true">›</span>
             </button>
+            <button type="button" className="menu-item" onClick={openSquidPrices}>
+              <span className="menu-item__text">
+                <span className="menu-item__title">Current Squidrouter Token Prices</span>
+                <span className="menu-item__sub">XAUoT · wBTC · wETH · CELO</span>
+              </span>
+              <span className="menu-item__chev" aria-hidden="true">›</span>
+            </button>
             <button type="button" className="menu-item" onClick={openNewPlanChoice}>
               <span className="menu-item__text">
                 <span className="menu-item__title">+ New Plan</span>
@@ -1636,6 +1674,51 @@ export default function App() {
           </div>
           <p className="holdings-note">
             Balances read directly from your MiniPay wallet. OSIRIS never holds custody — this is a view, not a transfer.
+          </p>
+          <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
+        </section>
+      </Card>
+    );
+  }
+
+  // ── View: Current Squidrouter Token Prices ──────────────────────────────────
+
+  if (view === 'squidPrices') {
+    return (
+      <Card>
+        <section className="stack">
+          <h2>📈 Squidrouter Token Prices</h2>
+          <div className="holdings-list">
+            {SQUID_PRICE_TOKENS.map((token) => {
+              const price = squidPrices[token];
+              return (
+                <div key={token} className="holding-row">
+                  <span
+                    className="token-icon"
+                    style={{ width: 30, height: 30, fontSize: 16, background: HOLDING_COLOR[token], color: HOLDING_TEXT[token] }}
+                  >
+                    {HOLDING_ICONS[token]}
+                  </span>
+                  <div className="holding-row__name">
+                    <span className="holding-row__symbol">{TOKEN_LABELS[token]}</span>
+                    <span className="holding-row__full">{HOLDING_NAME[token]}</span>
+                  </div>
+                  <div className="holding-row__amount">
+                    {squidPricesLoading && price === undefined
+                      ? '···'
+                      : price === null
+                        ? '—'
+                        : price !== undefined
+                          ? `$${price.toLocaleString(undefined, { maximumFractionDigits: 6 })}`
+                          : '—'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="holdings-note">
+            Live quote prices from the Squid Router API — the same source the keeper checks
+            for price-trigger plans. Can briefly differ from other price charts (e.g. CoinGecko).
           </p>
           <Button variant="secondary" onClick={() => setView('vaultList')}>← Back to Home</Button>
         </section>

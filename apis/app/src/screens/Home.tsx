@@ -12,6 +12,7 @@ const MENU_ITEMS: MenuItem[] = [
   { to: '/confirm-plan', title: 'Confirm Plan',              sub: 'Paste a buy, sell-trigger, or send plan your AI assistant proposed' },
   { to: '/plans',        title: 'My Plans',                  sub: 'Active, completed, cancelled & purchases' },
   { to: '/holdings',      title: 'My Holdings',               sub: 'USDC · USDT · CELO · XAUoT · wBTC · wETH' },
+  { to: '/token-prices',  title: 'Current Squidrouter Token Prices', sub: 'XAUoT · wBTC · wETH · CELO' },
   { to: '/address-book',  title: 'Address Book',              sub: 'Contacts your AI assistant can send to' },
   { to: '/about',         title: 'About APIS',                sub: 'Terms, disclaimer & support' },
 ];
