@@ -9,7 +9,7 @@ which is the version Claude reloads across unrelated chats when told "hold dir d
 CELO readme". The two should stay in sync; if they drift, this file (checked into git,
 reviewable in diffs) is the tiebreaker.
 
-Last updated **01.09.2026**.
+Last updated **02.09.2026**.
 
 ## 1. What this is
 
@@ -80,6 +80,16 @@ kept in the keeper's scan list by hand, not discoverable via `getAllVaults()`.
 |---|---|---|---|
 | 2 (current) | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` | live, no floor on plans opened before 31.08.2026 |
 | 1 | `0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97` | — | old, still served |
+
+Gen 3 (Plan 4 Befund A — per-token, decimals-aware `minFeeByToken` instead of
+one global raw `minFee` scalar) is code-complete and tests-passing as of
+02.09.2026 but **not yet deployed** — `src/config.ts`'s
+`ALL_TRIGGER_VAULT_FACTORY_ADDRESSES` is deliberately structured as an
+ever-growing list already, ready to take a third entry the moment it ships.
+Also pending: `TriggerVaultFactory.setMaxSlippageBps(900)` was proposed via
+the Timelock on 01.09.2026 for the *current* (gen 2) factory — fixes
+`MinOutBelowFloor()` false-rejecting the keeper's own legitimate quotes —
+executable ~48h later once the delay elapses.
 
 ### Shared infrastructure
 
@@ -155,6 +165,18 @@ own price read (`wrangler tail`) before assuming a bug.
 | Sandbox network reality | `forno.celo.org` and `celoscan.io` are both egress-blocked from this Claude Code sandbox. Live on-chain reads go through the user (Celoscan's mobile-friendly `#readContract` tab works with no wallet needed) or `cast`/`wrangler tail` run on their machine. |
 | Test wallet | `0x205A92b7d69e2A0628cE928c4E3d3aC29D67C90f` |
 
+**Unmerged branch worth knowing about:** `claude/apis-8004-agent` (commit
+`f7f463e`, 30.08.2026) has a `LICENSE` file (MIT, "University of Osnabrück")
+added to match the README's pre-existing claim, plus an already-written
+"one-time code" → "access code" UI copy fix. The copy fix was ported to
+`master` directly (02.09.2026, pure text, no legal claim). The `LICENSE`
+addition was deliberately **not** ported — no `LICENSE` file exists on
+`master` today despite the old README's unqualified "MIT" claim, and picking
+a license/copyright holder is a real-world legal decision for the repo owner
+to confirm, not one to make unilaterally just because an earlier session
+already wrote one on a side branch. Surface this to the user rather than
+re-deciding it from scratch or silently reusing that branch's choice.
+
 ## 7. Hard-won gotchas
 
 Specific, previously-costly mistakes — not general Solidity/TS advice.
@@ -176,6 +198,26 @@ Specific, previously-costly mistakes — not general Solidity/TS advice.
   migration** — generation 1 quietly disappears. Use an ever-growing list
   (`ALL_FACTORY_ADDRESSES`) instead of two named slots once there's more than one
   prior generation.
+- **A read helper that looks up derived data (e.g. a known-token table) before
+  checking whether the underlying record is even initialized can silently drop
+  the row instead of just rendering it incompletely.** Found live 02.09.2026:
+  `usePlans.ts`'s `parseTriggerPlanRow()` resolved `heldToken`/`outputToken`
+  against a symbol table before checking `initialized` — a pending vault
+  (`createVault()` succeeded, `setupPlan()` never called) still has both at
+  `address(0)`, the lookup failed, and the function returned `null` — so the
+  vault vanished from *every* "My Plans" screen instead of showing as
+  'pending' like its DCA equivalent already did. Always branch on
+  initialization state first; only resolve derived fields once you know
+  they're meaningful.
+- **CI wasn't actually running the test suite.** `.github/workflows/tests.yml`
+  (added 02.09.2026) is the first workflow that runs `forge test` + `tsc
+  --noEmit` + `npm audit` on every push/PR — every prior verification in this
+  project's history happened by hand, in a local terminal, never enforced. Its
+  first real run also surfaced its own gotcha: `apis/app`/`apis/backend` both
+  import shared code straight from root `src/` (no npm workspaces), so a
+  matrix job that only runs `npm ci` inside its own package directory can't
+  resolve root's own dependencies (`viem`) for those transitively-imported
+  root files — install root deps too, not just the matrix package's own.
 
 ## 8. Celopedia skill
 
