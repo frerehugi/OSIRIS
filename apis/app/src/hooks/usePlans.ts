@@ -6,7 +6,7 @@ import {
 } from '../../../../src/minipayWallet';
 import {
   ERC20_ABI, DCA_VAULT_ABI, INPUT_TOKENS, TARGET_TOKENS,
-  ALL_TRIGGER_VAULT_FACTORY_ADDRESSES, type TokenInfo,
+  ALL_TRIGGER_VAULT_FACTORY_ADDRESSES, TRIGGER_VAULT_FACTORY_ADDRESS, type TokenInfo,
 } from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
 
@@ -67,6 +67,12 @@ export interface TriggerPlanSummary {
   triggerPriceUsd: number;
   expiresAt:       number; // 0 = zeitlich unbegrenzt
   status:          TriggerPlanStatus;
+  // Nur für status === 'pending' relevant: true, wenn dieser Vault von der
+  // AKTUELLEN TriggerVaultFactory-Generation stammt (siehe canFinish-Zuweisung
+  // in triggerPlans unten) — nur dann bietet die UI "Finish & close" an, weil
+  // ältere Generationen ein anderes setupPlan()-ABI haben (kein watchToken vor
+  // Plan 2 B3) und mit dem aktuellen ABI einfach revertieren würden.
+  canFinish:       boolean;
 }
 
 const ALL_TOKENS_BY_ADDRESS: Record<string, TokenInfo> = Object.fromEntries(
@@ -96,6 +102,22 @@ function parseTriggerPlanRow(
   const [heldToken, outputToken, amountRaw, , triggerPriceRaw, expiresAtRaw, initialized, cancelled, executed] =
     results.map((r) => r.result) as [`0x${string}`, `0x${string}`, bigint, boolean, bigint, bigint, boolean, boolean, boolean];
 
+  // Ein pending-Vault (initialized === false, z.B. createVault() ohne
+  // folgendes setupPlan()) hat heldToken/outputToken noch auf address(0) —
+  // die Token-Lookups unten würden fehlschlagen und `null` zurückgeben, womit
+  // der Vault komplett aus "My Plans" verschwindet (nicht nur ohne
+  // Aufräum-Button, sondern unsichtbar). Eigener, minimaler Zweig davor, exakt
+  // wie DCA-Pläne einen 'pending'-Vault sichtbar halten. `canFinish` wird erst
+  // im triggerPlans-useMemo gesetzt (braucht die Factory-Zuordnung, die hier
+  // nicht vorliegt).
+  if (!initialized) {
+    return {
+      address: vaultAddress, direction: 'buy', heldSymbol: '', outputSymbol: '',
+      amountRaw: 0n, heldDecimals: 18, triggerPriceUsd: 0, expiresAt: 0,
+      status: 'pending', canFinish: false,
+    };
+  }
+
   const heldInfo = ALL_TOKENS_BY_ADDRESS[heldToken.toLowerCase()];
   const outputInfo = ALL_TOKENS_BY_ADDRESS[outputToken.toLowerCase()];
   if (!heldInfo || !outputInfo) return null;
@@ -104,8 +126,7 @@ function parseTriggerPlanRow(
   const expiresAt = Number(expiresAtRaw);
 
   let status: TriggerPlanStatus;
-  if (!initialized) status = 'pending';
-  else if (cancelled) status = 'cancelled';
+  if (cancelled) status = 'cancelled';
   else if (executed) status = 'executed';
   else if (expiresAt !== 0 && Date.now() / 1000 > expiresAt) status = 'expired';
   else status = 'active';
@@ -120,6 +141,7 @@ function parseTriggerPlanRow(
     triggerPriceUsd: Number(formatUnits(triggerPriceRaw, 8)),
     expiresAt,
     status,
+    canFinish: false,
   };
 }
 
@@ -221,11 +243,24 @@ export function usePlans() {
         ))
       : [],
   });
-  const triggerVaultAddresses = [...new Set(
-    (vaultListData ?? [])
-      .filter((r) => r.status === 'success')
-      .flatMap((r) => r.result as `0x${string}`[])
-  )];
+
+  // Pro Vault merken, von welcher Factory-Generation er stammt (nicht nur die
+  // deduplizierte Adressliste) — finishPendingTriggerPlan() unten darf
+  // "Finish & close" nur für die AKTUELLE Generation anbieten, siehe
+  // canFinish-Kommentar oben.
+  const vaultFactoryByAddress = useMemo(() => {
+    const map = new Map<string, { address: `0x${string}`; factory: `0x${string}` }>();
+    (vaultListData ?? []).forEach((r, i) => {
+      if (r.status !== 'success') return;
+      const factoryAddress = ALL_TRIGGER_VAULT_FACTORY_ADDRESSES[i];
+      (r.result as `0x${string}`[]).forEach((vaultAddress) => {
+        map.set(vaultAddress.toLowerCase(), { address: vaultAddress, factory: factoryAddress });
+      });
+    });
+    return map;
+  }, [vaultListData]);
+
+  const triggerVaultAddresses = [...vaultFactoryByAddress.values()].map((v) => v.address);
 
   const { data: triggerDetailData, isLoading: triggerDetailsLoading, refetch: refetchTriggerDetails } = useReadContracts({
     allowFailure: true,
@@ -238,10 +273,15 @@ export function usePlans() {
     triggerVaultAddresses.forEach((vaultAddress, i) => {
       const slice = triggerDetailData.slice(i * TRIGGER_FIELDS.length, (i + 1) * TRIGGER_FIELDS.length);
       const parsed = parseTriggerPlanRow(vaultAddress, slice);
-      if (parsed) rows.push(parsed);
+      if (!parsed) return;
+      if (parsed.status === 'pending') {
+        const factory = vaultFactoryByAddress.get(vaultAddress.toLowerCase())?.factory;
+        parsed.canFinish = factory === TRIGGER_VAULT_FACTORY_ADDRESS;
+      }
+      rows.push(parsed);
     });
     return rows;
-  }, [triggerVaultAddresses, triggerDetailData]);
+  }, [triggerVaultAddresses, triggerDetailData, vaultFactoryByAddress]);
 
   const [triggerConfirmingAddress, setTriggerConfirmingAddress] = useState<`0x${string}` | null>(null);
   const [triggerCancellingAddress, setTriggerCancellingAddress] = useState<`0x${string}` | null>(null);
@@ -313,6 +353,55 @@ export function usePlans() {
     }
   };
 
+  // ── "Finish & close" für verwaiste, nie initialisierte Trigger-Vaults ──────
+  //
+  // Gleiches Muster wie finishPendingPlan() oben (DCA): setupPlan() mit einem
+  // trivialen, gültigen Platzhalter nachholen, dann sofort cancel() — voller
+  // Refund (kein Fee außerhalb von execute()), kostet nur Gas. Platzhalter ist
+  // ein Buy 0.01 USDC → CELO mit watchToken=CELO/triggerAbove=false — erfüllt
+  // die seit Plan 2 B3 geltende Richtungs-Invariante (triggerAbove muss
+  // (watchToken == heldToken) entsprechen) und die Stablecoin-Pflicht für das
+  // nicht beobachtete Bein (USDC ist auf der aktuellen Factory gelistet).
+  // Nur für Pläne mit canFinish === true aufgerufen (siehe dort) — eine
+  // ältere Factory-Generation hat ein anderes setupPlan()-ABI (kein
+  // watchToken-Parameter vor Plan 2 B3) und würde mit diesem ABI schlicht
+  // revertieren statt etwas Sinnvolles zu tun.
+  const [triggerFinishConfirmingAddress, setTriggerFinishConfirmingAddress] = useState<`0x${string}` | null>(null);
+  const [triggerFinishingAddress, setTriggerFinishingAddress] = useState<`0x${string}` | null>(null);
+  const [triggerFinishError, setTriggerFinishError] = useState<string | null>(null);
+
+  const finishPendingTriggerPlan = async (vaultAddress: `0x${string}`) => {
+    if (!publicClient) return;
+    setTriggerFinishConfirmingAddress(null);
+    setTriggerFinishingAddress(vaultAddress);
+    setTriggerFinishError(null);
+    try {
+      const approveHash = await writeContractAsync({
+        address: INPUT_TOKENS.USDC.address, abi: ERC20_ABI, functionName: 'approve',
+        args: [vaultAddress, FINISH_PLACEHOLDER_AMOUNT],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      const setupHash = await writeContractAsync({
+        address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: 'setupPlan',
+        args: [
+          INPUT_TOKENS.USDC.address, TARGET_TOKENS.CELO.address, TARGET_TOKENS.CELO.address,
+          FINISH_PLACEHOLDER_AMOUNT, false, 1n, 0n,
+        ],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: setupHash });
+
+      const cancelHash = await writeContractAsync({ address: vaultAddress, abi: TRIGGER_VAULT_ABI, functionName: 'cancel' });
+      await publicClient.waitForTransactionReceipt({ hash: cancelHash });
+
+      await Promise.all([refetchVaultList(), refetchTriggerDetails()]);
+    } catch (err) {
+      setTriggerFinishError(err instanceof Error ? err.message : 'Could not finish this plan. Please try again.');
+    } finally {
+      setTriggerFinishingAddress(null);
+    }
+  };
+
   return {
     plans, plansLoading: loading, plansError: error,
     confirmingAddress, setConfirmingAddress, cancellingAddress, cancelError, confirmCancel,
@@ -321,5 +410,8 @@ export function usePlans() {
 
     triggerPlans, triggerPlansLoading: vaultListLoading || triggerDetailsLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,
+
+    triggerFinishConfirmingAddress, setTriggerFinishConfirmingAddress,
+    triggerFinishingAddress, triggerFinishError, finishPendingTriggerPlan,
   };
 }

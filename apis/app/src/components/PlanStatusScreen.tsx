@@ -24,6 +24,8 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
     finishConfirmingAddress, setFinishConfirmingAddress, finishingAddress, finishError, finishPendingPlan,
     triggerPlans, triggerPlansLoading, triggerCancelError,
     triggerConfirmingAddress, setTriggerConfirmingAddress, triggerCancellingAddress, confirmTriggerCancel,
+    triggerFinishConfirmingAddress, setTriggerFinishConfirmingAddress,
+    triggerFinishingAddress, triggerFinishError, finishPendingTriggerPlan,
   } = usePlans();
 
   const dcaFiltered: PlanSummary[] | null = plans?.filter((p) => dcaStatuses.includes(p.status)) ?? null;
@@ -69,6 +71,7 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
       <div className="section-label" style={{ marginTop: 8 }}>Trigger Plans</div>
       {triggerPlansLoading && <p className="plans-note">Loading your trigger plans…</p>}
       {triggerCancelError && <p className="createcode-error">{triggerCancelError}</p>}
+      {triggerFinishError && <p className="createcode-error">{triggerFinishError}</p>}
       {!triggerPlansLoading && triggerFiltered.length === 0 && (
         <p className="plans-note">{emptyTrigger}</p>
       )}
@@ -82,6 +85,11 @@ export default function PlanStatusScreen({ title, dcaStatuses, triggerStatuses, 
             onRequestCancel={() => setTriggerConfirmingAddress(plan.address)}
             onCancelCancel={() => setTriggerConfirmingAddress(null)}
             onConfirmCancel={() => confirmTriggerCancel(plan.address)}
+            finishConfirming={triggerFinishConfirmingAddress === plan.address}
+            finishing={triggerFinishingAddress === plan.address}
+            onRequestFinish={() => setTriggerFinishConfirmingAddress(plan.address)}
+            onCancelFinish={() => setTriggerFinishConfirmingAddress(null)}
+            onConfirmFinish={() => finishPendingTriggerPlan(plan.address)}
           />
         ))}
       </div>
