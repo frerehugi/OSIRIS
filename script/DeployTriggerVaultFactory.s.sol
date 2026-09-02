@@ -105,7 +105,7 @@ contract DeployTriggerVaultFactory is Script {
         console2.log("Admin:         ", admin);
         console2.log("Stablecoins:   ", USDC_MAINNET);
         console2.log("               ", USDT_MAINNET);
-        console2.log("MinFee tokens: 6 (USDC/USDT/wBTC/wETH/CELO/XAUoT) — siehe Skript fuer Rohwerte");
+        console2.log("MinFee tokens: 6 (USDC/USDT/wBTC/wETH/CELO/XAUoT) -- siehe Skript fuer Rohwerte");
 
         vm.startBroadcast(deployerKey);
 
