@@ -42,6 +42,15 @@ jobs:
         with:
           node-version: "24"
 
+      # apis/app and apis/backend both import shared code straight from root
+      # src/ (e.g. config.ts, minipayWallet.ts) rather than depending on a
+      # published package -- tsc follows those imports and needs root's own
+      # node_modules (viem etc.) resolvable too, not just the matrix
+      # package's. A no-op for the root entry itself (dir: ".").
+      - name: Install root dependencies (needed for shared src/ imports)
+        if: matrix.package.dir != '.'
+        run: npm ci
+
       - name: Install dependencies (${{ matrix.package.name }})
         working-directory: ${{ matrix.package.dir }}
         run: npm ci
