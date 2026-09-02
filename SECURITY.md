@@ -96,6 +96,58 @@ life — live fee reads, no `minFee` ceiling, and for `TriggerVault`, no slippag
 at all. Owners of an open plan on an old `TriggerVaultFactory` who want the new floor
 need to cancel and recreate their plan.
 
+## Second review (01.09.2026) — findings and fixes
+
+A second external review, against the code above, found two real gaps this
+project's own tooling introduced and missed, plus confirmed one already-known
+issue was live in production. All three are fixed as of this section:
+
+- **Keeper safety buffer vs. the new Trigger slippage floor (fixed via
+  Timelock)**: the keeper's own pre-existing safety margins (Squid's 5% quote
+  slippage tolerance, plus an additional 3% buffer the keeper applies on top)
+  combine to roughly 7.85% below fair value in the worst case — comfortably
+  more than the 2% the slippage floor above allowed, so it rejected the
+  keeper's own legitimate `minAmountOut` with `MinOutBelowFloor()` on live
+  plans. `TriggerVaultFactory.setMaxSlippageBps(900)` (2% → 9%, still well
+  under the 20% hard cap) was proposed via the Timelock on 01.09.2026,
+  executable ~48h later once the delay elapses. This only affects plans
+  created on the current `TriggerVaultFactory`
+  generation — its `snapshotMaxSlippageBps` is frozen per plan at setup, so a
+  plan created before the change keeps its old 2% tolerance and needs to be
+  cancelled and recreated to benefit.
+- **APIS' plan compiler didn't enforce the new stablecoin requirement (fixed)**:
+  `planCompiler.ts`'s sell-trigger validation predates the slippage-floor
+  work above and never got the matching `StablecoinRequired()` check — it
+  would validate e.g. "sell wBTC for wETH" as a valid plan, when the deployed
+  contract rejects it. A plan could get as far as creating and approving a
+  vault before failing at `setupPlan()`. Fixed in `planCompiler.ts`, the MCP
+  tool's schema (`server.ts`), and the REST/OpenAPI schema (`openapi.ts`), so
+  all three entry points (Claude via MCP, ChatGPT/Gemini/Grok via REST) now
+  match the contract.
+- **`TriggerVault`'s `minFee` wasn't decimals-aware (fixed, new factory
+  generation)**: `minFee` was a single global raw value (`35_000`), implicitly
+  assuming a 6-decimal stablecoin — but for a Sell-direction plan, `heldToken`
+  is the crypto asset itself (wBTC=8, wETH/CELO=18, XAUoT=6 decimals). A
+  small wBTC sell could see an effective fee near 35% instead of the nominal
+  0.99%. Fixed the same way `SendVaultFactory` already handles this
+  (`minFeeByToken` mapping, one value per token, decimals-scaled cap via
+  `setMinFee(address, uint256)`) — `feeInfo()`'s signature was deliberately
+  left unchanged for keeper-ABI compatibility across factory generations; new
+  plans read their fee via `minFeeByToken(heldToken)` directly instead.
+  **Residual limitation, not fully solved by this fix**: the cap itself
+  (`MAX_MIN_FEE_WHOLE_UNITS = 5`, "5 whole token units") is generous for an
+  expensive token like wBTC — same limitation the review separately pointed
+  out already exists in `SendVaultFactory`. Without a price oracle, a single
+  admin-calibrated raw value per token is the best available fix; it's
+  strictly better than the previous fully unbounded scalar, not a precise
+  dollar-denominated cap.
+
+The review also re-confirmed one point with real production evidence rather
+than just static analysis: **the keeper does scan every known Trigger factory
+generation** (verified via a live `wrangler tail` session showing both the old
+and current `TriggerVaultFactory` addresses in its scan list) — the review
+had flagged this as unverifiable from outside, not as a confirmed gap.
+
 ## Known, tracked risk areas
 
 These are real, already-identified architectural trust assumptions and open findings —
@@ -115,10 +167,31 @@ tracked openly rather than hidden:
   admin (Timelock) rotate the keeper for vaults created going forward without a
   contract redeploy — see the section above. Existing vaults still freeze their
   keeper at creation; their owner's own `setKeeper()` remains the recovery path.
-- **Access grants are not single-use**: an APIS access-grant code is valid, reusable,
-  for its full chosen access window (up to 30 days) and read/propose-only — it cannot
-  move funds or sign anything on its own. There is currently no way to revoke one early
-  before it expires.
+- **Access grants are not single-use (deliberate, not an oversight)**: an APIS
+  access-grant code is valid, reusable, for its full chosen access window (up to 30
+  days) and read/propose-only — it cannot move funds or sign anything on its own.
+  Re-flagged by the second review; still deliberately unchanged: a real one-time
+  nonce would mean a connected AI could only ever propose a single plan or read
+  balances once per grant, breaking the access-grant model's actual purpose (a
+  standing connection an AI assistant can use repeatedly within a bounded window).
+  There is currently no way to revoke one early before it expires — this specific
+  gap (early revocation) is a real, open limitation worth closing, distinct from the
+  reusability itself.
+- **`GET /address-book/for-owner?owner=0x...` requires no grant code at all
+  (deliberate, not an oversight — but read this precisely)**: this specific REST
+  endpoint — used by the OSIRIS app's own Address Book screen to show a connected
+  wallet its own contacts — takes a raw `owner` address with no authentication
+  whatsoever. It is not listed in the AI-facing OpenAPI spec and no MCP tool calls
+  it (the AI-facing paths, `get_address_book` and `POST /address-book`, both do
+  require a grant code with 'read' access) — but the endpoint itself is public on
+  the open internet, so anyone who knows or guesses a wallet address, not only a
+  connected AI holding a valid grant, can read that wallet's saved contact names.
+  The wallet address itself is not secret (public on every on-chain transaction the
+  vaults make); the contact names attached to it are the actual additional
+  information this exposes. Deliberately unchanged for now — re-flagged by the
+  second review, and the option to fix it (e.g. require the wallet's own signature,
+  same pattern as `contactSignature.ts` already uses for writes) is real and not
+  large; revisit if this needs tightening.
 
 ## Scope
 

@@ -13,7 +13,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         beobachtete Bein, siehe setupPlan()) und maxSlippageBps()
 ///         (Toleranz für den Floor, siehe execute()).
 interface ITriggerVaultFactory {
+    // minFee-Rückgabewert ist bewusst nur ein Platzhalter (`0`) — siehe
+    // TriggerVaultFactory.feeInfo()-Kommentar. Echte Werte kommen aus
+    // minFeeByToken(heldToken) (Plan 4 Befund A: minFee ist jetzt pro Token
+    // gesetzt, nicht mehr ein globaler Skalar).
     function feeInfo() external view returns (uint16 feeBps, uint256 minFee, address treasury);
+    function minFeeByToken(address heldToken) external view returns (uint256);
     function isStablecoin(address token) external view returns (bool);
     function maxSlippageBps() external view returns (uint16);
 }
@@ -221,9 +226,9 @@ contract TriggerVault is ReentrancyGuard {
         expiresAt    = _expiresAt;
         initialized  = true;
 
-        (uint16 feeBpsNow, uint256 minFeeNow, ) = ITriggerVaultFactory(factory).feeInfo();
+        (uint16 feeBpsNow, , ) = ITriggerVaultFactory(factory).feeInfo();
         snapshotFeeBps         = feeBpsNow;
-        snapshotMinFee         = minFeeNow;
+        snapshotMinFee         = ITriggerVaultFactory(factory).minFeeByToken(_heldToken);
         snapshotMaxSlippageBps = ITriggerVaultFactory(factory).maxSlippageBps();
 
         // Token-Transfer mit Fee-on-Transfer-Schutz, wie DcaVault.setupPlan().

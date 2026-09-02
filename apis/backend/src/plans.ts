@@ -14,7 +14,7 @@ import type { ApisPublicClient } from './client';
 import { DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI } from '../../../src/dcaVaultAbi';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../../../src/triggerVaultAbi';
 import {
-  ALL_FACTORY_ADDRESSES, TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
+  ALL_FACTORY_ADDRESSES, ALL_TRIGGER_VAULT_FACTORY_ADDRESSES,
   INPUT_TOKENS, TARGET_TOKENS, type TokenInfo,
 } from '../../../src/config';
 
@@ -96,10 +96,10 @@ interface TriggerPlanSummary {
 }
 
 async function readTriggerVaults(publicClient: ApisPublicClient, owner: `0x${string}`): Promise<`0x${string}`[]> {
-  // Aktuelle + alte Factory (siehe OLD_TRIGGER_VAULT_FACTORY_ADDRESS-Kommentar
+  // Jede bekannte Factory-Generation (siehe ALL_TRIGGER_VAULT_FACTORY_ADDRESSES
   // in config.ts) — gleicher Grund wie readDcaVaults() oben.
   const perFactory = await Promise.all(
-    [TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS].map((factoryAddress) =>
+    ALL_TRIGGER_VAULT_FACTORY_ADDRESSES.map((factoryAddress) =>
       publicClient.readContract({
         address: factoryAddress, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'getVaults', args: [owner],
       }) as Promise<`0x${string}`[]>,

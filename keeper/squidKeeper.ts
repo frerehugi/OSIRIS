@@ -35,7 +35,7 @@ import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from "../src/triggerVaul
 import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from "../src/sendVaultAbi";
 import {
   VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS,
-  TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS,
+  ALL_TRIGGER_VAULT_FACTORY_ADDRESSES, SEND_VAULT_FACTORY_ADDRESS,
 } from "../src/config";
 import { getSquidRoute } from "./squidClient";
 
@@ -150,11 +150,17 @@ function createKeeperContext(env: Env) {
       : [SEND_VAULT_FACTORY_ADDRESS]
   ).filter((address) => address !== ZERO_ADDRESS);
 
-  // TriggerVaultFactory-Adressen: gleiches Fallback-Prinzip wie oben.
+  // TriggerVaultFactory-Adressen: gleiches Fallback-Prinzip wie oben — Default
+  // ist bewusst ALL_TRIGGER_VAULT_FACTORY_ADDRESSES (jede bekannte Generation),
+  // nicht nur die aktuelle Konstante. Plan-4-Befund-D-Härtung: ein vergessener
+  // TRIGGER_VAULT_FACTORY_ADDRESSES-Secret machte bestehende Pläne auf älteren
+  // Generationen sonst still für den Keeper unsichtbar, statt (wie jetzt) nur
+  // dann eine bewusst engere Liste zu verwenden, wenn der Secret das explizit
+  // vorgibt.
   const triggerVaultFactoryAddresses = (
     env.TRIGGER_VAULT_FACTORY_ADDRESSES
       ? env.TRIGGER_VAULT_FACTORY_ADDRESSES.split(",").map((address) => address.trim() as `0x${string}`)
-      : [TRIGGER_VAULT_FACTORY_ADDRESS]
+      : [...ALL_TRIGGER_VAULT_FACTORY_ADDRESSES]
   ).filter((address) => address !== ZERO_ADDRESS);
 
   // forno.celo.org (viems Default-Endpunkt für Celo) fällt unter Last öfter

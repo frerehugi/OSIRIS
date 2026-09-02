@@ -14,7 +14,7 @@ import {
   FACTORY_ADDRESS,
   ALL_FACTORY_ADDRESSES,
   TRIGGER_VAULT_FACTORY_ADDRESS,
-  OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
+  ALL_TRIGGER_VAULT_FACTORY_ADDRESSES,
   INPUT_TOKENS,
   TARGET_TOKENS,
   INTERVAL_SECONDS,
@@ -772,12 +772,12 @@ export async function readPlanStatus(contractAddress: `0x${string}`) {
 
 export async function getUserTriggerVaults(ownerAddress: `0x${string}`): Promise<`0x${string}`[]> {
   const { publicClient } = getClients();
-  // Beide Factories abfragen (aktuelle + OLD_TRIGGER_VAULT_FACTORY_ADDRESS,
-  // siehe config.ts) — gleicher Grund wie getUserVaults() (DCA) oben: sonst
-  // verschwindet ein vor der B3-Migration erstellter Trigger-Plan komplett
-  // aus der App, obwohl er on-chain weiter existiert und noch ausführbar ist.
+  // JEDE bekannte Factory-Generation abfragen (siehe ALL_TRIGGER_VAULT_FACTORY_ADDRESSES
+  // in config.ts) — gleicher Grund wie getUserVaults() (DCA) oben: sonst
+  // verschwindet ein vor einer Migration erstellter Trigger-Plan komplett aus
+  // der App, obwohl er on-chain weiter existiert und noch ausführbar ist.
   const perFactory = await Promise.all(
-    [TRIGGER_VAULT_FACTORY_ADDRESS, OLD_TRIGGER_VAULT_FACTORY_ADDRESS].map((factoryAddress) =>
+    ALL_TRIGGER_VAULT_FACTORY_ADDRESSES.map((factoryAddress) =>
       withRetry(() => publicClient.readContract({
         address: factoryAddress,
         abi:     TRIGGER_VAULT_FACTORY_ABI,
