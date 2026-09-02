@@ -1,49 +1,60 @@
-# OSIRIS
+# OSIRIS / APIS
 
 **OSnabrück Investment and Risk Management System**
 
-A non-custodial DCA (Dollar-Cost Averaging) vault on Celo, accessible via MiniPay. Every user gets their **own dedicated vault** — created on demand through a factory contract — that automatically invests a stablecoin into a self-chosen basket of wBTC, wETH, CELO and XAUoT (Tether Gold) on a daily or weekly schedule. Routing goes exclusively through [Squid Router](https://www.squidrouter.com/), which sources liquidity across all DEXs on Celo instead of relying on a single fixed pool.
+A non-custodial DeFi vault app on **Celo Mainnet**, built for [MiniPay](https://www.opera.com/products/minipay) users. Every plan runs through its own dedicated EIP-1167 minimal-proxy vault clone — created on demand through a factory contract — and swaps route exclusively through [Squid Router](https://www.squidrouter.com/), which sources liquidity across DEXs on Celo instead of relying on a single fixed pool.
 
-🔴 **Live on Celo Mainnet** — [frerehugi.github.io/OSIRIS](https://frerehugi.github.io/OSIRIS) · [Open the app](https://frerehugi.github.io/OSIRIS/app/)
+**APIS** is the AI agent layer on top: a separate companion app that lets you connect an AI assistant (Claude, ChatGPT, Gemini, Grok, or any MCP-/REST-capable client) to read your balances and plans and *propose* transactions — it never holds your keys or signs anything on its own. Every proposed transaction still needs your explicit approval in MiniPay.
+
+🔴 **Live on Celo Mainnet** — [app.osirisapp.xyz](https://app.osirisapp.xyz) (OSIRIS vaults) · [apis.osirisapp.xyz](https://apis.osirisapp.xyz) (APIS agent connector) · [osirisapp.xyz](https://osirisapp.xyz) (landing page)
+
+---
+
+## What it does
+
+Three kinds of automated, non-custodial plans, each its own vault type:
+
+- **DCA** (`DcaVault`) — recurring buys: one input stablecoin split into N tranches over time, into a self-chosen basket of target tokens (wBTC, wETH, CELO, XAUoT).
+- **Send** (`SendVault`) — scheduled recurring payouts to one or more recipients.
+- **Trigger** (`TriggerVault`) — a one-shot buy or sell that fires once a watched token's price crosses a level you set. No on-chain price oracle — the keeper compares against Squid's own live quote (see [Security](#security) below).
+
+A keeper service polls every 5 minutes and calls `executeStep()`/`execute()` on any vault whose on-chain `canExecute()` is true — the vault itself only ever checks that the resulting balance increase meets the caller-supplied minimum; it never inspects *what* the swap calldata does, which decouples the vault from any specific DEX.
 
 ---
 
 ## Architecture
 
 ```
-osiris/
+OSIRIS/
 ├── contracts/
-│   ├── DcaVault.sol             # DCA vault logic — clone implementation (EIP-1167)
-│   ├── DcaVaultFactory.sol      # Creates one DCA vault clone per user
-│   ├── TriggerVault.sol         # Price-trigger vault — one-shot buy/sell (EIP-1167 clone, one per plan)
-│   └── TriggerVaultFactory.sol  # Creates one TriggerVault clone per plan
-├── script/
-│   ├── DeployFactory.s.sol             # Deploys DCA implementation + factory (Mainnet)
-│   ├── DeployTriggerVaultFactory.s.sol # Deploys TriggerVault implementation + factory (Mainnet)
-│   └── DeployMocks.s.sol               # Mock wBTC/XAUoT ERC-20s (Sepolia only)
-├── test/
-│   ├── DcaVault.t.sol         # DCA vault unit tests
-│   ├── DcaVaultFactory.t.sol  # DCA factory unit tests
-│   ├── TriggerVault.t.sol     # Trigger vault unit tests
-│   └── mocks/                 # MockERC20, MockSquidRouter
+│   ├── DcaVault.sol / DcaVaultFactory.sol         # Recurring-buy vault (EIP-1167 clone)
+│   ├── SendVault.sol / SendVaultFactory.sol       # Recurring-payout vault
+│   └── TriggerVault.sol / TriggerVaultFactory.sol # One-shot price-trigger vault
+├── script/                       # Foundry deploy scripts — one Deploy*.s.sol per factory generation
+├── test/                         # Foundry unit tests — 226 cases across 5 suites (see Testing below)
+├── erc7730/                      # ERC-7730 "clear signing" descriptors for all six vault contracts
 ├── keeper/
-│   └── squidKeeper.ts         # Automated executor (Node.js) — DCA tranches + trigger plans, same wallet
-├── .github/workflows/
-│   └── keeper.yml             # Manual/backup keeper run (production uses a Cloudflare Worker cron, see keeper/worker.ts)
-├── src/
-│   ├── App.tsx                 # React frontend — connect, "Your Plans" (DCA + trigger), DCA wizard, trigger wizard
-│   ├── App.css                 # Dark/gold theme
-│   ├── config.ts                # Chain IDs, contract + token addresses
-│   ├── dcaVaultAbi.ts           # DcaVault + DcaVaultFactory ABIs
-│   ├── triggerVaultAbi.ts       # TriggerVault + TriggerVaultFactory ABIs
-│   ├── minipayWallet.ts         # MiniPay / viem wallet integration (DCA + trigger plans)
-│   ├── types.ts                 # Shared TypeScript interfaces
-│   └── demo/                    # Standalone design mockups (not wired to the chain)
-├── index.html                   # Landing page (gh-pages branch)
-└── public/banner.jpg             # OSIRIS banner image
+│   ├── squidKeeper.ts            # Core logic — enumerates every known factory generation, checks
+│   │                              #  canExecute(), fetches routes/prices from Squid, executes
+│   ├── worker.ts                 # Cloudflare Worker entry point (production — 5-minute cron)
+│   ├── cli.ts                    # Local/manual entry point (npm run keeper)
+│   └── price.sh                  # Terminal one-liner to print current Squid token prices
+├── src/                          # OSIRIS front end (React) — connect, "My Plans", DCA/Send/Trigger wizards
+│   ├── config.ts                 # Chain ID, contract + token addresses (single source of truth)
+│   ├── minipayWallet.ts          # MiniPay / viem wallet integration, shared by src/ and apis/
+│   └── *VaultAbi.ts              # Contract ABIs
+├── apis/
+│   ├── backend/                  # Cloudflare Worker — MCP server + parallel REST/OpenAPI layer,
+│   │                              #  so both MCP clients (Claude) and non-MCP clients
+│   │                              #  (ChatGPT/Gemini/Grok) can read plans/balances and propose plans
+│   └── app/                      # APIS front end (React) — connect an AI assistant, generate access
+│                                  #  codes, address book, approve proposed plans in MiniPay
+├── docs/                         # MiniPay listing checklist, playbook notes
+├── SECURITY.md                   # Current security posture, known/tracked risk areas
+└── .github/workflows/            # tests.yml (forge test + typecheck + audit), keeper.yml, gas-model checks
 ```
 
-The `gh-pages` branch hosts the static site: `index.html` (landing page) at the root and the compiled frontend (`npm run build` output) under `app/`.
+Both front ends (`src/`, `apis/app/`) and the backend (`apis/backend/`) import shared config/ABI/wallet logic straight from root `src/` rather than a published package — there are no npm workspaces, so each of the three JS/TS packages (root, `apis/app`, `apis/backend`) needs its own `npm install`.
 
 ---
 
@@ -51,49 +62,43 @@ The `gh-pages` branch hosts the static site: `index.html` (landing page) at the 
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, TypeScript, Vite |
+| Smart Contracts | Solidity `^0.8.20`, OpenZeppelin (Clones, SafeERC20, ReentrancyGuard, TimelockController) |
+| Vault Pattern | EIP-1167 minimal-proxy clones — one cheap clone per plan via a factory; immutable implementation per factory generation |
+| Routing | Squid Router v2 (exclusive — no direct DEX integration) |
+| OSIRIS front end (`src/`) | React 18, TypeScript, Vite |
+| APIS front end (`apis/app/`) | React 19, TypeScript, Vite, wagmi, TanStack Query |
+| APIS backend (`apis/backend/`) | Cloudflare Workers, `@modelcontextprotocol/sdk` (MCP), Zod |
 | Wallet | MiniPay (Celo), viem v2 |
-| Smart Contracts | Solidity 0.8.20, OpenZeppelin (Clones, SafeERC20, ReentrancyGuard) |
-| Vault Pattern | EIP-1167 Minimal Proxy Clones — one cheap clone per user via a factory |
-| Routing | Squid Router v2 (exclusive — no direct Uniswap integration) |
-| Keeper | Node.js, tsx, viem, axios |
-| Automation | GitHub Actions (hourly cron + manual `workflow_dispatch`) |
+| Keeper | TypeScript, Cloudflare Workers (production, 5-minute cron), viem, axios |
 | Testing | Foundry (`forge test`) |
-| Network | Celo Mainnet (Squid does not support Celo Sepolia) |
+| CI | GitHub Actions — `forge test`, `tsc --noEmit` × 3 packages, `npm audit` on every push/PR |
+| Network | Celo Mainnet only — Squid does not support Celo Sepolia, so this project deliberately does not test on testnet |
 
 ---
 
 ## Setup
 
-### 1. Install dependencies
+Three independent packages — no npm workspaces, so each needs its own install.
 
 ```bash
+# OSIRIS front end + contracts/keeper tooling (root)
 npm install
-```
-
-### 2. Configure
-
-`src/config.ts` already contains the live Mainnet addresses (Factory, Vault implementation, Squid Router, token list). If you deploy your own instance, update:
-
-```ts
-export const FACTORY_ADDRESS              = "0x..."; // from DeployFactory.s.sol
-export const VAULT_IMPLEMENTATION_ADDRESS = "0x...";
-export const SQUID_INTEGRATOR_ID          = "..."; // request at https://app.squidrouter.com/
-```
-
-### 3. Run frontend (dev)
-
-```bash
-npm run dev
-# → http://localhost:5173
-```
-
-### 4. Type check / build
-
-```bash
+npm run dev          # → http://localhost:5173
 npm run typecheck
-npm run build   # outputs to dist/
+npm run build         # outputs to dist/
+
+# APIS front end
+cd apis/app && npm install
+npm run dev
+npm run typecheck
+
+# APIS backend (Cloudflare Worker — MCP + REST/OpenAPI)
+cd apis/backend && npm install
+npm run dev            # wrangler dev
+npm run typecheck
 ```
+
+`src/config.ts` already contains the live Mainnet addresses (factories, implementations, Squid Router, token list) — the single source of truth both front ends and the backend re-export from. If you deploy your own instance, update the addresses there after running the deploy scripts below.
 
 ---
 
@@ -101,43 +106,54 @@ npm run build   # outputs to dist/
 
 ### How it works
 
-1. `DcaVaultFactory.createVault()` clones `DcaVault` (EIP-1167) and calls `initialize(owner, squidRouter)` in the same transaction — no constructor, no front-running window.
-2. The user approves the new vault address for the input token, then calls `setupPlan(...)` on it directly.
-3. A keeper calls `executeStep(routers[], minAmountsOut[], squidCallData[])` once per tranche. The vault only checks that each router is owner-approved (`approvedRouters`) and that the owner's balance of the target token increased by at least `minAmountsOut[i]` — it never inspects *what* the calldata does, which decouples the vault from any specific DEX.
+1. `<X>VaultFactory.createVault()` clones the relevant vault implementation (EIP-1167) and initializes it in the same transaction — no constructor, no front-running window.
+2. The owner approves the new vault address for the input token, then calls `setupPlan(...)` on it directly. `feeBps`/`minFee` (and, for Trigger, `maxSlippageBps`) are snapshotted into the plan at this point — a later admin fee change never retroactively affects an already-funded plan.
+3. A keeper calls `executeStep(...)` / `execute(...)` once a tranche/trigger condition is due. The vault only checks that the resulting balance increase meets the keeper-supplied minimum — it never inspects the swap calldata itself.
 
 ### Deploy (Celo Mainnet)
 
 ```bash
-forge script script/DeployFactory.s.sol \
-  --rpc-url celo_mainnet \
-  --broadcast \
-  --verify \
-  -vvvv
+forge script script/DeployFactory.s.sol --rpc-url celo_mainnet --broadcast --verify -vvvv
+forge script script/DeploySendVaultFactory.s.sol --rpc-url celo_mainnet --broadcast --verify -vvvv
+forge script script/DeployTriggerVaultFactory.s.sol --rpc-url celo_mainnet --broadcast --verify -vvvv
 ```
 
-Deploys the `DcaVault` implementation and `DcaVaultFactory` (constructor args: implementation address, Squid Router address), then verifies both on Celoscan.
+Each deploys a new implementation + factory pair and verifies both on Celoscan. Because EIP-1167 clones delegate permanently to the implementation address their factory deployed them with, every migration keeps the previous generation's address alongside the new one — old plans keep running under their original terms rather than disappearing.
 
-### Live Deployment (Celo Mainnet, chain ID `42220`)
+### Live addresses (Celo Mainnet, chain ID `42220`)
 
-| Contract | Address |
+Current generation first; every prior generation is still live and still served by the keeper and both front ends — nothing here is ever removed, only appended to (see `src/config.ts`'s `ALL_*_ADDRESSES` arrays).
+
+**DCA — `DcaVaultFactory`**
+
+| Gen | Factory | Implementation |
+|---|---|---|
+| 3 (current) | `0xa6B66110b3593B5D32f4229CA5398611959149C5` | `0x02213a74a725C15EBbbC1212777b5b20C73B01E8` |
+| 2 | `0xba148255d757912442A97f87c50DD2F65FBab7E0` | — |
+| 1 | `0x28f5E38C41F2cDB6D436972df5F3F42bD40Ed411` | — |
+
+Plus one pre-factory singleton vault (`0x22541bDAf712920330F2d0FC26D1Ac807e914FDc`), deployed before any factory existed.
+
+**Send — `SendVaultFactory`**
+
+| Gen | Factory | Implementation |
+|---|---|---|
+| 2 (current) | `0x4d63381b9b742683b92971d672018Ec5d82DA002` | `0x2de1279b086cC0c642B8CFdbb702e014a81605d` |
+| 1 | `0x1d7a157Bb1823482039B4B3037fb1737B1F2750A` | — |
+
+**Trigger — `TriggerVaultFactory`**
+
+| Gen | Factory | Implementation |
+|---|---|---|
+| 2 (current) | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` |
+| 1 | `0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97` | — |
+
+**Governance & routing**
+
+| What | Address |
 |---|---|
-| DcaVaultFactory | [`0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5`](https://celoscan.io/address/0x31bf80a905ea80e0f8a9d6c20b44b0daa2a3f9f5#code) |
-| DcaVault (implementation) | [`0x9d148530b0EE408EAA801D74D7eA968955F24d13`](https://celoscan.io/address/0x9d148530b0ee408eaa801d74d7ea968955f24d13#code) |
+| Timelock (48h delay, admin of all current factories) | `0xca177a126c95338271AFcfE691fD6efA37362460` |
 | Squid Router | `0xce16F69375520ab01377ce7B88f5BA8C48F8D666` |
-
-### Trigger Plans
-
-Alongside the recurring DCA vault, OSIRIS 1.1 adds a second, independent vault type for one-shot, price-triggered buys and sells: `TriggerVaultFactory.createVault()` clones `TriggerVault` (same EIP-1167 pattern as DCA) for exactly one plan — buy a target token once its price drops to a chosen level, or sell a holding once it rises to one. `triggerAbove`/`triggerPrice` are stored on-chain but checked off-chain by the keeper (no price oracle); `expiresAt` (optional) and `cancel()` (always available, any time) are enforced on-chain. Deploy with:
-
-```bash
-forge script script/DeployTriggerVaultFactory.s.sol \
-  --rpc-url celo_mainnet \
-  --broadcast \
-  --verify \
-  -vvvv
-```
-
-Not yet deployed — `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is still the pre-deploy placeholder, and both the frontend and keeper treat that as "feature not live yet" rather than failing.
 
 ### Testing
 
@@ -145,63 +161,64 @@ Not yet deployed — `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is still
 forge test -vvv
 ```
 
-105 tests across three suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`, `TriggerVault.t.sol` — the latter covers both `TriggerVault` and `TriggerVaultFactory`), covering setup validation, execution, slippage/router/failure guards, cancellation, expiry, and factory clone creation.
+226 Foundry tests across five suites (`DcaVault.t.sol`, `DcaVaultFactory.t.sol`, `SendVault.t.sol`, `SendVaultFactory.t.sol`, `TriggerVault.t.sol`), covering setup validation, execution, slippage/router/failure guards, cancellation, expiry, fee-on-transfer handling, factory clone creation, fee-snapshot behavior, `minFee` ceilings, keeper rotation, and (Trigger) exact slippage-floor boundaries and direction-invariant guards. `.github/workflows/tests.yml` runs the full suite plus `tsc --noEmit` and `npm audit` across all three JS/TS packages on every push and PR.
 
 ---
 
 ## Keeper Service
 
-The keeper reads `DcaVaultFactory.getAllVaults()` plus any legacy vault deployed before the factory existed, batches `canExecute()` reads (groups of 10, to be gentle on the RPC provider), and for every vault that's due: fetches a real, executable route per target token from Squid (`quoteOnly: false`), simulates `executeStep(...)`, then broadcasts it.
+The keeper enumerates every known factory generation (never just the current one), batches `canExecute()` reads, and for every vault that's due: fetches a real, executable route from Squid, simulates the call, then broadcasts it. Trigger plans additionally compare the watched token's live Squid `/token-price` against the plan's stored `triggerPrice`/`triggerAbove`.
 
-The same cycle also handles trigger plans, using the same wallet — no separate process or secrets: it reads all `TriggerVaultFactory` vaults, filters by `canExecute()` (on-chain: initialized/not cancelled/not executed/not expired), fetches the watched token's price from Squid's `/token-price`, and executes any vault whose stored `triggerAbove`/`triggerPrice` condition is met. This part of the cycle is a no-op until `TRIGGER_VAULT_FACTORY_ADDRESS` in `src/config.ts` is set to a real deployment.
+Production runs as a Cloudflare Worker on a 5-minute cron (`keeper/worker.ts`); `keeper/cli.ts` is the equivalent local/manual entry point.
 
 ```bash
 # keeper/.env (never commit!)
 KEEPER_PRIVATE_KEY=0x...
 SQUID_INTEGRATOR_ID=...       # from https://app.squidrouter.com/
-FACTORY_ADDRESS=0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5
 
 npm run keeper
 ```
 
-### Automation via GitHub Actions
+`keeper/price.sh` prints current Squid token prices from the terminal without needing the full keeper running.
 
-`.github/workflows/keeper.yml` runs `npm run keeper` every hour (`0 * * * *`) and supports manual triggering (`workflow_dispatch`). Requires three repository secrets:
+---
 
-| Secret | Value |
-|---|---|
-| `KEEPER_PRIVATE_KEY` | Keeper wallet private key (needs a small CELO balance for gas) |
-| `SQUID_INTEGRATOR_ID` | Your Squid integrator ID |
-| `FACTORY_ADDRESS` | `0x31bF80a905EA80e0F8A9d6C20b44B0daa2A3f9f5` |
+## APIS — the AI agent layer
 
-Set them under **Settings → Secrets and variables → Actions**. Scheduled workflows only run off the repository's **default branch** — make sure that's the branch containing `.github/workflows/keeper.yml`.
+`apis/backend` is a Cloudflare Worker exposing the same capabilities two ways so both MCP clients (Claude) and non-MCP clients (ChatGPT, Gemini, Grok, or anything that can call a REST/OpenAPI endpoint) can use them: reading balances and plans, proposing a new plan or a direct send, reading/writing the address book, and reading current Squid token prices. It never holds a private key and never signs anything — every proposal comes back to `apis/app` for the wallet owner to review and approve in MiniPay.
+
+Connecting an assistant: open `apis/app`, connect your wallet, add APIS as a tool/connector in your AI client once, then generate an access code (`apis/app`'s "Create New Code for Agent" screen) and paste it into that chat — the code is a self-contained, signed message valid for your chosen window (up to 30 days), not a stored credential; APIS' backend never saves it.
 
 ---
 
 ## Token Addresses (Celo Mainnet)
 
-| Token | Address | Role |
-|---|---|---|
-| USDC | `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` | Input |
-| USDT | `0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e` | Input |
-| cUSD | `0x765DE816845861e75A25fCA122bb6898B8B1282a` | Input — ⚠️ not currently routable via Squid |
-| wBTC | `0x8aC2901Dd8A1F17a1A4768A6bA4C3751e3995B2D` | Target |
-| wETH | `0xD221812de1BD094f35587EE8E174B07B6167D9Af` | Target |
-| CELO | `0x471EcE3750Da237f93B8E339c536989b8978a438` | Target |
-| XAUoT | `0xaf37E8B6C9ED7f6318979f56Fc287d76c30847ff` | Target — "XAUt0" (Tether Gold) on Squid |
+| Token | Address | Role | Decimals |
+|---|---|---|---|
+| USDC | `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` | Input | 6 |
+| USDT | `0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e` | Input | 6 |
+| cUSD ("Mento Dollar") | `0x765DE816845861e75A25fCA122bb6898B8B1282a` | Input — ⚠️ not currently routable via Squid | 18 |
+| wBTC | `0x8aC2901Dd8A1F17a1A4768A6bA4C3751e3995B2D` | Target | 8 |
+| wETH | `0xD221812de1BD094f35587EE8E174B07B6167D9Af` | Target | 18 |
+| CELO | `0x471EcE3750Da237f93B8E339c536989b8978a438` | Target | 18 |
+| XAUoT | `0xaf37E8B6C9ED7f6318979f56Fc287d76c30847ff` | Target — "XAUt0" (Tether Gold) on Squid | 6 |
 
-Since routing moved to Squid (which aggregates across DEXs rather than using one fixed pool), `poolFee`/`tickSpacing` are no longer part of `TokenInfo` — Squid picks the route.
+Full/authoritative list always lives in `src/config.ts` — check there before trusting an address from this table.
 
 ---
 
-## Known Limitations
+## Security
 
-- **Squid rate limits**: a freshly issued integrator ID can have a very low rate limit (~0.27 req/s observed). The keeper spaces requests ~4s apart per target token with retry-with-backoff on `429`.
-- **cUSD**: the on-chain contract still exists at its historical address, but was rebranded to "Mento Dollar" (USDm) and is not listed by Squid for Celo Mainnet routing.
-- **Celo Sepolia**: Squid does not support it at all — there is no functional testnet path for the Squid-routing parts of this project. `DeployMocks.s.sol` remains for historical/local testing of the vault logic in isolation.
+See [`SECURITY.md`](./SECURITY.md) for the honest current-status snapshot: no formal third-party audit yet, the fee-snapshot/`minFee`-ceiling/keeper-rotation protections and what they do and don't cover, why Trigger plans have no price oracle (the keeper compares against Squid's own live quote, not Chainlink or a fixed feed), and the other known, deliberately-tracked risk areas. Report a vulnerability privately via `t.me/osirisapp` — never as a public GitHub issue.
 
 ---
 
 ## License
 
-MIT — University of Osnabrück
+No `LICENSE` file exists in this repository yet, and no license has been finalized — treat the code as all-rights-reserved until one is added.
+
+---
+
+## Contact
+
+Support / updates: [t.me/osirisapp](https://t.me/osirisapp)
