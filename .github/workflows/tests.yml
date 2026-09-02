@@ -21,6 +21,17 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
+      # `forge test` alone doesn't reliably compile everything under script/
+      # -- a deploy script with a real solc error (e.g. a raw non-ASCII
+      # character in a string literal, which needs unicode"...") passed
+      # `forge test` cleanly here on 02.09.2026 while failing immediately
+      # under a plain `forge script`/local `forge test` run. `forge build`
+      # explicitly compiles the whole project (contracts/script/test per
+      # foundry.toml), so a broken deploy script gets caught in CI instead
+      # of surfacing only when someone runs the real deploy.
+      - name: forge build (whole project, catches script/-only breakage)
+        run: forge build
+
       - name: forge test
         run: forge test -vvv
 
