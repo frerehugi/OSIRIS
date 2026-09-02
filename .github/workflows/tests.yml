@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  forge-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (with submodules — lib/openzeppelin-contracts, lib/forge-std)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: forge test
+        run: forge test -vvv
+
+  typecheck-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        package:
+          - { name: "root (src/keeper)", dir: "." }
+          - { name: "apis/app",          dir: "apis/app" }
+          - { name: "apis/backend",      dir: "apis/backend" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies (${{ matrix.package.name }})
+        working-directory: ${{ matrix.package.dir }}
+        run: npm ci
+
+      - name: Type-check (${{ matrix.package.name }})
+        working-directory: ${{ matrix.package.dir }}
+        run: npx tsc --noEmit
+
+      # Point-in-time check, not a substitute for a real audit (see SECURITY.md) —
+      # fails the job on a known production-dependency vulnerability so it can't
+      # silently slip past review, same spirit as everywhere else this project
+      # values verifying over assuming.
+      - name: npm audit (${{ matrix.package.name }}, production dependencies)
+        working-directory: ${{ matrix.package.dir }}
+        run: npm audit --omit=dev
