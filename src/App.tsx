@@ -31,6 +31,16 @@ const MAX_STEP           = 6;
 const MAX_DURATION       = 365;
 const MAX_AMOUNT_DECIMALS = 6;
 
+// Temporär pausiert (02.09.2026): die aktuelle TriggerVaultFactory-Generation
+// (gen 3, 0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed, seit heute live) hat noch
+// den alten 2%-maxSlippageBps-Default -- ein Timelock-Fix auf 900 ist bereits
+// geplant (ausführbar ~04.09.2026), aber bis dahin würde jeder neue Trigger-Plan
+// denselben MinOutBelowFloor()-Bug einfrieren, der schon Pläne auf gen 2
+// lahmgelegt hat (siehe SECURITY.md). Auf false setzen, sobald der Fix
+// ausgeführt ist -- gleiche Pause auch in apis/backend/src/planCompiler.ts
+// (TRIGGER_PLANS_PAUSED), beide zusammen zurücknehmen.
+const TRIGGER_PLANS_PAUSED = true;
+
 interface ValidationResult {
   valid:    boolean;
   message?: string;
@@ -1854,11 +1864,20 @@ export default function App() {
             </span>
             <span className="new-plan-tile__chev">›</span>
           </button>
-          <button className="new-plan-tile" type="button" onClick={startNewTriggerPlan}>
+          <button
+            className="new-plan-tile"
+            type="button"
+            onClick={startNewTriggerPlan}
+            disabled={TRIGGER_PLANS_PAUSED}
+          >
             <span className="new-plan-tile__icon">⚡</span>
             <span>
               <span className="new-plan-tile__title" style={{ display: 'block' }}>Trigger Plan</span>
-              <span className="new-plan-tile__sub">Buy or sell once your price is hit — one-shot, cancel any time</span>
+              <span className="new-plan-tile__sub">
+                {TRIGGER_PLANS_PAUSED
+                  ? 'Temporarily paused for a contract update — back within a couple of days'
+                  : 'Buy or sell once your price is hit — one-shot, cancel any time'}
+              </span>
             </span>
             <span className="new-plan-tile__chev">›</span>
           </button>

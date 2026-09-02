@@ -270,9 +270,14 @@ h2 {
   transition: background 0.15s, border-color 0.15s;
 }
 
-.new-plan-tile:hover {
+.new-plan-tile:hover:not(:disabled) {
   background: var(--gold-dim);
   border-color: var(--gold);
+}
+
+.new-plan-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .new-plan-tile:focus-visible {
