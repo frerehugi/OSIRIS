@@ -165,17 +165,13 @@ own price read (`wrangler tail`) before assuming a bug.
 | Sandbox network reality | `forno.celo.org` and `celoscan.io` are both egress-blocked from this Claude Code sandbox. Live on-chain reads go through the user (Celoscan's mobile-friendly `#readContract` tab works with no wallet needed) or `cast`/`wrangler tail` run on their machine. |
 | Test wallet | `0x205A92b7d69e2A0628cE928c4E3d3aC29D67C90f` |
 
-**Unmerged branch worth knowing about:** `claude/apis-8004-agent` (commit
-`f7f463e`, 30.08.2026) has a `LICENSE` file (MIT, "University of Osnabrück")
-added to match the README's pre-existing claim, plus an already-written
-"one-time code" → "access code" UI copy fix. The copy fix was ported to
-`master` directly (02.09.2026, pure text, no legal claim). The `LICENSE`
-addition was deliberately **not** ported — no `LICENSE` file exists on
-`master` today despite the old README's unqualified "MIT" claim, and picking
-a license/copyright holder is a real-world legal decision for the repo owner
-to confirm, not one to make unilaterally just because an earlier session
-already wrote one on a side branch. Surface this to the user rather than
-re-deciding it from scratch or silently reusing that branch's choice.
+**License, resolved:** `LICENSE` at repo root is proprietary/all-rights-reserved,
+copyright exclusively **Schmitz & Hugenberg** — added 02.09.2026 on the
+user's explicit instruction (not MIT, not the "University of Osnabrück"
+holder an earlier unmerged branch (`claude/apis-8004-agent`, commit
+`f7f463e`) had guessed at). That branch's separate "one-time code" → "access
+code" UI copy fix was ported to `master` on its own merits earlier the same
+day.
 
 ## 7. Hard-won gotchas
 

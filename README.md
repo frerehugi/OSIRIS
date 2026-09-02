@@ -215,7 +215,7 @@ See [`SECURITY.md`](./SECURITY.md) for the honest current-status snapshot: no fo
 
 ## License
 
-No `LICENSE` file exists in this repository yet, and no license has been finalized — treat the code as all-rights-reserved until one is added.
+Proprietary — all rights reserved. This repository and its contents are the exclusive property of Schmitz & Hugenberg; no license is granted to use, copy, modify, or distribute the Software without prior written permission. See [`LICENSE`](./LICENSE).
 
 ---
 
