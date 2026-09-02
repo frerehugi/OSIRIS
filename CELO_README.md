@@ -78,18 +78,30 @@ kept in the keeper's scan list by hand, not discoverable via `getAllVaults()`.
 
 | Gen | Factory | Implementation | Status |
 |---|---|---|---|
-| 2 (current) | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` | live, no floor on plans opened before 31.08.2026 |
+| 3 (current) | `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed` | `0x741Fad235EC4808c8C06279b1D1c8E578fc6A635` | live — per-token `minFeeByToken`, deployed + verified 02.09.2026 |
+| 2 | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` | old, still served — no floor on plans opened before 31.08.2026, global `minFee` scalar not decimals-aware |
 | 1 | `0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97` | — | old, still served |
 
-Gen 3 (Plan 4 Befund A — per-token, decimals-aware `minFeeByToken` instead of
-one global raw `minFee` scalar) is code-complete and tests-passing as of
-02.09.2026 but **not yet deployed** — `src/config.ts`'s
-`ALL_TRIGGER_VAULT_FACTORY_ADDRESSES` is deliberately structured as an
-ever-growing list already, ready to take a third entry the moment it ships.
-Also pending: `TriggerVaultFactory.setMaxSlippageBps(900)` was proposed via
-the Timelock on 01.09.2026 for the *current* (gen 2) factory — fixes
-`MinOutBelowFloor()` false-rejecting the keeper's own legitimate quotes —
-executable ~48h later once the delay elapses.
+Gen 3 (Plan 4 Befund A) shipped 02.09.2026 — `ALL_TRIGGER_VAULT_FACTORY_ADDRESSES`
+in `src/config.ts` now carries all three generations; no other call site needed
+a code change, since `minipayWallet.ts`/`apis/backend/src/plans.ts`/`usePlans.ts`
+already read that array rather than the two named constants (exactly the
+ever-growing-list design decided in Plan 4, paying off on its first real use).
+**Follow-up not yet done**: `wrangler secret put TRIGGER_VAULT_FACTORY_ADDRESSES`
+needs all three addresses (comma-separated) pushed to the keeper Worker, or it
+falls back to its own hardcoded default array — check `keeper/squidKeeper.ts`
+before assuming the keeper already sees gen 3.
+
+**Important, found 02.09.2026 while documenting the gen-3 deploy**: gen 3's
+constructor hardcodes `maxSlippageBps = 200` (2%) same as every prior
+generation — the deploy script cannot set it any higher itself (`onlyAdmin`
+= the Timelock, not the deployer). So gen 3 carries the *exact same*
+`MinOutBelowFloor()` exposure that gen 2 had, not yet hit only because gen 3
+has zero plans so far. `setMaxSlippageBps(900)` was proposed via the
+Timelock on 01.09.2026 for **gen 2 only** — gen 3 needs its own, separate
+`setMaxSlippageBps(900)` proposal on `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`
+before anyone creates a real Sell-direction plan on it. Not yet done as of
+this writing.
 
 ### Shared infrastructure
 

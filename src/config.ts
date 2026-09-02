@@ -55,28 +55,27 @@ export const ALL_FACTORY_ADDRESSES: readonly `0x${string}`[] = [
 // TriggerVaultFactory — Price-Trigger-Erweiterung neben DcaVaultFactory
 // (siehe script/DeployTriggerVaultFactory.s.sol).
 //
-// Plan 2 B3 (Fee-Snapshot + Slippage-Floor + Richtungs-Invariante): neue
-// Factory + Implementation deployt + verifiziert am 31.08.2026
-// (TriggerVault-Implementation: 0x8E3f4496303A2cC1C348Fca072EFc02aF587795f).
-// Alte Factory bleibt als OLD_TRIGGER_VAULT_FACTORY_ADDRESS erhalten — dort
-// bereits laufende Pläne bekommen KEINEN Slippage-Floor (Phase-B-Schutz gilt
-// nur für neu erstellte Pläne, siehe SECURITY.md).
-export const TRIGGER_VAULT_FACTORY_ADDRESS = "0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625" as `0x${string}`;
+// Plan 4 Befund A (per-Token, dezimalstellen-bewusstes minFeeByToken statt
+// eines globalen Skalars): neue Factory + Implementation deployt +
+// verifiziert am 02.09.2026 (TriggerVault-Implementation:
+// 0x741Fad235EC4808c8C06279b1D1c8E578fc6A635). Alte Factories bleiben in
+// ALL_TRIGGER_VAULT_FACTORY_ADDRESSES erhalten — dort bereits laufende
+// Pläne behalten ihre alte, nicht dezimalstellen-skalierte minFee-Regel
+// (siehe SECURITY.md).
+export const TRIGGER_VAULT_FACTORY_ADDRESS = "0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed" as `0x${string}`;
 export const OLD_TRIGGER_VAULT_FACTORY_ADDRESS = "0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97" as `0x${string}`;
 
 // ALL_TRIGGER_VAULT_FACTORY_ADDRESSES trägt JEDE bekannte Generation (älteste
-// zuerst) — dieselbe Lektion wie bei ALL_FACTORY_ADDRESSES oben (DCA): ein
-// reines 2-Slot-Muster (TRIGGER_VAULT_FACTORY_ADDRESS/OLD_...) bricht beim
-// ZWEITEN Wechsel, weil die jeweils vorletzte Generation dann aus der App
-// verschwindet. Wird bei der Plan-4-Befund-A-Migration (dritte Generation,
-// per-Token-minFee) zum ersten Mal wirklich gebraucht — bis dahin identisch
-// zu den beiden Konstanten oben. getUserTriggerVaults() (minipayWallet.ts),
-// readTriggerVaults() (apis/backend/src/plans.ts) und usePlans.ts fragen
-// diese Liste ab, nicht die beiden Konstanten einzeln. Bei der nächsten
-// Migration hier ergänzen, nie ersetzen.
+// zuerst) — genau der Fall, für den diese Liste in Plan 4 von Anfang an als
+// wachsende Liste angelegt wurde, statt wieder nur zwei benannte Slots (die
+// beim zweiten DCA-Wechsel schon einmal gebrochen sind). getUserTriggerVaults()
+// (minipayWallet.ts), readTriggerVaults() (apis/backend/src/plans.ts) und
+// usePlans.ts fragen diese Liste ab, nicht die beiden Konstanten einzeln. Bei
+// der nächsten Migration hier ergänzen, nie ersetzen.
 export const ALL_TRIGGER_VAULT_FACTORY_ADDRESSES: readonly `0x${string}`[] = [
-  OLD_TRIGGER_VAULT_FACTORY_ADDRESS, // Generation 1 (vor Plan 2 B3, kein Fee-Snapshot/Slippage-Floor)
-  TRIGGER_VAULT_FACTORY_ADDRESS,     // Generation 2 (Plan 2 B3, aktuell)
+  OLD_TRIGGER_VAULT_FACTORY_ADDRESS,             // Generation 1 (vor Plan 2 B3, kein Fee-Snapshot/Slippage-Floor)
+  "0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625",  // Generation 2 (Plan 2 B3 — Fee-Snapshot/Slippage-Floor, globaler minFee-Skalar)
+  TRIGGER_VAULT_FACTORY_ADDRESS,                 // Generation 3 (Plan 4 Befund A, aktuell — per-Token minFeeByToken)
 ];
 
 // SendVaultFactory — Auszahlungs-Erweiterung neben DcaVaultFactory/

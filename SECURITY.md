@@ -84,7 +84,7 @@ Current addresses:
 |---|---|---|
 | DCA | `0xa6B66110b3593B5D32f4229CA5398611959149C5` | `0x02213a74a725C15EBbbC1212777b5b20C73B01E8` |
 | Send | `0x4d63381b9b742683b92971d672018Ec5d82DA002` | `0x2de1279b086cC0c642B8CFdbb702e014a81605d` |
-| Trigger | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` |
+| Trigger | `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed` | `0x741Fad235EC4808c8C06279b1D1c8E578fc6A635` |
 
 **Important limitation**: this protection applies only to plans created on the new
 factories above. EIP-1167 clones delegate permanently to the implementation address
@@ -109,12 +109,18 @@ issue was live in production. All three are fixed as of this section:
   more than the 2% the slippage floor above allowed, so it rejected the
   keeper's own legitimate `minAmountOut` with `MinOutBelowFloor()` on live
   plans. `TriggerVaultFactory.setMaxSlippageBps(900)` (2% → 9%, still well
-  under the 20% hard cap) was proposed via the Timelock on 01.09.2026,
-  executable ~48h later once the delay elapses. This only affects plans
-  created on the current `TriggerVaultFactory`
-  generation — its `snapshotMaxSlippageBps` is frozen per plan at setup, so a
-  plan created before the change keeps its old 2% tolerance and needs to be
-  cancelled and recreated to benefit.
+  under the 20% hard cap) was proposed via the Timelock on 01.09.2026 for
+  that generation (`0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625`), executable
+  ~48h later once the delay elapses. Its `snapshotMaxSlippageBps` is frozen
+  per plan at setup, so a plan created before the change keeps its old 2%
+  tolerance and needs to be cancelled and recreated to benefit. **The
+  Plan 4 Befund A factory deployed 02.09.2026
+  (`0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`, now current) has the exact
+  same gap** — its constructor hardcodes the same `maxSlippageBps = 200`
+  default, and the deploy script cannot raise it itself (`onlyAdmin` = the
+  Timelock). A separate `setMaxSlippageBps(900)` proposal for this address
+  is still needed and has not been made as of this writing — do this before
+  any real Sell-direction plan is created on it.
 - **APIS' plan compiler didn't enforce the new stablecoin requirement (fixed)**:
   `planCompiler.ts`'s sell-trigger validation predates the slippage-floor
   work above and never got the matching `StablecoinRequired()` check — it
@@ -125,7 +131,8 @@ issue was live in production. All three are fixed as of this section:
   all three entry points (Claude via MCP, ChatGPT/Gemini/Grok via REST) now
   match the contract.
 - **`TriggerVault`'s `minFee` wasn't decimals-aware (fixed, new factory
-  generation)**: `minFee` was a single global raw value (`35_000`), implicitly
+  generation, deployed and verified 02.09.2026)**: `minFee` was a single
+  global raw value (`35_000`), implicitly
   assuming a 6-decimal stablecoin — but for a Sell-direction plan, `heldToken`
   is the crypto asset itself (wBTC=8, wETH/CELO=18, XAUoT=6 decimals). A
   small wBTC sell could see an effective fee near 35% instead of the nominal
