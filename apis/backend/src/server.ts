@@ -122,7 +122,10 @@ export function buildServer(env: ServerEnv): McpServer {
 
   // ── propose_plan ───────────────────────────────────────────────────────
   const targetTokenEnum = z.enum(['wBTC', 'wETH', 'CELO', 'XAUoT']);
-  const anyTokenEnum = z.enum(['wBTC', 'wETH', 'CELO', 'XAUoT', 'USDC', 'USDT']);
+  // Muss mit planCompiler.ts' SELL_TRIGGER_STABLECOINS übereinstimmen — der
+  // Contract verlangt seit Plan 2 B3 einen zugelassenen Stablecoin auf der
+  // nicht beobachteten Seite eines Sell-Triggers (StablecoinRequired() sonst).
+  const sellTriggerTargetEnum = z.enum(['USDC', 'USDT']);
 
   server.registerTool(
     'propose_plan',
@@ -144,7 +147,7 @@ export function buildServer(env: ServerEnv): McpServer {
         targets:     z.array(z.object({ token: targetTokenEnum, bps: z.number().int().min(1).max(10_000) })),
         sellTrigger: z.object({
           sellToken:       targetTokenEnum.describe('The token to lock into the sell vault now.'),
-          targetToken:     anyTokenEnum.describe('What to sell it for once the trigger fires.'),
+          targetToken:     sellTriggerTargetEnum.describe('What to sell it for once the trigger fires — must be a stablecoin the contract allows, the crypto leg is always sellToken.'),
           amount:          z.string().describe('Human-readable amount of sellToken to lock into the vault now, e.g. "0.05".'),
           triggerPriceUsd: z.number().positive().describe('Sell once the price is at or above this (take-profit).'),
           timeLimit:       z.enum(['1d', '1w', '1m', 'none']).default('none').describe('How long the plan stays open before it can no longer be executed. It can be cancelled any time regardless.'),

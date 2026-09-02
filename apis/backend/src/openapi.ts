@@ -9,8 +9,12 @@
 const SERVER_URL = 'https://apis-backend.frerehugi.workers.dev';
 
 const TARGET_TOKEN_ENUM = ['wBTC', 'wETH', 'CELO', 'XAUoT'];
-const ANY_TOKEN_ENUM = ['wBTC', 'wETH', 'CELO', 'XAUoT', 'USDC', 'USDT'];
 const SEND_TOKEN_ENUM = ['USDC', 'USDT', 'cUSD', 'wBTC', 'wETH', 'CELO', 'XAUoT'];
+// Muss mit planCompiler.ts' SELL_TRIGGER_STABLECOINS / TriggerVaultFactory's
+// _initialStablecoins übereinstimmen — der Contract verlangt seit Plan 2 B3
+// einen zugelassenen Stablecoin auf der nicht beobachteten Seite eines
+// Sell-Triggers (StablecoinRequired() sonst).
+const SELL_TRIGGER_TARGET_ENUM = ['USDC', 'USDT'];
 
 export const OPENAPI_SPEC = {
   openapi: '3.1.0',
@@ -144,7 +148,7 @@ export const OPENAPI_SPEC = {
                     required: ['sellToken', 'targetToken', 'amount', 'triggerPriceUsd'],
                     properties: {
                       sellToken:       { type: 'string', enum: TARGET_TOKEN_ENUM, description: 'The token to lock into the sell vault now.' },
-                      targetToken:     { type: 'string', enum: ANY_TOKEN_ENUM, description: 'What to sell it for once the trigger fires.' },
+                      targetToken:     { type: 'string', enum: SELL_TRIGGER_TARGET_ENUM, description: 'What to sell it for once the trigger fires — must be a stablecoin the contract allows, the crypto leg is always sellToken.' },
                       amount:          { type: 'string', description: 'Human-readable amount of sellToken to lock into the vault now, e.g. "0.05".' },
                       triggerPriceUsd: { type: 'number', exclusiveMinimum: 0, description: 'Sell once the price is at or above this (take-profit).' },
                       timeLimit: {

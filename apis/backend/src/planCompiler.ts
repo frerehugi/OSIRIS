@@ -119,6 +119,19 @@ function resolveAnyToken(symbol: string): { address: `0x${string}`; decimals: nu
     ?? (INPUT_TOKENS as Record<string, { address: `0x${string}`; decimals: number }>)[symbol];
 }
 
+// Muss mit TriggerVaultFactory's _initialStablecoins übereinstimmen (siehe
+// script/DeployTriggerVaultFactory.s.sol) — der Contract verlangt seit Plan 2
+// B3, dass das nicht beobachtete Bein eines Trigger-Plans ein zugelassener
+// Stablecoin ist (StablecoinRequired() sonst), sonst hier nicht erzwungen.
+// Ohne diese Prüfung validierte der Compiler z.B. "sell wBTC for wETH" als
+// gültig, obwohl setupPlan() das on-chain zwingend ablehnt — mit dem Vault
+// ggf. schon erstellt und approved, bevor der Fehlschlag auffällt. Rein
+// hardcodiert statt live von der Factory gelesen (dieser Compiler bleibt
+// synchron/ohne RPC-Abhängigkeit, siehe restliche Validierung in dieser
+// Datei) — bei einer künftigen Änderung über setStablecoin() (Timelock)
+// muss diese Liste von Hand mitgezogen werden.
+const SELL_TRIGGER_STABLECOINS = new Set(['USDC', 'USDT']);
+
 export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): CompiledPlan | InvalidPlan {
   const errors: string[] = [];
 
@@ -184,6 +197,12 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
     if (!sellTargetToken) errors.push(`Unknown sell target token '${sellTrigger.targetToken}'.`);
     if (sellToken && sellTargetToken && sellToken.address === sellTargetToken.address) {
       errors.push('Sell trigger token and target token must differ.');
+    }
+    if (sellTargetToken && !SELL_TRIGGER_STABLECOINS.has(sellTrigger.targetToken)) {
+      errors.push(
+        `Sell trigger target token must be a stablecoin the contract allows (${[...SELL_TRIGGER_STABLECOINS].join(', ')}) — ` +
+        `'${sellTrigger.targetToken}' would be rejected on-chain with StablecoinRequired().`,
+      );
     }
     if (!(sellTrigger.triggerPriceUsd > 0)) errors.push('Sell trigger price must be greater than zero.');
 
