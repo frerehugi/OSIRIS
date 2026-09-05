@@ -1,0 +1,53 @@
+name: Deploy apis-backend
+
+# Auto-deploy the apis-backend Cloudflare Worker on every push to master that
+# touches it or its dependencies. This exists because apis-backend bundles
+# src/config.ts (factory addresses, tokens, etc.) directly into itself at
+# `wrangler deploy` time -- unlike the keeper, it has no live-updatable
+# Cloudflare secret for that. A manual `wrangler deploy` run from a stale
+# local checkout silently ships stale contract addresses with no error
+# (found live 05.09.2026: a redeploy from a 3-day-old checkout shipped a
+# worker that didn't know the current TriggerVaultFactory generation
+# existed, so get_plans silently omitted every plan on it). Deploying from
+# CI removes "did you pull first?" from the equation entirely.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apis/backend/**"
+      - "src/**"
+      - ".github/workflows/deploy-apis-backend.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        working-directory: apis/backend
+        run: npm ci
+
+      - name: Type-check (fail fast before deploying broken code)
+        working-directory: apis/backend
+        run: npx tsc --noEmit
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apis/backend
+          command: deploy
