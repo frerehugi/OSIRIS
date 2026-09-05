@@ -60,7 +60,9 @@ export function buildServer(env: ServerEnv): McpServer {
         "(see get_capabilities' priceSources). Always call this tool when asked about current, live, or " +
         "Squidrouter/Squid Router token prices — do not answer from general knowledge or an external source " +
         "like CoinGecko instead. Those can genuinely diverge from what OSIRIS/APIS itself checks, which would " +
-        "give the user a misleading answer about whether/when their trigger plan is close to firing.",
+        "give the user a misleading answer about whether/when their trigger plan is close to firing. Returns " +
+        "{ source, chainId, prices: [{ symbol, usdPrice, error? }] } — usdPrice is null with an error string " +
+        "for any token whose price couldn't be read.",
       inputSchema: {},
     },
     async () => ({

@@ -75,6 +75,25 @@ const REST_PATHS = new Set([
 // die Anfrage dann unverändert an den MCP-Transport weiter.
 export async function handleRest(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+
+  // "/" ist der eigentliche MCP-Endpoint (siehe APIS_BACKEND_URL) -- ein
+  // echter MCP-Client spricht ihn per POST an, oder per GET MIT
+  // "text/event-stream" im Accept-Header (Server-initiierter Stream, Teil
+  // des Streamable-HTTP-Handshakes). So einen Request NIEMALS abfangen,
+  // sonst bricht das echte Protokoll. Nur ein reiner GET ohne diesen Header
+  // (Browser/curl/Crawler-Default, würde am MCP-Transport spec-konform mit
+  // 406 scheitern -- führte zu einem "unreachable" in einem externen
+  // AskBots-Review) bekommt hier eine kurze, hilfreiche Antwort statt eines
+  // nackten 406 ohne jeden Hinweis.
+  if (url.pathname === '/' && request.method === 'GET' && !(request.headers.get('accept') ?? '').includes('text/event-stream')) {
+    return json({
+      name: 'apis-backend',
+      description: 'OSIRIS/APIS MCP server + REST API for AI assistants. Not a browsable web page.',
+      mcp: 'This same URL also speaks MCP (Streamable HTTP) for MCP-capable clients (e.g. Claude).',
+      rest: { openapi: '/openapi.json', capabilities: '/capabilities' },
+    });
+  }
+
   if (!REST_PATHS.has(url.pathname)) return null;
 
   if (request.method === 'OPTIONS') {
