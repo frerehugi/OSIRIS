@@ -115,12 +115,12 @@ issue was live in production. All three are fixed as of this section:
   per plan at setup, so a plan created before the change keeps its old 2%
   tolerance and needs to be cancelled and recreated to benefit. **The
   Plan 4 Befund A factory deployed 02.09.2026
-  (`0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`, now current) has the exact
-  same gap** — its constructor hardcodes the same `maxSlippageBps = 200`
-  default, and the deploy script cannot raise it itself (`onlyAdmin` = the
+  (`0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`, now current) had the exact
+  same gap** — its constructor hardcoded the same `maxSlippageBps = 200`
+  default, and the deploy script couldn't raise it itself (`onlyAdmin` = the
   Timelock). A separate `setMaxSlippageBps(900)` proposal for this address
-  is still needed and has not been made as of this writing — do this before
-  any real Sell-direction plan is created on it.
+  was made and executed 05.09.2026 (verified via `maxSlippageBps()` reading
+  `900`) — new plans on gen 3 now snapshot the fixed tolerance.
 - **APIS' plan compiler didn't enforce the new stablecoin requirement (fixed)**:
   `planCompiler.ts`'s sell-trigger validation predates the slippage-floor
   work above and never got the matching `StablecoinRequired()` check — it

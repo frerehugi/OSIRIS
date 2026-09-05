@@ -9,7 +9,7 @@ which is the version Claude reloads across unrelated chats when told "hold dir d
 CELO readme". The two should stay in sync; if they drift, this file (checked into git,
 reviewable in diffs) is the tiebreaker.
 
-Last updated **02.09.2026**.
+Last updated **05.09.2026**.
 
 ## 1. What this is
 
@@ -78,7 +78,7 @@ kept in the keeper's scan list by hand, not discoverable via `getAllVaults()`.
 
 | Gen | Factory | Implementation | Status |
 |---|---|---|---|
-| 3 (current) | `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed` | `0x741Fad235EC4808c8C06279b1D1c8E578fc6A635` | live — per-token `minFeeByToken`, deployed + verified 02.09.2026 |
+| 3 (current) | `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed` | `0x741Fad235EC4808c8C06279b1D1c8E578fc6A635` | live — per-token `minFeeByToken`, deployed + verified 02.09.2026; `maxSlippageBps` fixed to 900 on 05.09.2026 |
 | 2 | `0x4398Cdd2AF617Bc36adBdF8a2BC60095535Bc625` | `0x8E3f4496303A2cC1C348Fca072EFc02aF587795f` | old, still served — no floor on plans opened before 31.08.2026, global `minFee` scalar not decimals-aware |
 | 1 | `0xeD39de472baEE17e6Ce05a0A4A0515eb4DF98a97` | — | old, still served |
 
@@ -87,21 +87,26 @@ in `src/config.ts` now carries all three generations; no other call site needed
 a code change, since `minipayWallet.ts`/`apis/backend/src/plans.ts`/`usePlans.ts`
 already read that array rather than the two named constants (exactly the
 ever-growing-list design decided in Plan 4, paying off on its first real use).
-**Follow-up not yet done**: `wrangler secret put TRIGGER_VAULT_FACTORY_ADDRESSES`
-needs all three addresses (comma-separated) pushed to the keeper Worker, or it
-falls back to its own hardcoded default array — check `keeper/squidKeeper.ts`
-before assuming the keeper already sees gen 3.
+`wrangler secret put TRIGGER_VAULT_FACTORY_ADDRESSES` (all three addresses,
+comma-separated) was run against the keeper Worker on 02.09.2026, same day
+as the deploy — confirmed via the secret-upload success message, not yet
+independently re-verified via a live `wrangler tail` the way the prior
+generation's multi-factory scanning was.
 
-**Important, found 02.09.2026 while documenting the gen-3 deploy**: gen 3's
-constructor hardcodes `maxSlippageBps = 200` (2%) same as every prior
-generation — the deploy script cannot set it any higher itself (`onlyAdmin`
-= the Timelock, not the deployer). So gen 3 carries the *exact same*
-`MinOutBelowFloor()` exposure that gen 2 had, not yet hit only because gen 3
-has zero plans so far. `setMaxSlippageBps(900)` was proposed via the
-Timelock on 01.09.2026 for **gen 2 only** — gen 3 needs its own, separate
-`setMaxSlippageBps(900)` proposal on `0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`
-before anyone creates a real Sell-direction plan on it. Not yet done as of
-this writing.
+**Resolved 05.09.2026**: gen 3's constructor had hardcoded `maxSlippageBps =
+200` (2%) same as every prior generation, carrying the exact same
+`MinOutBelowFloor()` exposure gen 2 had — the deploy script couldn't set it
+higher itself (`onlyAdmin` = the Timelock, not the deployer). `setMaxSlippageBps(900)`
+was proposed via the Timelock on 02.09.2026 and executed 05.09.2026,
+verified via `maxSlippageBps()` reading `900` on
+`0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed`. (Gen 2's own separate
+`setMaxSlippageBps(900)` proposal, made 01.09.2026, was deliberately never
+executed — pointless once gen 3 became current, since gen 2's existing
+plans have their `snapshotMaxSlippageBps` frozen already and no new plan
+will ever land on gen 2 again.) The temporary `TRIGGER_PLANS_PAUSED` guard
+added 02.09.2026 in `src/App.tsx`/`apis/backend/src/planCompiler.ts` to
+block new Trigger plan creation during the gap was removed the same day,
+once verified.
 
 ### Shared infrastructure
 
