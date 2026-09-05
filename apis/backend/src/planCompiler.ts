@@ -132,12 +132,6 @@ function resolveAnyToken(symbol: string): { address: `0x${string}`; decimals: nu
 // muss diese Liste von Hand mitgezogen werden.
 const SELL_TRIGGER_STABLECOINS = new Set(['USDC', 'USDT']);
 
-// Temporär (02.09.2026) -- siehe Kommentar an der eigentlichen Prüfung
-// unten. Auf false setzen (oder diese Zeile + die Prüfung entfernen),
-// sobald TriggerVaultFactory gen 3 (0xE19f7267A7F4CC7a4e4c6fc6967d2B5F25Ab09ed)
-// ihren setMaxSlippageBps(900)-Timelock-Fix ausgeführt hat.
-const TRIGGER_PLANS_PAUSED = true;
-
 export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): CompiledPlan | InvalidPlan {
   const errors: string[] = [];
 
@@ -197,20 +191,6 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
 
   let compiledTriggerSell: CompiledPlan['triggerSell'];
   if (sellTrigger) {
-    // Temporär pausiert (02.09.2026): die aktuelle TriggerVaultFactory-
-    // Generation (gen 3, seit heute live) hat noch den alten 2%-
-    // maxSlippageBps-Default -- ein Timelock-Fix auf 900 ist bereits
-    // geplant (ausführbar ~04.09.2026), aber bis dahin würde jeder neue
-    // Trigger-Plan denselben MinOutBelowFloor()-Bug einfrieren, der schon
-    // Pläne auf gen 2 lahmgelegt hat (siehe SECURITY.md). Sobald der
-    // Timelock-Fix ausgeführt ist, diesen Block wieder entfernen.
-    if (TRIGGER_PLANS_PAUSED) {
-      errors.push(
-        'Trigger plans are temporarily paused while a contract fix for the new TriggerVaultFactory ' +
-        'generation finishes its mandatory 48h Timelock delay (expected back within ~2 days) -- creating ' +
-        'one right now would freeze it with a slippage tolerance too tight to ever execute.',
-      );
-    }
     const sellToken = resolveTargetToken(sellTrigger.sellToken);
     const sellTargetToken = resolveAnyToken(sellTrigger.targetToken);
     if (!sellToken) errors.push(`Unknown sell token '${sellTrigger.sellToken}'.`);
