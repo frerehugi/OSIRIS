@@ -9,7 +9,7 @@ which is the version Claude reloads across unrelated chats when told "hold dir d
 CELO readme". The two should stay in sync; if they drift, this file (checked into git,
 reviewable in diffs) is the tiebreaker.
 
-Last updated **05.09.2026**.
+Last updated **07.09.2026**.
 
 ## 1. What this is
 
@@ -177,7 +177,7 @@ own price read (`wrangler tail`) before assuming a bug.
 | Branch → ship | Feature branch → fast-forward merge to `master` → direct push, no PR for this repo's normal flow. |
 | Deploy (contracts) | Foundry `forge script`, dry-run then `--broadcast`, always run by the user locally (this sandbox has no `forge`/RPC egress) — reuse the existing deployer/keeper/Timelock keys, never mint new ones without being asked. |
 | Deploy (frontend) | Push to `master` → user manually hits "Promote to Production" in Vercel for `apis/app` and `osiris`. |
-| Deploy (keeper) | `cd keeper && npx wrangler deploy`, secrets via `npx wrangler secret put <NAME>`, local machine only. |
+| Deploy (keeper) | `cd keeper && npx wrangler deploy`, secrets via `npx wrangler secret put <NAME>`, local machine only — **no CI auto-deploy** (unlike `apis-backend` since 05.09.2026), same staleness exposure, see §7 gotchas. |
 | Testing philosophy | Mainnet-only, no Sepolia dry runs (Squid doesn't support Sepolia anyway). Verify new deploys with small real amounts before trusting them with size. |
 | Sandbox network reality | `forno.celo.org` and `celoscan.io` are both egress-blocked from this Claude Code sandbox. Live on-chain reads go through the user (Celoscan's mobile-friendly `#readContract` tab works with no wallet needed) or `cast`/`wrangler tail` run on their machine. |
 | Test wallet | `0x205A92b7d69e2A0628cE928c4E3d3aC29D67C90f` |
@@ -231,6 +231,24 @@ Specific, previously-costly mistakes — not general Solidity/TS advice.
   matrix job that only runs `npm ci` inside its own package directory can't
   resolve root's own dependencies (`viem`) for those transitively-imported
   root files — install root deps too, not just the matrix package's own.
+- **A manual `wrangler deploy` from a stale local checkout ships stale code
+  with zero error or warning.** Found live 05.09.2026: `apis-backend` bundles
+  `src/config.ts` (factory addresses, tokens, everything) directly into
+  itself at deploy time — no live-updatable secret for it, unlike the
+  keeper's `TRIGGER_VAULT_FACTORY_ADDRESSES`. Two manual redeploys that day
+  ran from a laptop checkout that hadn't been `git pull`ed since the
+  session started, silently shipping a worker whose bundled config didn't
+  know the current `TriggerVaultFactory` generation existed — `get_plans`
+  quietly omitted every plan on it, no crash, no log, nothing to notice.
+  Fixed for `apis-backend` specifically: `.github/workflows/deploy-apis-backend.yml`
+  (added 05.09.2026) auto-deploys on every push to `master` touching
+  `apis/backend/**` or `src/**`, needs `CLOUDFLARE_API_TOKEN` +
+  `CLOUDFLARE_ACCOUNT_ID` repo secrets (already set). **The keeper
+  (`osiris-keeper`) has the same structural exposure and does NOT have this
+  fix** — its factory-address list is covered by its own live secret, but
+  any other code change still depends on whoever runs `cd keeper && npx
+  wrangler deploy` having pulled first. Flagged to the user 07.09.2026,
+  deliberately not yet built — revisit if this bites again.
 
 ## 8. Celopedia skill
 
