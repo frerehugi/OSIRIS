@@ -43,7 +43,11 @@ function decodeGrantCode(code: string): AccessGrant {
   try {
     json = JSON.parse(atob(base64));
   } catch {
-    throw new GrantError('Malformed grant code.');
+    throw new GrantError(
+      "Malformed grant code — this string isn't a valid APIS access code at all (wrong format or corrupted " +
+      "in transit). This is NOT a plan/proposal validation problem, and retrying with different plan values " +
+      "will not help. Ask the user to copy the exact code from APIS' \"Create New Code for Agent\" screen again.",
+    );
   }
 
   const { owner, agent, scope, expiresAt, nonce, signature } = json;
@@ -51,7 +55,11 @@ function decodeGrantCode(code: string): AccessGrant {
     typeof owner !== 'string' || typeof agent !== 'string' || typeof scope !== 'string' ||
     typeof expiresAt !== 'string' || typeof nonce !== 'string' || typeof signature !== 'string'
   ) {
-    throw new GrantError('Malformed grant code.');
+    throw new GrantError(
+      "Malformed grant code — this string isn't a valid APIS access code at all (missing or wrong-typed " +
+      "fields). This is NOT a plan/proposal validation problem, and retrying with different plan values " +
+      "will not help. Ask the user to copy the exact code from APIS' \"Create New Code for Agent\" screen again.",
+    );
   }
 
   return {
@@ -85,16 +93,29 @@ export async function verifyGrant(code: string, requiredScope: 'read' | 'propose
   });
 
   if (recovered.toLowerCase() !== grant.owner.toLowerCase()) {
-    throw new GrantError('Grant signature does not match its claimed owner.');
+    throw new GrantError(
+      'Grant signature does not match its claimed owner — the code is corrupted or was tampered with. This ' +
+      'is NOT a plan/proposal validation problem, and retrying with different plan values will not help. Ask ' +
+      'the user to generate a fresh access code in APIS.',
+    );
   }
 
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   if (grant.expiresAt < nowSeconds) {
-    throw new GrantError('Grant has expired. Ask the user to create a new one in APIS.');
+    throw new GrantError(
+      'Grant has expired. This is NOT a bug in plan validation, and this call will keep failing identically ' +
+      'no matter what plan values (amount, price, token, etc.) you send — the grant itself needs to be replaced ' +
+      "before anything else can succeed. Ask the user to open APIS, generate a fresh access code (\"Create New " +
+      'Code for Agent"), and retry with that new code.',
+    );
   }
 
   if (!grant.scope.includes(requiredScope)) {
-    throw new GrantError(`Grant does not include '${requiredScope}' access.`);
+    throw new GrantError(
+      `Grant does not include '${requiredScope}' access — the user's code was generated with a narrower scope. ` +
+      'This is NOT a plan/proposal validation problem, and retrying with different plan values will not help. ' +
+      `Ask the user to generate a new access code in APIS with '${requiredScope}' (or broader) access.`,
+    );
   }
 
   return grant;

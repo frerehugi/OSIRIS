@@ -139,7 +139,12 @@ export function buildServer(env: ServerEnv): McpServer {
         "the user still confirms and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. " +
         'On success, the response includes a ready-to-use `planCode` field — give the user that exact string, ' +
         'verbatim and unmodified, as the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT ' +
-        'construct, re-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
+        'construct, re-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given. ' +
+        'A failure here comes in two distinct shapes, do not conflate them: a grant-related error message (expired, ' +
+        'invalid, wrong scope) means the access code itself needs replacing — tell the user to generate a fresh one ' +
+        'in APIS, changing plan values will not help and this is not a bug in trigger/plan encoding; a `valid: false` ' +
+        'response with an `errors` array is real, actionable feedback about the plan itself — relay those specific ' +
+        'messages back so the user knows what to change.',
       inputSchema: {
         grantCode:   z.string().describe('The code the user generated in APIS.'),
         inputToken:  z.enum(['USDC', 'USDT']),
