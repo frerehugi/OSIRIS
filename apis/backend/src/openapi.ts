@@ -168,6 +168,49 @@ export const OPENAPI_SPEC = {
         },
       },
     },
+    '/propose-trigger': {
+      post: {
+        operationId: 'proposeTriggerPlan',
+        summary: 'Propose a standalone price-trigger plan (buy or sell)',
+        description:
+          'Validates a single-price, keeper-executed trigger plan — buy OR sell, standing on its own (NOT ' +
+          'attached to a DCA buy plan) — against the real OSIRIS TriggerVault contract constraints. Use this for ' +
+          'something like "buy 2 USDC of CELO once the price drops to $0.075" or "sell 0.01 wBTC once the price ' +
+          'rises to $80,000" as its own plan. For a take-profit sell attached right after a brand-new DCA buy ' +
+          "plan, use /propose's sellTrigger field instead. Does NOT execute anything — the user still confirms " +
+          "and signs everything themselves in MiniPay. Requires a grant code with 'propose' access. On success, " +
+          'the response includes a ready-to-use `planCode` field — give the user that exact string, verbatim and ' +
+          'unmodified, as the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT construct, ' +
+          're-encode, or reconstruct this code yourself from the other fields — copy `planCode` exactly as given.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['grantCode', 'direction', 'cryptoToken', 'stablecoin', 'amount', 'triggerPriceUsd'],
+                properties: {
+                  grantCode:   { type: 'string', description: 'The code the user generated in APIS.' },
+                  direction:   { type: 'string', enum: ['buy', 'sell'], description: "'buy' locks in the stablecoin now and swaps into cryptoToken once the price is at or below triggerPriceUsd. 'sell' locks in cryptoToken now and swaps into the stablecoin once the price is at or above triggerPriceUsd." },
+                  cryptoToken: { type: 'string', enum: TARGET_TOKEN_ENUM, description: 'The crypto asset being bought or sold — its price is what gets watched.' },
+                  stablecoin:  { type: 'string', enum: SELL_TRIGGER_TARGET_ENUM, description: 'The stablecoin leg — what you pay with (buy) or receive (sell). Must be one the contract allows.' },
+                  amount:      { type: 'string', description: 'Human-readable amount of the HELD token to lock into escrow now — the stablecoin amount for a buy, the crypto amount for a sell, e.g. "2.00".' },
+                  triggerPriceUsd: { type: 'number', exclusiveMinimum: 0, description: 'Buy: execute once the price is at or below this. Sell: execute once the price is at or above this.' },
+                  timeLimit: {
+                    type: 'string', enum: ['1d', '1w', '1m', 'none'], default: 'none',
+                    description: 'How long the plan stays open before it can no longer be executed. It can be cancelled any time regardless.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Compiled trigger plan parameters, a human-readable summary, and a ready-to-use `planCode` field — relay `planCode` verbatim to the user, do not construct it yourself.' },
+          '400': { description: 'Invalid grant code, or the plan draft failed validation (see `errors`).' },
+        },
+      },
+    },
     '/propose-send': {
       post: {
         operationId: 'proposeSendPlan',

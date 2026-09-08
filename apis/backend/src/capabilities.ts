@@ -56,6 +56,20 @@ export function buildCapabilities() {
       note: "The trigger price is evaluated off-chain by OSIRIS' shared keeper (soft trigger, same one that executes DCA tranches) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.",
     },
 
+    // Standalone Buy/Sell-Trigger, unabhängig von jedem DCA-Plan — anders
+    // als triggerSellPlan oben, das nur als Anhang an einen NEUEN DCA-Buy-
+    // Plan erreichbar ist. Gleicher Contract (TriggerVault), gleicher
+    // Keeper, gleiche Gebühr — nur ein eigener Einstiegspunkt, weil ein
+    // reiner "kaufe X, wenn Preis auf Y fällt"-Plan sonst gar nicht
+    // vorschlagbar war.
+    triggerPlan: {
+      description: 'A single-price, keeper-executed trigger plan (buy or sell), standing entirely on its own — not attached to a DCA buy plan. Escrowed for real in its own OSIRIS TriggerVault clone.',
+      feeBps: 99,
+      direction: "buy (executes once the price is at or below the trigger price) or sell (at or above, take-profit).",
+      timeLimits: ['1d', '1w', '1m', 'none'],
+      note: "The trigger price is evaluated off-chain by OSIRIS' shared keeper (soft trigger, same one that executes DCA tranches and triggerSellPlan) — the contract itself has no oracle. Cancellable any time regardless of the time limit; a cancelled or expired-unexecuted plan returns the full escrowed amount to the owner.",
+    },
+
     sendPlan: {
       description: 'A multi-recipient, time-scheduled payout on a new, dedicated OSIRIS SendVault contract — no swap, the sender already holds the token. Each recipient gets their own total amount, split evenly across the plan\'s payouts.',
       maxRecipients: 10,

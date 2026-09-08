@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import {
-  compilePlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
-  type PlanDraft, type SellTriggerDraft, type SendPlanDraft, type DirectSendDraft,
+  compilePlan, compileTriggerPlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
+  type PlanDraft, type SellTriggerDraft, type TriggerPlanDraft, type SendPlanDraft, type DirectSendDraft,
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
 import { getBalancesForOwner } from './balances';
@@ -175,6 +175,58 @@ export function buildServer(env: ServerEnv): McpServer {
 
       const planDraft: PlanDraft = { owner: grant.owner, ...draft };
       const result = compilePlan(planDraft, sellTrigger as SellTriggerDraft | undefined);
+
+      if (!result.valid) {
+        return { content: [{ type: 'text', text: JSON.stringify({ valid: false, errors: result.errors }, null, 2) }], isError: true };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // ── propose_trigger_plan ──────────────────────────────────────────────
+  // Standalone price-trigger plan (buy OR sell), independent of any DCA buy
+  // plan — unlike propose_plan's sellTrigger (which only ever attaches a
+  // take-profit sell right after a NEW DCA buy plan), this creates its own
+  // TriggerVault on its own, for either direction. Same stablecoin enum/
+  // allowlist as sellTrigger above (see planCompiler.ts's
+  // SELL_TRIGGER_STABLECOINS comment).
+  server.registerTool(
+    'propose_trigger_plan',
+    {
+      title: 'Propose a standalone price-trigger plan (buy or sell)',
+      description:
+        'Validates a single-price, keeper-executed trigger plan — buy OR sell, standing on its own (NOT attached ' +
+        'to a DCA buy plan) — against the real OSIRIS TriggerVault contract constraints. Use this for something ' +
+        'like "buy 2 USDC of CELO once the price drops to $0.075" or "sell 0.01 wBTC once the price rises to ' +
+        "$80,000\" as its own plan. For a take-profit sell attached right after a brand-new DCA buy plan, use " +
+        "propose_plan's sellTrigger field instead. Does NOT execute anything — the user still confirms and signs " +
+        "everything themselves in MiniPay. Requires a grant code with 'propose' access. On success, the response " +
+        'includes a ready-to-use `planCode` field — give the user that exact string, verbatim and unmodified, as ' +
+        'the "plan code" to paste into the APIS app\'s Confirm Plan screen. Do NOT construct, re-encode, or ' +
+        'reconstruct this code yourself from the other fields — copy `planCode` exactly as given. A failure here ' +
+        'comes in two distinct shapes, do not conflate them: a grant-related error message (expired, invalid, ' +
+        'wrong scope) means the access code itself needs replacing — tell the user to generate a fresh one in ' +
+        'APIS, changing plan values will not help; a `valid: false` response with an `errors` array is real, ' +
+        'actionable feedback about the plan itself — relay those specific messages back so the user knows what to change.',
+      inputSchema: {
+        grantCode:       z.string().describe('The code the user generated in APIS.'),
+        direction:       z.enum(['buy', 'sell']).describe("'buy' locks in the stablecoin now and swaps into cryptoToken once the price is at or below triggerPriceUsd. 'sell' locks in cryptoToken now and swaps into the stablecoin once the price is at or above triggerPriceUsd."),
+        cryptoToken:     targetTokenEnum.describe('The crypto asset being bought or sold — its price is what gets watched.'),
+        stablecoin:      sellTriggerTargetEnum.describe('The stablecoin leg — what you pay with (buy) or receive (sell). Must be one the contract allows.'),
+        amount:          z.string().describe('Human-readable amount of the HELD token to lock into escrow now — the stablecoin amount for a buy, the crypto amount for a sell, e.g. "2.00".'),
+        triggerPriceUsd: z.number().positive().describe('Buy: execute once the price is at or below this. Sell: execute once the price is at or above this.'),
+        timeLimit:       z.enum(['1d', '1w', '1m', 'none']).default('none').describe('How long the plan stays open before it can no longer be executed. It can be cancelled any time regardless.'),
+      },
+    },
+    async ({ grantCode, ...draft }) => {
+      try {
+        await verifyGrant(grantCode, 'propose');
+      } catch (err) {
+        return { content: [{ type: 'text', text: errorMessage(err) }], isError: true };
+      }
+
+      const result = compileTriggerPlan(draft as TriggerPlanDraft);
 
       if (!result.valid) {
         return { content: [{ type: 'text', text: JSON.stringify({ valid: false, errors: result.errors }, null, 2) }], isError: true };

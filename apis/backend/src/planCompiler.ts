@@ -265,6 +265,122 @@ export function compilePlan(draft: PlanDraft, sellTrigger?: SellTriggerDraft): C
   return { ...compiled, planCode: encodePlanCode(compiled) };
 }
 
+// ─── Standalone Trigger-Pläne (TriggerVault, buy ODER sell) ────────────────
+//
+// Bislang war ein Trigger-Plan nur als sellTrigger-Anhang an einen frisch
+// erstellten DCA-Buy-Plan erreichbar (siehe SellTriggerDraft/compilePlan
+// oben) — ein reiner "kaufe X, wenn der Preis auf Y fällt"-Plan (ohne
+// begleitenden DCA-Kauf) war über MCP/REST nicht vorschlagbar, obwohl
+// TriggerVault.sol beide Richtungen von Anfang an symmetrisch unterstützt
+// (siehe dortiger Kommentar: "Funktioniert für beide Richtungen") und der
+// Keeper (squidKeeper.ts's isTriggerMet()) beide Richtungen bereits
+// generisch auswertet — keine Contract- oder Keeper-Änderung nötig, nur
+// dieser fehlende Compiler-/API-Pfad. Gleiche Direction-Invariante wie der
+// Contract selbst (setupPlan(): triggerAbove == (watchToken == heldToken)):
+//   Buy:  heldToken=stablecoin, outputToken=watchToken=cryptoToken, triggerAbove=false ("kaufen, wenn der Preis fällt")
+//   Sell: heldToken=watchToken=cryptoToken, outputToken=stablecoin,  triggerAbove=true  ("verkaufen, wenn der Preis steigt")
+// `amount` ist immer die Menge des HELD-Tokens (Stablecoin bei Buy, Krypto bei Sell) —
+// analog zu SellTriggerDraft.amount oben.
+export interface TriggerPlanDraft {
+  direction:       'buy' | 'sell';
+  cryptoToken:      keyof typeof TARGET_TOKENS;
+  stablecoin:       keyof typeof INPUT_TOKENS;
+  amount:           string; // human units of the held token (stablecoin for buy, cryptoToken for sell)
+  triggerPriceUsd:  number; // buy: at or below this. sell: at or above this.
+  timeLimit?:       '1d' | '1w' | '1m' | 'none'; // default 'none' (unlimited)
+}
+
+export interface CompiledTriggerPlan {
+  valid: true;
+  summary: string;
+  direction: 'buy' | 'sell';
+  priceUsd: number;
+  setupPlanArgs: {
+    heldToken:    `0x${string}`;
+    outputToken:  `0x${string}`;
+    watchToken:   `0x${string}`;
+    amount:       string;
+    triggerAbove: boolean;
+    triggerPrice: string;
+    expiresAt:    number; // 0 = zeitlich unbegrenzt
+  };
+  // Siehe CompiledPlan.planCode oben.
+  planCode: string;
+}
+
+export function compileTriggerPlan(draft: TriggerPlanDraft): CompiledTriggerPlan | InvalidPlan {
+  const errors: string[] = [];
+
+  if (draft.direction !== 'buy' && draft.direction !== 'sell') {
+    errors.push(`Direction must be 'buy' or 'sell', got '${draft.direction}'.`);
+  }
+
+  const cryptoToken = resolveTargetToken(draft.cryptoToken);
+  if (!cryptoToken) errors.push(`Unknown crypto token '${draft.cryptoToken}'. Use wBTC, wETH, CELO, or XAUoT.`);
+
+  const stablecoin = (INPUT_TOKENS as Record<string, { address: `0x${string}`; decimals: number } | undefined>)[draft.stablecoin];
+  if (!stablecoin) errors.push(`Unknown stablecoin '${draft.stablecoin}'. Use USDC or USDT.`);
+  // Muss mit TriggerVaultFactory's _initialStablecoins übereinstimmen — siehe
+  // SELL_TRIGGER_STABLECOINS-Kommentar oben. USDC/USDT sind die einzigen
+  // INPUT_TOKENS-Einträge, die dort gelistet sind, daher reicht die reine
+  // INPUT_TOKENS-Prüfung hier ohne zusätzliches Set (anders als bei
+  // SellTriggerDraft.targetToken, das TARGET_TOKENS mit einschließt).
+  if (stablecoin && !SELL_TRIGGER_STABLECOINS.has(draft.stablecoin)) {
+    errors.push(
+      `Stablecoin must be one the contract allows (${[...SELL_TRIGGER_STABLECOINS].join(', ')}) — ` +
+      `'${draft.stablecoin}' would be rejected on-chain with StablecoinRequired().`,
+    );
+  }
+
+  if (!(draft.triggerPriceUsd > 0)) errors.push('Trigger price must be greater than zero.');
+
+  const timeLimit = draft.timeLimit ?? 'none';
+  if (!(timeLimit in TIME_LIMIT_SECONDS)) errors.push(`Unknown time limit '${timeLimit}'. Use 1d, 1w, 1m, or none.`);
+
+  const isBuy = draft.direction === 'buy';
+  const heldTokenInfo = isBuy ? stablecoin : cryptoToken;
+  let amountRaw = 0n;
+  if (heldTokenInfo) {
+    try {
+      amountRaw = parseUnits(draft.amount, heldTokenInfo.decimals);
+    } catch {
+      errors.push(`'${draft.amount}' is not a valid amount.`);
+    }
+    if (amountRaw <= 0n) errors.push('Amount must be greater than zero.');
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+
+  const limitSeconds = TIME_LIMIT_SECONDS[timeLimit] ?? 0;
+  const expiresAt = limitSeconds === 0 ? 0 : Math.floor(Date.now() / 1000) + limitSeconds;
+
+  const heldToken   = isBuy ? stablecoin!.address : cryptoToken!.address;
+  const outputToken = isBuy ? cryptoToken!.address : stablecoin!.address;
+  const watchToken  = cryptoToken!.address; // immer das beobachtete Krypto-Bein
+  const triggerAbove = !isBuy;
+
+  const priceWord = isBuy ? 'at or below' : 'at or above';
+  const summary = isBuy
+    ? `Buy: ${draft.amount} ${draft.stablecoin} into ${draft.cryptoToken}, once, if price is ${priceWord} $${draft.triggerPriceUsd}`
+    : `Sell: ${draft.amount} ${draft.cryptoToken} for ${draft.stablecoin}, once, if price is ${priceWord} $${draft.triggerPriceUsd}`;
+  const summaryWithExpiry = summary + (expiresAt === 0 ? '.' : ` — expires ${new Date(expiresAt * 1000).toISOString()}.`);
+
+  const compiled: Omit<CompiledTriggerPlan, 'planCode'> = {
+    valid: true,
+    summary: summaryWithExpiry,
+    direction: draft.direction,
+    priceUsd: draft.triggerPriceUsd,
+    setupPlanArgs: {
+      heldToken, outputToken, watchToken,
+      amount: amountRaw.toString(),
+      triggerAbove,
+      triggerPrice: parseUnits(draft.triggerPriceUsd.toString(), 8).toString(),
+      expiresAt,
+    },
+  };
+  return { ...compiled, planCode: encodePlanCode(compiled) };
+}
+
 // ─── Send-Pläne (SendVault) ─────────────────────────────────────────────────
 //
 // Reiner Auszahlungs-Plan, kein Swap — anders als compilePlan() oben gibt es

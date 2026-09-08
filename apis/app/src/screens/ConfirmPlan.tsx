@@ -71,6 +71,28 @@ interface DcaProposedPlan {
   };
 }
 
+// Standalone Trigger-Plan (buy ODER sell) — Gegenstück zu propose_trigger_plan
+// (apis/backend), unabhängig von jedem DCA-Plan. Anders als DcaProposedPlan.triggerSell
+// (immer ein Anhang an einen NEUEN DCA-Buy) ist das hier der einzige und
+// primäre Inhalt des Plan-Codes — daher auch KEIN "skip if not enough
+// balance"-Verhalten wie beim Sell-Trigger-Anhang, sondern derselbe
+// "einfach versuchen, Contract revertet sonst natürlich"-Ansatz wie beim
+// DCA-/Send-Zweig.
+interface TriggerProposedPlan {
+  summary: string;
+  direction: 'buy' | 'sell';
+  priceUsd: number;
+  setupPlanArgs: {
+    heldToken:    `0x${string}`;
+    outputToken:  `0x${string}`;
+    watchToken:   `0x${string}`;
+    amount:       string;
+    triggerAbove: boolean;
+    triggerPrice: string;
+    expiresAt:    number;
+  };
+}
+
 interface SendProposedPlan {
   summary: string;
   setupPlanArgs: {
@@ -91,7 +113,7 @@ interface DirectSendProposedPlan {
   };
 }
 
-type ProposedPlan = DcaProposedPlan | SendProposedPlan | DirectSendProposedPlan;
+type ProposedPlan = DcaProposedPlan | TriggerProposedPlan | SendProposedPlan | DirectSendProposedPlan;
 
 function isDirectSend(plan: ProposedPlan): plan is DirectSendProposedPlan {
   return 'transferArgs' in plan;
@@ -101,6 +123,9 @@ function isSendPlan(plan: ProposedPlan): plan is SendProposedPlan {
 }
 function isDcaPlan(plan: ProposedPlan): plan is DcaProposedPlan {
   return 'setupPlanArgs' in plan && 'targetTokens' in plan.setupPlanArgs;
+}
+function isTriggerPlan(plan: ProposedPlan): plan is TriggerProposedPlan {
+  return 'setupPlanArgs' in plan && 'heldToken' in plan.setupPlanArgs;
 }
 
 const ALL_TOKENS: Record<string, TokenInfo> = { ...TARGET_TOKENS, ...INPUT_TOKENS };
@@ -149,6 +174,7 @@ type Phase =
   | 'idle'
   | 'creating-vault' | 'approving-buy' | 'setting-up-plan'
   | 'creating-sell-vault' | 'approving-sell' | 'setting-up-sell-plan'
+  | 'creating-trigger-vault' | 'approving-trigger' | 'setting-up-trigger-plan'
   | 'creating-send-vault' | 'approving-send' | 'setting-up-send-plan'
   | 'sending'
   | 'done';
@@ -258,6 +284,58 @@ export default function ConfirmPlan() {
         const label =
           currentPhase === 'creating-send-vault' ? 'Creating the vault' :
           currentPhase === 'approving-send' ? 'Approval' : 'Setting up the plan';
+        setError(err instanceof Error ? `${label} failed: ${err.message}` : `${label} failed. Please try again.`);
+        setPhase('idle');
+      }
+      return;
+    }
+
+    // ── Standalone Trigger-Plan (buy oder sell) — eigener, primärer 3-Tx-Ablauf ──
+    // Gleiche Sequenz wie der Sell-Trigger-Anhang im DCA-Zweig unten
+    // (createVault → approve → setupPlan auf TriggerVaultFactory/TriggerVault),
+    // aber hier der EINZIGE Inhalt des Plans statt eines optionalen Anhangs —
+    // deshalb kein "skip if not enough balance"-Vorabcheck, sondern derselbe
+    // "einfach versuchen"-Ansatz wie beim DCA-/Send-Zweig (Contract revertet
+    // von selbst bei unzureichendem Bestand).
+    if (isTriggerPlan(plan)) {
+      let currentPhase: Phase = 'creating-trigger-vault';
+      try {
+        const { heldToken, outputToken, watchToken, amount, triggerAbove, triggerPrice, expiresAt } = plan.setupPlanArgs;
+        const amountRaw = BigInt(amount);
+
+        currentPhase = 'creating-trigger-vault';
+        setPhase('creating-trigger-vault');
+        const createVaultHash = await writeContractAsync({
+          address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'createVault',
+        });
+        const createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
+        const [vaultCreatedEvent] = parseEventLogs({ abi: TRIGGER_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createVaultReceipt.logs });
+        const newVaultAddress = vaultCreatedEvent?.args.vault;
+        if (!newVaultAddress) throw new Error('Vault was created, but its address could not be read from the event.');
+        setVaultAddress(newVaultAddress);
+
+        currentPhase = 'approving-trigger';
+        setPhase('approving-trigger');
+        const approveHash = await writeContractAsync({
+          address: heldToken, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, amountRaw],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+        currentPhase = 'setting-up-trigger-plan';
+        setPhase('setting-up-trigger-plan');
+        const setupPlanHash = await writeContractAsync({
+          address: newVaultAddress,
+          abi: TRIGGER_VAULT_ABI,
+          functionName: 'setupPlan',
+          args: [heldToken, outputToken, watchToken, amountRaw, triggerAbove, BigInt(triggerPrice), BigInt(expiresAt)],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
+
+        setPhase('done');
+      } catch (err) {
+        const label =
+          currentPhase === 'creating-trigger-vault' ? 'Creating the vault' :
+          currentPhase === 'approving-trigger' ? 'Approval' : 'Setting up the plan';
         setError(err instanceof Error ? `${label} failed: ${err.message}` : `${label} failed. Please try again.`);
         setPhase('idle');
       }
@@ -411,6 +489,35 @@ export default function ConfirmPlan() {
             <p className="sell-done__title">Send plan is live</p>
             <p className="sell-done__sub">
               {formatUnits(totalRaw, tokenInfo.decimals)} {tokenInfo.symbol} will now go out to {plan.setupPlanArgs.recipients.length} recipient{plan.setupPlanArgs.recipients.length === 1 ? '' : 's'}, {INTERVAL_LABEL[plan.setupPlanArgs.interval] ?? ''} over {plan.setupPlanArgs.duration} payout{plan.setupPlanArgs.duration === 1 ? '' : 's'}.
+            </p>
+            {vaultAddress && (
+              <a className="sell-done__link" href={`https://celoscan.io/address/${vaultAddress}`} rel="noreferrer">
+                View vault on Celoscan ↗
+              </a>
+            )}
+            <button type="button" className="btn-gold" onClick={() => navigate('/plans')}>
+              View My Plans
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (isTriggerPlan(plan)) {
+      const heldInfo = tokenForAddress(plan.setupPlanArgs.heldToken);
+      const outputInfo = tokenForAddress(plan.setupPlanArgs.outputToken);
+      return (
+        <div className="screen screen--sub">
+          <div className="app-bar">
+            <span className="app-bar__spacer" />
+            <span className="app-bar__title">Confirm Plan</span>
+            <span className="app-bar__spacer" />
+          </div>
+          <div className="sell-done">
+            <div className="sell-done__icon">✓</div>
+            <p className="sell-done__title">Trigger plan is live</p>
+            <p className="sell-done__sub">
+              {formatUnits(BigInt(plan.setupPlanArgs.amount), heldInfo.decimals)} {heldInfo.symbol} will swap into {outputInfo.symbol} once the price is {plan.direction === 'buy' ? 'at or below' : 'at or above'} ${plan.priceUsd.toLocaleString()}.
             </p>
             {vaultAddress && (
               <a className="sell-done__link" href={`https://celoscan.io/address/${vaultAddress}`} rel="noreferrer">
@@ -580,6 +687,57 @@ export default function ConfirmPlan() {
             {phase === 'creating-send-vault' ? 'Confirm vault creation in MiniPay…'
               : phase === 'approving-send' ? 'Confirm approval in MiniPay…'
               : phase === 'setting-up-send-plan' ? 'Confirm plan setup in MiniPay…'
+              : 'Confirm & Sign in MiniPay'}
+          </button>
+        </>
+      )}
+
+      {/* ── Standalone Trigger-Plan-Zweig (buy oder sell) ───────────────── */}
+      {plan && isTriggerPlan(plan) && (
+        <>
+          <div style={{ padding: '0 18px 8px', display: 'flex', justifyContent: 'center' }}>
+            <span style={{
+              fontSize: 11, color: 'var(--text-faint)', background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 999, padding: '5px 12px',
+            }}>
+              Proposed plan · detected: Trigger ({plan.direction})
+            </span>
+          </div>
+
+          <div className="section-label">{plan.direction === 'buy' ? 'Buy' : 'Sell'}</div>
+          <div className="sell-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <TokenIcon token={tokenForAddress(plan.setupPlanArgs.heldToken).symbol as AnyTokenSymbol} size={16} />
+                {formatUnits(BigInt(plan.setupPlanArgs.amount), tokenForAddress(plan.setupPlanArgs.heldToken).decimals)} {tokenForAddress(plan.setupPlanArgs.heldToken).symbol}
+                <span style={{ color: 'var(--text-faint)' }}>→</span>
+                <TokenIcon token={tokenForAddress(plan.setupPlanArgs.outputToken).symbol as AnyTokenSymbol} size={16} />
+                {tokenForAddress(plan.setupPlanArgs.outputToken).symbol}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--success)' }}>
+                {plan.direction === 'buy' ? 'at or below' : 'at or above'} ${plan.priceUsd.toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <p className="sell-sub">
+            {plan.setupPlanArgs.expiresAt === 0
+              ? 'No expiry — stays open until executed or cancelled.'
+              : `Expires ${new Date(plan.setupPlanArgs.expiresAt * 1000).toLocaleString()}.`}
+          </p>
+
+          <p className="fee-note">
+            <b>Fee:</b> 0.99%, min. $0.035 — charged by the OSIRIS contract itself, only when the plan actually executes.
+          </p>
+          <p className="fee-note">
+            APIS never holds your funds. You sign every step yourself in MiniPay.
+          </p>
+
+          {error && <p className="createcode-error">{error}</p>}
+
+          <button type="button" className="btn-gold" onClick={handleConfirm} disabled={busy || !address}>
+            {phase === 'creating-trigger-vault' ? 'Confirm vault creation in MiniPay…'
+              : phase === 'approving-trigger' ? 'Confirm approval in MiniPay…'
+              : phase === 'setting-up-trigger-plan' ? 'Confirm plan setup in MiniPay…'
               : 'Confirm & Sign in MiniPay'}
           </button>
         </>

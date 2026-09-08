@@ -10,8 +10,8 @@
 import { verifyGrant, GrantError } from './grant';
 import { buildCapabilities } from './capabilities';
 import {
-  compilePlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
-  type PlanDraft, type SellTriggerDraft, type SendPlanDraft, type DirectSendDraft,
+  compilePlan, compileTriggerPlan, compileSendPlan, compileDirectSend, encodePlanCode, ADDRESS_RE,
+  type PlanDraft, type SellTriggerDraft, type TriggerPlanDraft, type SendPlanDraft, type DirectSendDraft,
 } from './planCompiler';
 import { getPlansForOwner } from './plans';
 import { getBalancesForOwner } from './balances';
@@ -66,7 +66,7 @@ function validateProposeShape(draft: Record<string, unknown>, sellTrigger: unkno
 
 const REST_PATHS = new Set([
   '/openapi.json', '/capabilities', '/token-prices', '/balances', '/plans', '/propose',
-  '/propose-send', '/direct-send',
+  '/propose-trigger', '/propose-send', '/direct-send',
   '/address-book', '/address-book/propose', '/address-book/save', '/address-book/remove',
   '/address-book/for-owner',
 ]);
@@ -169,6 +169,32 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
 
     const planDraft: PlanDraft = { owner: grant.owner, ...draftFields } as unknown as PlanDraft;
     const result = compilePlan(planDraft, sellTrigger as SellTriggerDraft | undefined);
+    if (!result.valid) return json({ valid: false, errors: result.errors }, 400);
+    return json(result);
+  }
+
+  if (url.pathname === '/propose-trigger') {
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    const body = await readJsonBody(request);
+    if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
+
+    try {
+      await verifyGrant(body.grantCode, 'propose');
+    } catch (err) {
+      return json({ error: grantErrorMessage(err) }, 400);
+    }
+
+    const { grantCode: _grantCode, ...draftFields } = body;
+    if (draftFields.direction !== 'buy' && draftFields.direction !== 'sell') {
+      return json({ error: "'direction' must be 'buy' or 'sell'." }, 400);
+    }
+    if (typeof draftFields.cryptoToken !== 'string')     return json({ error: "'cryptoToken' (string) is required." }, 400);
+    if (typeof draftFields.stablecoin !== 'string')      return json({ error: "'stablecoin' (string) is required." }, 400);
+    if (typeof draftFields.amount !== 'string')          return json({ error: "'amount' (string) is required." }, 400);
+    if (typeof draftFields.triggerPriceUsd !== 'number') return json({ error: "'triggerPriceUsd' (number) is required." }, 400);
+
+    const triggerDraft = draftFields as unknown as TriggerPlanDraft;
+    const result = compileTriggerPlan(triggerDraft);
     if (!result.valid) return json({ valid: false, errors: result.errors }, 400);
     return json(result);
   }
