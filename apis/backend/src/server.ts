@@ -32,8 +32,28 @@ export interface ServerEnv {
 export function buildServer(env: ServerEnv): McpServer {
   const server = new McpServer({ name: 'apis', version: '0.1.0' });
 
+  // Namen jedes unten registrierten Tools, gesammelt während buildServer()
+  // läuft (Closure — bei tatsächlicher Anfragebearbeitung ist buildServer()
+  // längst durchgelaufen, das Array also vollständig). Grund: MCP-Clients
+  // (Claude Code, claude.ai/Mobile-Connectors) cachen die Tool-LISTE selbst
+  // pro Session bzw. beim Connector-Setup — ein frisch hinzugekommenes Tool
+  // wie propose_trigger_plan kann für einen längst verbundenen Client
+  // unsichtbar bleiben, obwohl der Server es längst anbietet (real
+  // beobachtet: zwei verschiedene Claude-Sessions sahen propose_trigger_plan
+  // nicht, obwohl es live deployed war). get_capabilities' TOOL-AUFRUF selbst
+  // ist davon nicht betroffen — der läuft immer live gegen den aktuellen
+  // Worker —, daher hier die tatsächlich registrierten Namen mit ausliefern:
+  // eine bereits verbundene KI kann sie gegen ihre eigene, ggf. veraltete
+  // Tool-Liste diffen und den Nutzer gezielt zum Connector-Reconnect
+  // schicken, statt fälschlich zu behaupten, ein beschriebenes Feature
+  // existiere nicht. Kein Ersatz für einen echten `notifications/tools/
+  // list_changed`-Push (den dieser zustandslose Worker mangels gehaltener
+  // Verbindung ohnehin nicht senden könnte) — nur eine Selbstdiagnose-Hilfe.
+  const toolNames: string[] = [];
+
   // ── get_capabilities ──────────────────────────────────────────────────
   // Öffentlich, kein Grant nötig — beschreibt nur, was APIS/OSIRIS können.
+  toolNames.push('get_capabilities');
   server.registerTool(
     'get_capabilities',
     {
@@ -44,12 +64,25 @@ export function buildServer(env: ServerEnv): McpServer {
       inputSchema: {},
     },
     async () => ({
-      content: [{ type: 'text', text: JSON.stringify(buildCapabilities(), null, 2) }],
+      content: [{ type: 'text', text: JSON.stringify({
+        ...buildCapabilities(),
+        mcpTools: {
+          registered: toolNames,
+          note:
+            "The exact MCP tool names this server currently exposes, live (this list is never stale — unlike " +
+            "an MCP client's own tool list, which can be cached from before a tool existed). If a capability " +
+            'described above (e.g. triggerPlan) has no matching name in this list you can actually call, or a ' +
+            "name here is missing from your own available tools, your connection to this server cached an older " +
+            'tool list — the fix is to disconnect and reconnect the APIS MCP server/connector, not to conclude ' +
+            'the feature does not exist.',
+        },
+      }, null, 2) }],
     }),
   );
 
   // ── get_token_prices ──────────────────────────────────────────────────
   // Öffentlich, kein Grant nötig — reine Marktdaten, nichts Wallet-Spezifisches.
+  toolNames.push('get_token_prices');
   server.registerTool(
     'get_token_prices',
     {
@@ -71,6 +104,7 @@ export function buildServer(env: ServerEnv): McpServer {
   );
 
   // ── get_balances ───────────────────────────────────────────────────────
+  toolNames.push('get_balances');
   server.registerTool(
     'get_balances',
     {
@@ -94,6 +128,7 @@ export function buildServer(env: ServerEnv): McpServer {
   );
 
   // ── get_plans ──────────────────────────────────────────────────────────
+  toolNames.push('get_plans');
   server.registerTool(
     'get_plans',
     {
@@ -129,6 +164,7 @@ export function buildServer(env: ServerEnv): McpServer {
   // nicht beobachteten Seite eines Sell-Triggers (StablecoinRequired() sonst).
   const sellTriggerTargetEnum = z.enum(['USDC', 'USDT']);
 
+  toolNames.push('propose_plan');
   server.registerTool(
     'propose_plan',
     {
@@ -191,6 +227,7 @@ export function buildServer(env: ServerEnv): McpServer {
   // TriggerVault on its own, for either direction. Same stablecoin enum/
   // allowlist as sellTrigger above (see planCompiler.ts's
   // SELL_TRIGGER_STABLECOINS comment).
+  toolNames.push('propose_trigger_plan');
   server.registerTool(
     'propose_trigger_plan',
     {
@@ -237,6 +274,7 @@ export function buildServer(env: ServerEnv): McpServer {
   );
 
   // ── propose_send_plan ─────────────────────────────────────────────────
+  toolNames.push('propose_send_plan');
   server.registerTool(
     'propose_send_plan',
     {
@@ -280,6 +318,7 @@ export function buildServer(env: ServerEnv): McpServer {
   );
 
   // ── propose_direct_send ───────────────────────────────────────────────
+  toolNames.push('propose_direct_send');
   server.registerTool(
     'propose_direct_send',
     {
@@ -315,6 +354,7 @@ export function buildServer(env: ServerEnv): McpServer {
   );
 
   // ── get_address_book ──────────────────────────────────────────────────
+  toolNames.push('get_address_book');
   server.registerTool(
     'get_address_book',
     {
@@ -346,6 +386,7 @@ export function buildServer(env: ServerEnv): McpServer {
   // signiert, landet der Eintrag im Adressbuch (siehe contactSignature.ts).
   // Der Chat kann also vorschlagen, aber nie schreiben — gleiches Prinzip
   // wie Sterntalers addressBook.ts, nur auf ein server-seitiges KV übertragen.
+  toolNames.push('propose_address_book_entry');
   server.registerTool(
     'propose_address_book_entry',
     {
