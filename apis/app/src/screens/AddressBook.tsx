@@ -53,9 +53,17 @@ function randomNonce(): bigint {
   return bytes.reduce((acc, byte) => (acc << 8n) | BigInt(byte), 0n);
 }
 
+// Spiegelbild von encodePlanCode() (apis/backend/src/planCompiler.ts, auch
+// für contactCode verwendet) — JSON wird dort als UTF-8-Bytes durch btoa
+// gejagt, damit ein Name mit Nicht-Latin1-Zeichen (z.B. "José") kein
+// InvalidCharacterError auslöst (rohes btoa(JSON) akzeptiert nur Code-Punkte
+// 0-255). Muss hier exakt umgekehrt werden: atob → Bytes → UTF-8 decode,
+// nicht direkt JSON.parse(atob(...)).
 function decodeContactCode(code: string): { name: string; address: string } {
   const normalized = code.trim().replace(/-/g, '+').replace(/_/g, '/');
-  const parsed = JSON.parse(atob(normalized));
+  const binary = atob(normalized);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const parsed = JSON.parse(new TextDecoder().decode(bytes));
   if (!parsed?.valid || typeof parsed.name !== 'string' || typeof parsed.address !== 'string') {
     // Missing `valid` but the name/address fields are otherwise present —
     // most likely an AI assistant reconstructed the code by hand instead of

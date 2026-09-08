@@ -15,11 +15,28 @@ import { INPUT_TOKENS, TARGET_TOKENS } from '../../../src/config';
 // das innere setupPlanArgs/transferArgs-Objekt statt der vollen Hülle
 // (inkl. valid/summary) kodiert hat, was ConfirmPlan.tsx's decodePlanCode()
 // dann mit "Could not read this code" ablehnt (siehe Chat: realer Bugreport
-// mit Screenshot). Gleicher Algorithmus wie CreateCode.tsx für Grant-Codes:
-// btoa(JSON) → URL-sicher gemacht (+/  → -_, Padding entfernt). Die KI muss
-// dieses Feld nur noch unverändert an den Nutzer weiterreichen.
+// mit Screenshot). Ähnlicher Algorithmus wie CreateCode.tsx für Grant-Codes
+// (base64url: +/ → -_, Padding entfernt) — ABER bewusst NICHT rohes
+// btoa(JSON.stringify(...)) wie dort: btoa() akzeptiert nur Code-Punkte
+// 0-255 (Latin1) und wirft sonst InvalidCharacterError. Ein `summary`-Text
+// mit einem Halbgeviertstrich "—" (U+2014, z.B. jeder Trigger-Plan mit
+// gesetztem timeLimit statt 'none' — "… — expires …") überschreitet das
+// bereits, ebenso ein Adressbuch-Name mit einem Akzent wie "José". Gefunden
+// beim ersten echten Testlauf von compileTriggerPlan() mit timeLimit='1w'
+// (reproduzierbar: btoa() wirft dort hart, kein sauberer Fehler). Grant-
+// Codes selbst sind unbetroffen (owner/agent/scope dort sind feste ASCII-
+// Konstanten, siehe CreateCode.tsx) — dieser Fix bleibt bewusst auf
+// encodePlanCode/decodePlanCode beschränkt. Fix: JSON zuerst als UTF-8-Bytes
+// kodieren, dann DIESE (immer 0-255) durch btoa jagen — Standard-Workaround
+// für "unicode-sicheres btoa". decodePlanCode() in ConfirmPlan.tsx muss
+// exakt spiegelbildlich dekodieren (atob → Bytes → UTF-8 decode), sonst
+// bricht das Pärchen. Für reines ASCII (der bisher einzige tatsächlich
+// ausgelieferte Fall) ist das Ergebnis byteidentisch zum alten Verfahren.
 export function encodePlanCode(payload: unknown): string {
-  return btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 const MAX_TARGETS = 10;

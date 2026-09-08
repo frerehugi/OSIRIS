@@ -152,9 +152,17 @@ function looksLikeFlattenedPayload(parsed: unknown): boolean {
   return looksLikeTransferArgs || looksLikeDcaSetupArgs || looksLikeSendSetupArgs;
 }
 
+// Spiegelbild von encodePlanCode() (apis/backend/src/planCompiler.ts) — JSON
+// wurde dort als UTF-8-Bytes durch btoa gejagt (unicode-sicherer Workaround,
+// rohes btoa(JSON) wirft InvalidCharacterError sobald ein `summary`-Text
+// z.B. einen Halbgeviertstrich "—" enthält, wie bei jedem Trigger-Plan mit
+// gesetztem timeLimit). Muss hier exakt umgekehrt werden: atob → Bytes →
+// UTF-8 decode, nicht direkt JSON.parse(atob(...)) wie zuvor.
 function decodePlanCode(code: string): ProposedPlan {
   const normalized = code.trim().replace(/-/g, '+').replace(/_/g, '/');
-  const json = atob(normalized);
+  const binary = atob(normalized);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const json = new TextDecoder().decode(bytes);
   const parsed = JSON.parse(json);
   if (!parsed?.setupPlanArgs && !parsed?.transferArgs) {
     if (looksLikeFlattenedPayload(parsed)) {
