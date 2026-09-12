@@ -36,8 +36,17 @@ import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from "../src/sendVaultAbi";
 import {
   VAULT_ADDRESS, ACTIVE_CHAIN_ID, CELO_CHAIN_ID, INPUT_TOKENS, TARGET_TOKENS,
   ALL_TRIGGER_VAULT_FACTORY_ADDRESSES, SEND_VAULT_FACTORY_ADDRESS,
+  ATTRIBUTION_TAG,
 } from "../src/config";
 import { getSquidRoute } from "./squidClient";
+import { toDataSuffix } from "@celo/attribution-tags";
+
+// Celo-Builders-Attribution, gleiche Konstante wie in ConfirmPlan.tsx — siehe
+// ATTRIBUTION_TAG in src/config.ts für den Hintergrund. dataSuffix ist ein
+// reiner Client-seitiger Calldata-Anhang und muss NICHT an simulateContract()
+// übergeben werden (die Simulation prüft nur den eigentlichen Funktionsaufruf) —
+// nur an writeContract()/sendTransaction() selbst.
+const DATA_SUFFIX = toDataSuffix(ATTRIBUTION_TAG);
 
 // Celo Sepolia ist in viem/chains (Stand 2.21) nicht enthalten — eigene Definition,
 // passend zu den RPC-Endpoints aus foundry.toml.
@@ -406,7 +415,7 @@ async function executeVaultStep(ctx: KeeperContext, vaultAddress: `0x${string}`)
     args:         [routers, minAmountsOut, callData],
   });
 
-  const hash = await ctx.walletClient.writeContract(request);
+  const hash = await ctx.walletClient.writeContract({ ...request, dataSuffix: DATA_SUFFIX });
   const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
 
   const newStep = await ctx.publicClient.readContract({
@@ -500,7 +509,7 @@ async function executeTriggerVaultStep(ctx: KeeperContext, vault: TriggerVaultSt
     args:         [route.transactionRequest.target, minAmountOut, route.transactionRequest.data],
   });
 
-  const hash = await ctx.walletClient.writeContract(request);
+  const hash = await ctx.walletClient.writeContract({ ...request, dataSuffix: DATA_SUFFIX });
   const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
 
   console.info(`Keeper: Trigger-Vault ${vault.address} ausgeführt. Tx: ${hash}`);
@@ -619,6 +628,7 @@ async function refuelFromToken(ctx: KeeperContext, token: { symbol: string; addr
     abi:          ERC20_ABI,
     functionName: "approve",
     args:         [route.transactionRequest.target, swapAmount],
+    dataSuffix:   DATA_SUFFIX,
   });
   await ctx.publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -626,6 +636,7 @@ async function refuelFromToken(ctx: KeeperContext, token: { symbol: string; addr
     account: ctx.account,
     to:   route.transactionRequest.target,
     data: route.transactionRequest.data,
+    dataSuffix: DATA_SUFFIX,
   });
   await ctx.publicClient.waitForTransactionReceipt({ hash: swapHash });
 
@@ -752,7 +763,7 @@ async function executeSendVaultStep(ctx: KeeperContext, vaultAddress: `0x${strin
     args:         [],
   });
 
-  const hash = await ctx.walletClient.writeContract(request);
+  const hash = await ctx.walletClient.writeContract({ ...request, dataSuffix: DATA_SUFFIX });
   const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash });
 
   const newStep = await ctx.publicClient.readContract({

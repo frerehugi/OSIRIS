@@ -2,15 +2,22 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConnection, usePublicClient, useWriteContract } from 'wagmi';
 import { formatUnits, parseEventLogs } from 'viem';
+import { toDataSuffix } from '@celo/attribution-tags';
 import {
   ERC20_ABI, DCA_VAULT_ABI, DCA_VAULT_FACTORY_ABI, FACTORY_ADDRESS,
   TARGET_TOKENS, INPUT_TOKENS, TRIGGER_VAULT_FACTORY_ADDRESS, SEND_VAULT_FACTORY_ADDRESS,
+  ATTRIBUTION_TAG,
   type TokenInfo,
 } from '../config';
 import { TRIGGER_VAULT_ABI, TRIGGER_VAULT_FACTORY_ABI } from '../triggerVaultAbi';
 import { SEND_VAULT_ABI, SEND_VAULT_FACTORY_ABI } from '../sendVaultAbi';
 import type { AnyTokenSymbol } from '../tokenVisuals';
 import TokenIcon from '../components/TokenIcon';
+
+// Celo-Builders-Attribution: eine Zeile, wiederverwendet an jedem
+// writeContractAsync-Call unten. Siehe ATTRIBUTION_TAG in src/config.ts für
+// den Hintergrund (Hackathon-Registrierung, warum das hier rein muss).
+const DATA_SUFFIX = toDataSuffix(ATTRIBUTION_TAG);
 
 /// Confirm Plan — nimmt den Code entgegen, den propose_plan/propose_send_plan/
 /// propose_direct_send (apis/backend) im Chat ausgeben, und führt ihn aus.
@@ -233,6 +240,7 @@ export default function ConfirmPlan() {
           abi: ERC20_ABI,
           functionName: 'transfer',
           args: [plan.transferArgs.to, BigInt(plan.transferArgs.amount)],
+          dataSuffix: DATA_SUFFIX,
         });
         await publicClient.waitForTransactionReceipt({ hash });
         setPhase('done');
@@ -257,6 +265,7 @@ export default function ConfirmPlan() {
           address: SEND_VAULT_FACTORY_ADDRESS,
           abi: SEND_VAULT_FACTORY_ABI,
           functionName: 'createVault',
+          dataSuffix: DATA_SUFFIX,
         });
         const createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
         const [vaultCreatedEvent] = parseEventLogs({ abi: SEND_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createVaultReceipt.logs });
@@ -268,6 +277,7 @@ export default function ConfirmPlan() {
         setPhase('approving-send');
         const approveHash = await writeContractAsync({
           address: token, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, totalAmountRaw],
+          dataSuffix: DATA_SUFFIX,
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -284,6 +294,7 @@ export default function ConfirmPlan() {
             BigInt(interval),
             BigInt(submitFirstExecutionTimestamp),
           ],
+          dataSuffix: DATA_SUFFIX,
         });
         await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
 
@@ -315,6 +326,7 @@ export default function ConfirmPlan() {
         setPhase('creating-trigger-vault');
         const createVaultHash = await writeContractAsync({
           address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'createVault',
+          dataSuffix: DATA_SUFFIX,
         });
         const createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
         const [vaultCreatedEvent] = parseEventLogs({ abi: TRIGGER_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createVaultReceipt.logs });
@@ -326,6 +338,7 @@ export default function ConfirmPlan() {
         setPhase('approving-trigger');
         const approveHash = await writeContractAsync({
           address: heldToken, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, amountRaw],
+          dataSuffix: DATA_SUFFIX,
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -336,6 +349,7 @@ export default function ConfirmPlan() {
           abi: TRIGGER_VAULT_ABI,
           functionName: 'setupPlan',
           args: [heldToken, outputToken, watchToken, amountRaw, triggerAbove, BigInt(triggerPrice), BigInt(expiresAt)],
+          dataSuffix: DATA_SUFFIX,
         });
         await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
 
@@ -379,6 +393,7 @@ export default function ConfirmPlan() {
         address: FACTORY_ADDRESS,
         abi: DCA_VAULT_FACTORY_ABI,
         functionName: 'createVault',
+        dataSuffix: DATA_SUFFIX,
       });
       const createVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
       const [vaultCreatedEvent] = parseEventLogs({ abi: DCA_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createVaultReceipt.logs });
@@ -390,6 +405,7 @@ export default function ConfirmPlan() {
       setPhase('approving-buy');
       const approveHash = await writeContractAsync({
         address: inputToken, abi: ERC20_ABI, functionName: 'approve', args: [newVaultAddress, totalAmountRaw],
+        dataSuffix: DATA_SUFFIX,
       });
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -400,6 +416,7 @@ export default function ConfirmPlan() {
         abi: DCA_VAULT_ABI,
         functionName: 'setupPlan',
         args: [inputToken, totalAmountRaw, duration, BigInt(interval), BigInt(submitFirstExecutionTimestamp), targetTokens, targetBps],
+        dataSuffix: DATA_SUFFIX,
       });
       await publicClient.waitForTransactionReceipt({ hash: setupPlanHash });
 
@@ -418,6 +435,7 @@ export default function ConfirmPlan() {
           setPhase('creating-sell-vault');
           const createSellVaultHash = await writeContractAsync({
             address: TRIGGER_VAULT_FACTORY_ADDRESS, abi: TRIGGER_VAULT_FACTORY_ABI, functionName: 'createVault',
+            dataSuffix: DATA_SUFFIX,
           });
           const createSellVaultReceipt = await publicClient.waitForTransactionReceipt({ hash: createSellVaultHash });
           const [sellVaultCreatedEvent] = parseEventLogs({ abi: TRIGGER_VAULT_FACTORY_ABI, eventName: 'VaultCreated', logs: createSellVaultReceipt.logs });
@@ -428,6 +446,7 @@ export default function ConfirmPlan() {
           setPhase('approving-sell');
           const sellApproveHash = await writeContractAsync({
             address: heldToken, abi: ERC20_ABI, functionName: 'approve', args: [newSellVaultAddress, sellAmountRaw],
+            dataSuffix: DATA_SUFFIX,
           });
           await publicClient.waitForTransactionReceipt({ hash: sellApproveHash });
 
@@ -438,6 +457,7 @@ export default function ConfirmPlan() {
             abi: TRIGGER_VAULT_ABI,
             functionName: 'setupPlan',
             args: [heldToken, outputToken, watchToken, sellAmountRaw, triggerAbove, BigInt(triggerPrice), BigInt(expiresAt)],
+            dataSuffix: DATA_SUFFIX,
           });
           await publicClient.waitForTransactionReceipt({ hash: setupSellPlanHash });
 

@@ -15,6 +15,19 @@ export const ACTIVE_CHAIN_ID: string = CELO_CHAIN_ID; // Mainnet-Deploy in Vorbe
 // separate Sepolia-Adresse.
 export const SQUID_ROUTER_MAINNET = "0xce16F69375520ab01377ce7B88f5BA8C48F8D666" as `0x${string}`;
 
+// ─── Celo Builders Attribution Tag ────────────────────────────────────────────
+// "Agents at Work"-Hackathon (Celo, 28.08.–21.09.2026), Projekt APIS
+// (github.com/frerehugi/OSIRIS), registriert 30.08.2026. Der Tag wird beim
+// ERSTEN Speichern der Submission serverseitig unveränderlich aus dem
+// GitHub-owner/repo-Slug abgeleitet (siehe celobuilders.xyz/skill.md) — NICHT
+// hier ändern, ohne vorher mit GET https://celobuilders.xyz/submissions/me zu
+// prüfen, ob sich der registrierte Tag geändert hat. Muss in JEDER On-Chain-
+// Transaktion stecken, die fürs Leaderboard zählen soll (Tracks: Real World
+// Adoption + Value Moved) — Tagging ist NICHT rückwirkend möglich, nur ab dem
+// Zeitpunkt des Einbaus. Verwendung: toDataSuffix(ATTRIBUTION_TAG) aus
+// '@celo/attribution-tags', als dataSuffix an jeden writeContract-Call.
+export const ATTRIBUTION_TAG = "celo_6b8b070e35df";
+
 // ─── Contract ─────────────────────────────────────────────────────────────────
 //
 // VAULT_ADDRESS: der ERSTE, vor der Factory direkt deployte Vault (läuft
