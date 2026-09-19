@@ -336,7 +336,7 @@ export function buildServer(env: ServerEnv): McpServer {
         'copy `planCode` exactly as given.',
       inputSchema: {
         grantCode: z.string().describe('The code the user generated in APIS.'),
-        token:     z.enum(SEND_TOKEN_SYMBOLS),
+        token:     z.enum(SEND_TOKEN_SYMBOLS).describe('The token to send — the user must already hold it.'),
         to:        z.string().describe('A raw 0x wallet address. NEVER a name — resolve names via get_address_book first, or ask the user for the address.'),
         amount:    z.string().describe('Human-readable amount, e.g. "5.00".'),
       },
@@ -403,7 +403,7 @@ export function buildServer(env: ServerEnv): McpServer {
         'yourself from the other fields — copy `contactCode` exactly as given.',
       inputSchema: {
         grantCode: z.string().describe('The code the user generated in APIS.'),
-        name:      z.string().min(1).max(60),
+        name:      z.string().min(1).max(60).describe('A short, human-readable label for this contact.'),
         address:   z.string().describe('A raw 0x wallet address. NEVER guess this or infer it from a name — only use an address the user gave you directly.'),
       },
     },
