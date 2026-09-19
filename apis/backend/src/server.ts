@@ -183,11 +183,14 @@ export function buildServer(env: ServerEnv): McpServer {
         'messages back so the user knows what to change.',
       inputSchema: {
         grantCode:   z.string().describe('The code the user generated in APIS.'),
-        inputToken:  z.enum(['USDC', 'USDT']),
+        inputToken:  z.enum(['USDC', 'USDT']).describe('The stablecoin spent on each tranche.'),
         totalAmount: z.string().describe('Human-readable amount, e.g. "50.00".'),
-        interval:    z.enum(['hourly', 'daily', 'weekly']),
+        interval:    z.enum(['hourly', 'daily', 'weekly']).describe('How often a tranche executes.'),
         duration:    z.number().int().positive().describe('Number of tranches.'),
-        targets:     z.array(z.object({ token: targetTokenEnum, bps: z.number().int().min(1).max(10_000) })),
+        targets:     z.array(z.object({
+          token: targetTokenEnum.describe('The target token this share of each tranche buys.'),
+          bps:   z.number().int().min(1).max(10_000).describe('This target\'s share of each tranche, in basis points (10000 = 100%); all targets must sum to exactly 10000.'),
+        })).describe('What each tranche buys and in what proportions — 1 to 10 targets, allocations must sum to 100%.'),
         sellTrigger: z.object({
           sellToken:       targetTokenEnum.describe('The token to lock into the sell vault now.'),
           targetToken:     sellTriggerTargetEnum.describe('What to sell it for once the trigger fires — must be a stablecoin the contract allows, the crypto leg is always sellToken.'),
@@ -294,8 +297,8 @@ export function buildServer(env: ServerEnv): McpServer {
         recipients: z.array(z.object({
           address:     z.string().describe('A raw 0x wallet address. NEVER a name — resolve names via get_address_book first, or ask the user for the address.'),
           totalAmount: z.string().describe('Human-readable amount this recipient receives IN TOTAL over the whole plan, e.g. "50.00".'),
-        })).min(1).max(10),
-        interval: z.enum(['hourly', 'daily', 'weekly']),
+        })).min(1).max(10).describe('1 to 10 recipients, each with their own total amount paid out over the plan.'),
+        interval: z.enum(['hourly', 'daily', 'weekly']).describe('How often a payout executes.'),
         duration: z.number().int().positive().describe('Number of payouts each recipient\'s total is split evenly across.'),
       },
     },
