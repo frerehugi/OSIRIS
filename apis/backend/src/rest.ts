@@ -28,10 +28,10 @@ const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-function json(body: unknown, status = 200): Response {
+function json(body: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS, ...extraHeaders },
   });
 }
 
@@ -76,25 +76,33 @@ const REST_PATHS = new Set([
 export async function handleRest(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
 
-  // "/" ist der eigentliche MCP-Endpoint (siehe APIS_BACKEND_URL) -- ein
-  // echter MCP-Client spricht ihn per POST an, oder per GET MIT
-  // "text/event-stream" im Accept-Header (Server-initiierter Stream, Teil
-  // des Streamable-HTTP-Handshakes). So einen Request NIEMALS abfangen,
-  // sonst bricht das echte Protokoll. Nur ein reiner GET ohne diesen Header
-  // (Browser/curl/Crawler-Default, würde am MCP-Transport spec-konform mit
-  // 406 scheitern -- führte zu einem "unreachable" in einem externen
-  // AskBots-Review) bekommt hier eine kurze, hilfreiche Antwort statt eines
-  // nackten 406 ohne jeden Hinweis.
-  if (url.pathname === '/' && request.method === 'GET' && !(request.headers.get('accept') ?? '').includes('text/event-stream')) {
+  // "/" ist der eigentliche MCP-Endpoint (siehe APIS_BACKEND_URL). "/mcp"
+  // ist ein reiner Alias auf denselben Endpoint (gleicher Transport, gleiches
+  // Protokoll) -- viele MCP-Clients/-Frameworks nehmen "/mcp" als Konvention
+  // an, ohne das irgendwo nachzulesen (siehe Round-4/5-AskBots-Review: ein
+  // Reviewer hat wiederholt genau diesen Pfad geraten). "/sse" wird bewusst
+  // NICHT aliasiert -- das wäre ein anderes Protokoll (das alte SSE-Transport,
+  // das dieser Server nie gesprochen hat), ein Alias würde also einen
+  // ECHTEN Fehlschlag nur an einer anderen Stelle erzeugen, keinen lösen.
+  // Ein echter MCP-Client spricht einen dieser beiden Pfade per POST an,
+  // oder per GET MIT "text/event-stream" im Accept-Header (Server-
+  // initiierter Stream, Teil des Streamable-HTTP-Handshakes). So einen
+  // Request NIEMALS abfangen, sonst bricht das echte Protokoll. Nur ein
+  // reiner GET ohne diesen Header (Browser/curl/Crawler-Default, würde am
+  // MCP-Transport spec-konform mit 406 scheitern -- führte zu einem
+  // "unreachable" in einem externen AskBots-Review) bekommt hier eine
+  // kurze, hilfreiche Antwort statt eines nackten 406 ohne jeden Hinweis.
+  const isMcpPath = url.pathname === '/' || url.pathname === '/mcp';
+  if (isMcpPath && request.method === 'GET' && !(request.headers.get('accept') ?? '').includes('text/event-stream')) {
     return json({
       name: 'apis-backend',
       description: 'OSIRIS/APIS MCP server + REST API for AI assistants. Not a browsable web page.',
-      mcp: 'This same URL also speaks MCP (Streamable HTTP) for MCP-capable clients (e.g. Claude).',
+      mcp: "This same URL ('/', also aliased at '/mcp') speaks MCP (Streamable HTTP) for MCP-capable clients (e.g. Claude).",
       rest: { openapi: '/openapi.json', capabilities: '/capabilities' },
     });
   }
 
-  // Jeder andere, nicht-registrierte Pfad landete bisher UNGEPRÜFT beim
+  // Jeder andere, nicht-registrierte Pfad landete früher UNGEPRÜFT beim
   // MCP-Transport (return null fiel für buchstäblich jede URL durch außer
   // den oben gelisteten REST_PATHS) — der kümmert sich nicht um den Pfad,
   // nur um Methode/Accept-Header, und antwortet auf einen bloßen GET ohne
@@ -102,46 +110,45 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   // wie oben für "/" beschrieben. Ein externes AskBots-Review hat genau das
   // reproduziert: geratene, nie dokumentierte Pfade wie /health, /mcp, /tools
   // gaben 406 statt eines ehrlichen 404, was wie ein kaputtes Discovery
-  // wirkte, obwohl der EINZIGE echte MCP-Endpoint immer nur "/" war/ist
-  // (siehe APIS_BACKEND_URL — nirgends mit Pfad-Suffix referenziert). Root
-  // bleibt einzige Ausnahme (fällt weiterhin durch zum echten Transport,
-  // für POST und für GET mit korrektem Accept-Header); jeder andere
-  // unbekannte Pfad bekommt jetzt einen klaren 404 statt eines
+  // wirkte. /mcp ist inzwischen ein echter, dokumentierter Alias (siehe
+  // oben) und fällt daher hier NICHT mehr in den 404-Zweig; jeder andere
+  // unbekannte Pfad bekommt weiterhin einen klaren 404 statt eines
   // MCP-Protokollfehlers für einen Pfad, an dem gar kein MCP-Endpoint sitzt.
-  if (url.pathname !== '/' && !REST_PATHS.has(url.pathname)) {
+  if (!isMcpPath && !REST_PATHS.has(url.pathname)) {
     return json({
       error: `Not found: '${url.pathname}'.`,
-      hint: "The only endpoints here are '/' (MCP, Streamable HTTP) and the REST routes listed at '/openapi.json' " +
-        "(e.g. '/capabilities', '/token-prices', '/propose'). There is no separate '/mcp' or '/health' path.",
+      hint: "The only endpoints here are '/' (also aliased at '/mcp', MCP Streamable HTTP) and the REST routes " +
+        "listed at '/openapi.json' (e.g. '/capabilities', '/token-prices', '/propose'). There is no '/health' path, " +
+        "and no separate SSE transport at '/sse'.",
     }, 404);
   }
 
-  // Nur noch "/" selbst kann hier ankommen (jeder andere unbekannte Pfad
-  // wurde oben bereits mit 404 beantwortet) -- fällt durch zum echten
+  // Nur noch "/" oder "/mcp" können hier ankommen (jeder andere unbekannte
+  // Pfad wurde oben bereits mit 404 beantwortet) -- fällt durch zum echten
   // MCP-Transport (POST, oder GET mit korrektem Accept-Header).
-  if (url.pathname === '/') return null;
+  if (isMcpPath) return null;
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
   if (url.pathname === '/openapi.json') {
-    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405, { Allow: 'GET' });
     return json(OPENAPI_SPEC);
   }
 
   if (url.pathname === '/capabilities') {
-    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405, { Allow: 'GET' });
     return json(buildCapabilities());
   }
 
   if (url.pathname === '/token-prices') {
-    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+    if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405, { Allow: 'GET' });
     return json(await getSquidTokenPrices());
   }
 
   if (url.pathname === '/balances') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -157,7 +164,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/plans') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -177,7 +184,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/propose') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -199,7 +206,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/propose-trigger') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -225,7 +232,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/propose-send') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -249,7 +256,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/direct-send') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -278,7 +285,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   // Wallet der aufrufenden App-Instanz, nicht aus einer vom Aufrufer frei
   // wählbaren Grant-Adresse.
   if (url.pathname === '/address-book/for-owner') {
-    if (request.method !== 'GET') return json({ error: 'Use GET with an ?owner= query param.' }, 405);
+    if (request.method !== 'GET') return json({ error: 'Use GET with an ?owner= query param.' }, 405, { Allow: 'GET' });
     const owner = url.searchParams.get('owner');
     if (!owner || !/^0x[0-9a-fA-F]{40}$/.test(owner)) {
       return json({ error: "A valid '?owner=0x...' query param is required." }, 400);
@@ -288,7 +295,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/address-book') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -304,7 +311,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/address-book/propose') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body || typeof body.grantCode !== 'string') return json({ error: "'grantCode' (string) is required." }, 400);
 
@@ -329,7 +336,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   // Nachricht (siehe contactSignature.ts), ausschließlich von der APIS-App
   // nach expliziter Nutzerbestätigung aufgerufen.
   if (url.pathname === '/address-book/save') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body) return json({ error: 'JSON body required.' }, 400);
     const { owner, name, address, nonce, signature } = body as Record<string, unknown>;
@@ -359,7 +366,7 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
   }
 
   if (url.pathname === '/address-book/remove') {
-    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405);
+    if (request.method !== 'POST') return json({ error: 'Use POST with a JSON body.' }, 405, { Allow: 'POST' });
     const body = await readJsonBody(request);
     if (!body) return json({ error: 'JSON body required.' }, 400);
     const { owner, address, nonce, signature } = body as Record<string, unknown>;
