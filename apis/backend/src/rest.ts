@@ -94,7 +94,32 @@ export async function handleRest(request: Request, env: Env): Promise<Response |
     });
   }
 
-  if (!REST_PATHS.has(url.pathname)) return null;
+  // Jeder andere, nicht-registrierte Pfad landete bisher UNGEPRÜFT beim
+  // MCP-Transport (return null fiel für buchstäblich jede URL durch außer
+  // den oben gelisteten REST_PATHS) — der kümmert sich nicht um den Pfad,
+  // nur um Methode/Accept-Header, und antwortet auf einen bloßen GET ohne
+  // "text/event-stream" mit demselben spec-konformen, aber kontextlosen 406
+  // wie oben für "/" beschrieben. Ein externes AskBots-Review hat genau das
+  // reproduziert: geratene, nie dokumentierte Pfade wie /health, /mcp, /tools
+  // gaben 406 statt eines ehrlichen 404, was wie ein kaputtes Discovery
+  // wirkte, obwohl der EINZIGE echte MCP-Endpoint immer nur "/" war/ist
+  // (siehe APIS_BACKEND_URL — nirgends mit Pfad-Suffix referenziert). Root
+  // bleibt einzige Ausnahme (fällt weiterhin durch zum echten Transport,
+  // für POST und für GET mit korrektem Accept-Header); jeder andere
+  // unbekannte Pfad bekommt jetzt einen klaren 404 statt eines
+  // MCP-Protokollfehlers für einen Pfad, an dem gar kein MCP-Endpoint sitzt.
+  if (url.pathname !== '/' && !REST_PATHS.has(url.pathname)) {
+    return json({
+      error: `Not found: '${url.pathname}'.`,
+      hint: "The only endpoints here are '/' (MCP, Streamable HTTP) and the REST routes listed at '/openapi.json' " +
+        "(e.g. '/capabilities', '/token-prices', '/propose'). There is no separate '/mcp' or '/health' path.",
+    }, 404);
+  }
+
+  // Nur noch "/" selbst kann hier ankommen (jeder andere unbekannte Pfad
+  // wurde oben bereits mit 404 beantwortet) -- fällt durch zum echten
+  // MCP-Transport (POST, oder GET mit korrektem Accept-Header).
+  if (url.pathname === '/') return null;
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
