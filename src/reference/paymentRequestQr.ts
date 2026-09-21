@@ -6,14 +6,32 @@
 // request on 21.09.2026. See src/reference/README.md and CELO_README.md
 // ("External reference ports") for why this folder exists.
 //
-// DORMANT: not imported by App.tsx, apis/app, or the keeper. To activate a
-// "request a payment" flow with this:
+// DORMANT — and, as of 21.09.2026, with NO IDENTIFIED USE CASE in this repo,
+// Sterntaler, or Clock-it. Corrected after an initial (wrong) claim that this
+// could power a "scan to fund your vault" flow: it can't. DcaVault.sol's
+// setupPlan() (and SendVault/TriggerVault's equivalents) pull the input
+// token via `inputToken.safeTransferFrom(owner, address(this), _totalAmount)`
+// — the vault is funded by the owner's own approve()+setupPlan() call in a
+// single connected-wallet session, not by anyone (owner or otherwise)
+// sending tokens to the vault address afterwards. There is no `topUp()`;
+// funds sent to a vault address outside setupPlan() would sit there
+// unaccounted by the plan. Sterntaler's README describes the identical
+// 3-tx createVault()→approve()→setupPlan() pattern, so the same reasoning
+// rules it out there. Clock-it never moves tokens at all (see its own
+// src/lib/qr.ts — a location-identifier QR, not a payment one).
+//
+// Kept here anyway (code is correct EIP-681 in isolation) in case a future
+// feature actually needs "hand someone a QR so they can send tokens to an
+// address without opening the app" — none of OSIRIS/APIS/Sterntaler/Clock-it
+// have that moment today: money movement is always either pulled in one
+// wallet session (approve+setupPlan) or pushed automatically by a keeper.
+// If you're reading this considering activation, first confirm the feature
+// you're building actually has that moment — it's the one precondition for
+// this module being useful at all. If so:
 //   1. `npm install qrcode.react` (CeloDesk's own choice; any EIP-681-capable
 //      QR renderer works).
-//   2. Render `<QRCodeSVG value={buildEip681PaymentUri(...)} />` wherever the
-//      UI wants to show a scannable payment request (e.g. a merchant-style
-//      "receive" screen — OSIRIS today only has outgoing DCA/Send/Trigger
-//      vault flows, no request-a-deposit UI yet).
+//   2. Render `<QRCodeSVG value={buildEip681PaymentUri(...)} />` wherever
+//      that screen is.
 //
 // What carried over: the URI format itself — EIP-681's
 // `ethereum:<tokenAddress>@<chainId>/transfer?address=<to>&uint256=<atomic>`
