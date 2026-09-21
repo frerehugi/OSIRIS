@@ -9,7 +9,7 @@ which is the version Claude reloads across unrelated chats when told "hold dir d
 CELO readme". The two should stay in sync; if they drift, this file (checked into git,
 reviewable in diffs) is the tiebreaker.
 
-Last updated **07.09.2026**.
+Last updated **21.09.2026**.
 
 ## 1. What this is
 
@@ -291,7 +291,20 @@ sandbox, so nothing here has been independently verified against live docs). Tre
 anything about it as unresearched until pulled fresh via the celopedia skill or a
 session with real network access — don't extrapolate details from this doc.
 
-## 12. Reading & updating this doc
+## 12. External reference ports
+
+`src/reference/` holds implementations lifted from external repos the user asked
+Claude to study, adapted to this project's config/types but **not wired into any
+live screen** — a place to park "we already looked at how X does this" instead of
+re-researching it cold next time. Each file's own header documents provenance, what
+carried over, what didn't (and why), and exactly how to activate it. See
+`src/reference/README.md` for the index.
+
+| File | Ported from | What it is |
+|---|---|---|
+| `paymentRequestQr.ts` | [`Investorquab/CeloDesk`](https://github.com/Investorquab/CeloDesk) (public repo), `frontend/components/CheckoutClient.tsx`'s `paymentQrValue()` | Builds an EIP-681 `ethereum:<token>@<chainId>/transfer?...` payment-request URI for a scannable QR — MiniPay and other EIP-681-aware wallets read it to prefill a token transfer. Reviewed 21.09.2026: CeloDesk itself has no custom MiniPay deeplink scheme (relies on the standard injected `window.ethereum` provider) and no camera-based QR *scanning* (only generates QR codes to display, via `qrcode.react`) — so only the URI-builder logic was worth porting. Its `wallet_switchEthereumChain` chain-switch dance was deliberately **not** ported: `minipayWallet.ts` already documents that MiniPay is Celo-only and doesn't support programmatic chain switching, so that logic would be dead code here. Dormant — no QR-rendering dependency added yet; see the file header for activation steps. |
+
+## 13. Reading & updating this doc
 
 How a cold session gets this back, and how to keep it honest.
 
